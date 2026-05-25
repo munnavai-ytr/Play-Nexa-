@@ -30,3 +30,32 @@ Stage Summary:
 - Mobile-first design with dark futuristic theme
 - 2GB RAM safe: No Framer Motion, no backdrop-filter blur, CSS transitions only
 - Performance optimized: lazy loading, Next/Image, useCallback/useMemo
+
+---
+Task ID: 2
+Agent: Main Agent
+Task: GROVIX Phase 2 — YouTube Movie Ecosystem, Shorts, Search, Platform Upgrade
+
+Work Log:
+- Updated BottomNav tabs: Home/Movies/Shorts/Platforms/Profile (replaced Download+Games)
+- Updated movies.json: 25 entries with new fields (trending, viral, channel, dubbedVersions as objects with videoId)
+- Created shorts.json: 15 entries with real YouTube video IDs
+- Upgraded MovieCard.tsx: 148px width, badge stack (FREE + Hindi Dubbed), bottom gradient overlay, border
+- Upgraded /movies/page.tsx: 6 AI Discovery sections with MovieSection component + "See All →" buttons
+- Upgraded /movies/[id]/page.tsx: dubbed version switching (changes iframe videoId), channel info with official badge
+- Created /shorts/page.tsx: vertical snap scroll, IntersectionObserver for active tracking, only renders ±1 iframes
+  - Right side buttons: Heart (toggle), Share (Web Share API), Bookmark (localStorage), Download (confirm modal)
+  - Top header gradient + bottom gradient overlays
+- Created /search/page.tsx: auto-focus, 300ms debounce, 4 filter rows (genre/language/access/platform)
+  - Client-side filtering, 2-column grid results, popular/recent searches, localStorage for history
+- Upgraded /platforms/page.tsx: Featured YouTube Movies banner (red gradient), confirm modal with platform name
+- Upgraded /platforms/[id]/page.tsx: Color gradient header, 2-column collections grid with "Browse →" links
+- All 13 pages return HTTP 200
+- ESLint passes with 0 errors
+
+Stage Summary:
+- Phase 2 adds Shorts, Search, upgraded Movies/Platforms
+- BottomNav updated to reflect new navigation structure
+- Shorts page performance-optimized: IntersectionObserver + iframe lazy rendering
+- Search page with debounced filtering and 4 filter dimensions
+- All new pages mobile-first, 2GB RAM safe, CSS transitions only

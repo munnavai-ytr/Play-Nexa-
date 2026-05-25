@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Home, Download, Film, Gamepad2, User } from 'lucide-react';
+import { Home, Film, Play, Monitor, User } from 'lucide-react';
 
 interface NavTab {
   href: string;
@@ -12,9 +12,9 @@ interface NavTab {
 
 const tabs: NavTab[] = [
   { href: '/', label: 'Home', icon: Home },
-  { href: '/download', label: 'Download', icon: Download },
   { href: '/movies', label: 'Movies', icon: Film },
-  { href: '/games', label: 'Games', icon: Gamepad2 },
+  { href: '/shorts', label: 'Shorts', icon: Play },
+  { href: '/platforms', label: 'Platforms', icon: Monitor },
   { href: '/profile', label: 'Profile', icon: User },
 ];
 

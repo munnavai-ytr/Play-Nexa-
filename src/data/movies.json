@@ -7,14 +7,20 @@
     "duration": "2h 49m",
     "language": "English",
     "genre": ["Sci-Fi", "Adventure"],
-    "dubbed": false,
-    "dubbedVersions": ["Hindi", "Bangla"],
+    "category": "Hollywood",
+    "dubbed": true,
+    "dubbedVersions": [
+      { "language": "Hindi", "videoId": "3jK5ZpNH7QM" },
+      { "language": "Bangla", "videoId": "dQw4w9WgXcQ" }
+    ],
     "rating": "8.6",
     "source": "Official Upload",
+    "channel": "Warner Bros",
     "free": true,
+    "trending": true,
+    "viral": false,
     "description": "A team of explorers travel through a wormhole in space in an attempt to ensure humanity's survival as Earth becomes uninhabitable.",
-    "platform": "YouTube",
-    "category": "Hollywood"
+    "platform": "YouTube"
   },
   {
     "id": "2",
@@ -24,14 +30,20 @@
     "duration": "2h 28m",
     "language": "English",
     "genre": ["Sci-Fi", "Action"],
+    "category": "Hollywood",
     "dubbed": true,
-    "dubbedVersions": ["Hindi", "Tamil", "Bangla"],
+    "dubbedVersions": [
+      { "language": "Hindi", "videoId": "8CjamPpOuFw" },
+      { "language": "Tamil", "videoId": "dQw4w9WgXcQ" }
+    ],
     "rating": "8.8",
     "source": "Official Upload",
+    "channel": "Warner Bros",
     "free": true,
+    "trending": true,
+    "viral": false,
     "description": "A thief who steals corporate secrets through the use of dream-sharing technology is given the inverse task of planting an idea.",
-    "platform": "YouTube",
-    "category": "Hollywood"
+    "platform": "YouTube"
   },
   {
     "id": "3",
@@ -41,14 +53,19 @@
     "duration": "2h 32m",
     "language": "English",
     "genre": ["Action", "Adventure"],
+    "category": "Hollywood",
     "dubbed": true,
-    "dubbedVersions": ["Hindi", "Bangla"],
+    "dubbedVersions": [
+      { "language": "Hindi", "videoId": "5juVYWlIbRo" }
+    ],
     "rating": "9.0",
     "source": "Official Upload",
+    "channel": "Warner Bros",
     "free": true,
+    "trending": true,
+    "viral": true,
     "description": "When the menace known as the Joker wreaks havoc on Gotham, Batman must accept one of the greatest psychological tests.",
-    "platform": "YouTube",
-    "category": "Hollywood"
+    "platform": "YouTube"
   },
   {
     "id": "4",
@@ -58,14 +75,20 @@
     "duration": "1h 46m",
     "language": "Japanese",
     "genre": ["Anime", "Romance"],
+    "category": "Anime",
     "dubbed": true,
-    "dubbedVersions": ["Hindi", "English"],
+    "dubbedVersions": [
+      { "language": "Hindi", "videoId": "dQw4w9WgXcQ" },
+      { "language": "English", "videoId": "dQw4w9WgXcQ" }
+    ],
     "rating": "8.4",
     "source": "Official Upload",
+    "channel": "Toho Animation",
     "free": true,
+    "trending": true,
+    "viral": false,
     "description": "Two teenagers share a profound, magical connection upon discovering they are swapping bodies.",
-    "platform": "YouTube",
-    "category": "Anime"
+    "platform": "YouTube"
   },
   {
     "id": "5",
@@ -75,14 +98,20 @@
     "duration": "2h 5m",
     "language": "Japanese",
     "genre": ["Anime", "Adventure"],
+    "category": "Anime",
     "dubbed": true,
-    "dubbedVersions": ["Hindi", "English"],
+    "dubbedVersions": [
+      { "language": "Hindi", "videoId": "dQw4w9WgXcQ" },
+      { "language": "English", "videoId": "dQw4w9WgXcQ" }
+    ],
     "rating": "8.6",
     "source": "Official Upload",
+    "channel": "Studio Ghibli",
     "free": true,
+    "trending": false,
+    "viral": false,
     "description": "During her family's move to the suburbs, a sullen 10-year-old girl wanders into a world ruled by gods and witches.",
-    "platform": "YouTube",
-    "category": "Anime"
+    "platform": "YouTube"
   },
   {
     "id": "6",
@@ -92,14 +121,19 @@
     "duration": "2h 41m",
     "language": "Hindi",
     "genre": ["Action", "Drama"],
+    "category": "Bollywood",
     "dubbed": false,
-    "dubbedVersions": ["English", "Tamil"],
+    "dubbedVersions": [
+      { "language": "English", "videoId": "dQw4w9WgXcQ" }
+    ],
     "rating": "8.4",
     "source": "Official Upload",
+    "channel": "UTV Motion Pictures",
     "free": true,
+    "trending": true,
+    "viral": false,
     "description": "Former wrestler Mahavir Singh Phogat trains his daughters Geeta and Babita to become world-class wrestlers.",
-    "platform": "YouTube",
-    "category": "Bollywood"
+    "platform": "YouTube"
   },
   {
     "id": "7",
@@ -109,14 +143,19 @@
     "duration": "2h 50m",
     "language": "Hindi",
     "genre": ["Comedy", "Drama"],
+    "category": "Bollywood",
     "dubbed": false,
-    "dubbedVersions": ["English"],
+    "dubbedVersions": [
+      { "language": "English", "videoId": "dQw4w9WgXcQ" }
+    ],
     "rating": "8.4",
     "source": "Official Upload",
+    "channel": "Vinod Chopra Films",
     "free": true,
+    "trending": false,
+    "viral": false,
     "description": "Two friends are searching for their long lost companion, recounting their days in engineering college.",
-    "platform": "YouTube",
-    "category": "Bollywood"
+    "platform": "YouTube"
   },
   {
     "id": "8",
@@ -126,14 +165,20 @@
     "duration": "2h 12m",
     "language": "Korean",
     "genre": ["Thriller", "Drama"],
+    "category": "Korean",
     "dubbed": true,
-    "dubbedVersions": ["Hindi", "English"],
+    "dubbedVersions": [
+      { "language": "Hindi", "videoId": "dQw4w9WgXcQ" },
+      { "language": "English", "videoId": "dQw4w9WgXcQ" }
+    ],
     "rating": "8.5",
     "source": "Official Upload",
+    "channel": "CJ Entertainment",
     "free": true,
+    "trending": true,
+    "viral": true,
     "description": "Greed and class discrimination threaten the newly formed symbiotic relationship between the wealthy Park family and the destitute Kim clan.",
-    "platform": "YouTube",
-    "category": "Korean"
+    "platform": "YouTube"
   },
   {
     "id": "9",
@@ -143,14 +188,19 @@
     "duration": "2h",
     "language": "Korean",
     "genre": ["Action", "Thriller"],
+    "category": "Korean",
     "dubbed": true,
-    "dubbedVersions": ["Hindi", "English"],
+    "dubbedVersions": [
+      { "language": "Hindi", "videoId": "dQw4w9WgXcQ" }
+    ],
     "rating": "8.4",
     "source": "Official Upload",
+    "channel": "Showbox",
     "free": true,
+    "trending": false,
+    "viral": false,
     "description": "After being kidnapped and imprisoned for fifteen years, Oh Dae-Su is released and sets out to find his captor.",
-    "platform": "YouTube",
-    "category": "Korean"
+    "platform": "YouTube"
   },
   {
     "id": "10",
@@ -160,14 +210,19 @@
     "duration": "2h 44m",
     "language": "English",
     "genre": ["Sci-Fi", "Adventure"],
+    "category": "Sci-Fi",
     "dubbed": true,
-    "dubbedVersions": ["Hindi", "Bangla"],
+    "dubbedVersions": [
+      { "language": "Hindi", "videoId": "dQw4w9WgXcQ" }
+    ],
     "rating": "8.0",
     "source": "Official Upload",
+    "channel": "Warner Bros",
     "free": true,
+    "trending": false,
+    "viral": false,
     "description": "Young Blade Runner K's discovery of a long-buried secret leads him to track down former Blade Runner Rick Deckard.",
-    "platform": "YouTube",
-    "category": "Sci-Fi"
+    "platform": "YouTube"
   },
   {
     "id": "11",
@@ -177,14 +232,20 @@
     "duration": "2h 16m",
     "language": "English",
     "genre": ["Sci-Fi", "Action"],
+    "category": "Sci-Fi",
     "dubbed": true,
-    "dubbedVersions": ["Hindi", "Bangla"],
+    "dubbedVersions": [
+      { "language": "Hindi", "videoId": "dQw4w9WgXcQ" },
+      { "language": "Bangla", "videoId": "dQw4w9WgXcQ" }
+    ],
     "rating": "8.7",
     "source": "Official Upload",
+    "channel": "Warner Bros",
     "free": true,
+    "trending": true,
+    "viral": true,
     "description": "When a beautiful stranger leads computer hacker Neo to a forbidding underworld, he discovers the shocking truth about the Matrix.",
-    "platform": "YouTube",
-    "category": "Sci-Fi"
+    "platform": "YouTube"
   },
   {
     "id": "12",
@@ -194,14 +255,20 @@
     "duration": "2h 1m",
     "language": "Japanese",
     "genre": ["Anime", "Action"],
+    "category": "Anime",
     "dubbed": true,
-    "dubbedVersions": ["Hindi", "English"],
+    "dubbedVersions": [
+      { "language": "Hindi", "videoId": "dQw4w9WgXcQ" },
+      { "language": "English", "videoId": "dQw4w9WgXcQ" }
+    ],
     "rating": "8.2",
     "source": "Official Upload",
+    "channel": "Crunchyroll",
     "free": true,
+    "trending": true,
+    "viral": true,
     "description": "A compilation film covering the first three seasons of the hit anime series Attack on Titan.",
-    "platform": "YouTube",
-    "category": "Anime"
+    "platform": "YouTube"
   },
   {
     "id": "13",
@@ -211,14 +278,19 @@
     "duration": "2h 39m",
     "language": "Hindi",
     "genre": ["Action", "Adventure"],
+    "category": "Bollywood",
     "dubbed": false,
-    "dubbedVersions": ["English", "Tamil"],
+    "dubbedVersions": [
+      { "language": "English", "videoId": "dQw4w9WgXcQ" }
+    ],
     "rating": "8.0",
     "source": "Official Upload",
+    "channel": "Arka Media Works",
     "free": true,
+    "trending": false,
+    "viral": false,
     "description": "In ancient India, an adventurous and daring man becomes involved in a decades-old feud between two warring peoples.",
-    "platform": "YouTube",
-    "category": "Bollywood"
+    "platform": "YouTube"
   },
   {
     "id": "14",
@@ -228,14 +300,20 @@
     "duration": "1h 58m",
     "language": "Korean",
     "genre": ["Horror", "Action"],
+    "category": "Korean",
     "dubbed": true,
-    "dubbedVersions": ["Hindi", "English"],
+    "dubbedVersions": [
+      { "language": "Hindi", "videoId": "dQw4w9WgXcQ" },
+      { "language": "English", "videoId": "dQw4w9WgXcQ" }
+    ],
     "rating": "7.6",
     "source": "Official Upload",
+    "channel": "NEXT Entertainment World",
     "free": true,
+    "trending": false,
+    "viral": true,
     "description": "While a zombie virus breaks out in South Korea, passengers struggle to survive on the train from Seoul to Busan.",
-    "platform": "YouTube",
-    "category": "Korean"
+    "platform": "YouTube"
   },
   {
     "id": "15",
@@ -245,14 +323,19 @@
     "duration": "3h 1m",
     "language": "English",
     "genre": ["Action", "Adventure"],
+    "category": "Hollywood",
     "dubbed": true,
-    "dubbedVersions": ["Hindi", "Bangla"],
+    "dubbedVersions": [
+      { "language": "Hindi", "videoId": "dQw4w9WgXcQ" }
+    ],
     "rating": "8.4",
     "source": "Official Upload",
+    "channel": "Marvel Entertainment",
     "free": true,
+    "trending": true,
+    "viral": false,
     "description": "After the devastating events of Infinity War, the Avengers assemble once more to reverse Thanos' actions.",
-    "platform": "YouTube",
-    "category": "Hollywood"
+    "platform": "YouTube"
   },
   {
     "id": "16",
@@ -262,14 +345,20 @@
     "duration": "1h 52m",
     "language": "Japanese",
     "genre": ["Anime", "Romance"],
+    "category": "Anime",
     "dubbed": true,
-    "dubbedVersions": ["Hindi", "English"],
+    "dubbedVersions": [
+      { "language": "Hindi", "videoId": "dQw4w9WgXcQ" },
+      { "language": "English", "videoId": "dQw4w9WgXcQ" }
+    ],
     "rating": "7.9",
     "source": "Official Upload",
+    "channel": "Toho Animation",
     "free": true,
+    "trending": false,
+    "viral": false,
     "description": "A high-school boy who has run away to Tokyo befriends a girl who appears to be able to manipulate the weather.",
-    "platform": "YouTube",
-    "category": "Anime"
+    "platform": "YouTube"
   },
   {
     "id": "17",
@@ -279,14 +368,19 @@
     "duration": "1h 31m",
     "language": "English",
     "genre": ["Sci-Fi", "Adventure"],
+    "category": "Sci-Fi",
     "dubbed": true,
-    "dubbedVersions": ["Hindi"],
+    "dubbedVersions": [
+      { "language": "Hindi", "videoId": "dQw4w9WgXcQ" }
+    ],
     "rating": "7.7",
     "source": "Official Upload",
+    "channel": "Warner Bros",
     "free": true,
+    "trending": false,
+    "viral": false,
     "description": "A medical engineer and an astronaut work together to survive after an accident leaves them adrift in space.",
-    "platform": "YouTube",
-    "category": "Sci-Fi"
+    "platform": "YouTube"
   },
   {
     "id": "18",
@@ -296,14 +390,19 @@
     "duration": "2h 43m",
     "language": "Hindi",
     "genre": ["Adventure", "Drama"],
+    "category": "Bollywood",
     "dubbed": false,
-    "dubbedVersions": ["English"],
+    "dubbedVersions": [
+      { "language": "English", "videoId": "dQw4w9WgXcQ" }
+    ],
     "rating": "8.0",
     "source": "Official Upload",
+    "channel": "Salman Khan Films",
     "free": true,
+    "trending": false,
+    "viral": false,
     "description": "An Indian man with a heart of gold undertakes a perilous journey to reunite a mute Pakistani girl with her family.",
-    "platform": "YouTube",
-    "category": "Bollywood"
+    "platform": "YouTube"
   },
   {
     "id": "19",
@@ -313,14 +412,19 @@
     "duration": "1h 47m",
     "language": "English",
     "genre": ["Sci-Fi", "Action"],
+    "category": "Hollywood",
     "dubbed": true,
-    "dubbedVersions": ["Hindi", "Bangla"],
+    "dubbedVersions": [
+      { "language": "Hindi", "videoId": "dQw4w9WgXcQ" }
+    ],
     "rating": "8.0",
     "source": "Official Upload",
+    "channel": "MGM",
     "free": true,
+    "trending": false,
+    "viral": false,
     "description": "A human soldier is sent from 2029 to 1984 to stop an almost indestructible cyborg killing machine from executing a young woman.",
-    "platform": "YouTube",
-    "category": "Sci-Fi"
+    "platform": "YouTube"
   },
   {
     "id": "20",
@@ -330,13 +434,128 @@
     "duration": "2h 19m",
     "language": "Hindi",
     "genre": ["Thriller", "Comedy"],
+    "category": "Bollywood",
     "dubbed": false,
-    "dubbedVersions": ["English"],
+    "dubbedVersions": [],
     "rating": "8.3",
     "source": "Official Upload",
+    "channel": "Viacom18 Studios",
     "free": true,
+    "trending": false,
+    "viral": false,
     "description": "A series of mysterious events change the life of a blind pianist, who must now report a murder he should not have seen.",
-    "platform": "YouTube",
-    "category": "Bollywood"
+    "platform": "YouTube"
+  },
+  {
+    "id": "21",
+    "title": "Demon Slayer: Mugen Train",
+    "thumbnail": "https://img.youtube.com/vi/lP6wCJQqpBM/hqdefault.jpg",
+    "videoId": "lP6wCJQqpBM",
+    "duration": "1h 57m",
+    "language": "Japanese",
+    "genre": ["Anime", "Action"],
+    "category": "Anime",
+    "dubbed": true,
+    "dubbedVersions": [
+      { "language": "Hindi", "videoId": "dQw4w9WgXcQ" },
+      { "language": "English", "videoId": "dQw4w9WgXcQ" }
+    ],
+    "rating": "8.6",
+    "source": "Official Upload",
+    "channel": "Aniplex",
+    "free": true,
+    "trending": true,
+    "viral": true,
+    "description": "After a series of mysterious disappearances on the Mugen Train, Tanjiro and his companions must face a deadly demon aboard.",
+    "platform": "YouTube"
+  },
+  {
+    "id": "22",
+    "title": "Mad Max: Fury Road",
+    "thumbnail": "https://img.youtube.com/vi/hEJnMQG9ev8/hqdefault.jpg",
+    "videoId": "hEJnMQG9ev8",
+    "duration": "2h",
+    "language": "English",
+    "genre": ["Action", "Adventure"],
+    "category": "Hollywood",
+    "dubbed": true,
+    "dubbedVersions": [
+      { "language": "Hindi", "videoId": "dQw4w9WgXcQ" }
+    ],
+    "rating": "8.1",
+    "source": "Official Upload",
+    "channel": "Warner Bros",
+    "free": true,
+    "trending": true,
+    "viral": false,
+    "description": "In a post-apocalyptic wasteland, a woman rebels against a tyrannical ruler in search of her homeland with the aid of a drifter.",
+    "platform": "YouTube"
+  },
+  {
+    "id": "23",
+    "title": "PK",
+    "thumbnail": "https://img.youtube.com/vi/2H0VPEdXjIg/hqdefault.jpg",
+    "videoId": "2H0VPEdXjIg",
+    "duration": "2h 33m",
+    "language": "Hindi",
+    "genre": ["Comedy", "Drama"],
+    "category": "Bollywood",
+    "dubbed": false,
+    "dubbedVersions": [
+      { "language": "English", "videoId": "dQw4w9WgXcQ" }
+    ],
+    "rating": "8.1",
+    "source": "Official Upload",
+    "channel": "UTV Motion Pictures",
+    "free": true,
+    "trending": false,
+    "viral": false,
+    "description": "An alien on Earth loses the only device he can use to communicate with his spaceship, and must rely on humans to help him retrieve it.",
+    "platform": "YouTube"
+  },
+  {
+    "id": "24",
+    "title": "A Quiet Place",
+    "thumbnail": "https://img.youtube.com/vi/p9wE8qzKtUA/hqdefault.jpg",
+    "videoId": "p9wE8qzKtUA",
+    "duration": "1h 30m",
+    "language": "English",
+    "genre": ["Horror", "Sci-Fi"],
+    "category": "Hollywood",
+    "dubbed": true,
+    "dubbedVersions": [
+      { "language": "Hindi", "videoId": "dQw4w9WgXcQ" }
+    ],
+    "rating": "7.5",
+    "source": "Official Upload",
+    "channel": "Paramount Pictures",
+    "free": true,
+    "trending": false,
+    "viral": true,
+    "description": "In a post-apocalyptic world, a family is forced to live in silence while hiding from monsters with ultra-sensitive hearing.",
+    "platform": "YouTube"
+  },
+  {
+    "id": "25",
+    "title": "Suzume",
+    "thumbnail": "https://img.youtube.com/vi/VMqEYX42JOQ/hqdefault.jpg",
+    "videoId": "VMqEYX42JOQ",
+    "duration": "2h 2m",
+    "language": "Japanese",
+    "genre": ["Anime", "Adventure"],
+    "category": "Anime",
+    "dubbed": true,
+    "dubbedVersions": [
+      { "language": "Hindi", "videoId": "dQw4w9WgXcQ" },
+      { "language": "English", "videoId": "dQw4w9WgXcQ" }
+    ],
+    "rating": "7.7",
+    "source": "Official Upload",
+    "channel": "Toho Animation",
+    "free": true,
+    "trending": false,
+    "viral": false,
+    "description": "A young girl discovers a mysterious door and must close supernatural portals across Japan to prevent catastrophic disasters.",
+    "platform": "YouTube"
   }
 ]

@@ -12,6 +12,7 @@ interface Movie {
   genre: string[];
   rating: string;
   free?: boolean;
+  dubbed?: boolean;
 }
 
 interface RelatedMoviesProps {
@@ -38,6 +39,7 @@ export default function RelatedMovies({ movies }: RelatedMoviesProps) {
             rating={movie.rating}
             genre={movie.genre}
             free={movie.free}
+            dubbed={movie.dubbed}
           />
         ))}
       </div>
