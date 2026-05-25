@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { ChevronLeft, Eye, ThumbsUp, MessageCircle, CheckCircle, Share2 } from 'lucide-react'
+import SaveButton from '@/components/offline/SaveButton'
 import { Badge } from '@/components/ui/Badge'
 import LoadingShimmer from '@/components/ui/LoadingShimmer'
 import MovieCard from '@/components/movies/MovieCard'
@@ -145,6 +146,25 @@ export default function MovieDetailPage() {
             <Badge variant="default">{movie.language}</Badge>
             <Badge variant="default">{movie.duration}</Badge>
             <Badge variant="default">YouTube</Badge>
+          </div>
+
+          {/* Save Offline Button */}
+          <div className="mt-4">
+            <SaveButton
+              media={{
+                id: movie.videoId,
+                title: movie.title,
+                thumbnail: movie.thumbnail,
+                videoId: movie.videoId,
+                duration: movie.duration,
+                durationSec: movie.durationSec,
+                type: 'movie',
+                language: movie.language,
+                channel: movie.channel,
+                genre: [],
+                source: movie.source,
+              }}
+            />
           </div>
         </section>
 
