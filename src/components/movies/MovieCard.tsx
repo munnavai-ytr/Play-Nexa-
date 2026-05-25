@@ -1,37 +1,28 @@
-'use client';
+'use client'
 
-import Image from 'next/image';
-import Link from 'next/link';
+import Image from 'next/image'
+import Link from 'next/link'
+import { Eye, ThumbsUp } from 'lucide-react'
+import type { YouTubeMovie } from '@/lib/youtube'
 
 interface MovieCardProps {
-  id: string;
-  title: string;
-  thumbnail: string;
-  duration: string;
-  language: string;
-  free?: boolean;
-  rating?: string;
-  genre?: string[];
-  dubbed?: boolean;
+  movie: YouTubeMovie
   /** If true, card fills its grid cell (for 2-col grids). Default = false (fixed-width horizontal scroll) */
-  fullWidth?: boolean;
+  fullWidth?: boolean
 }
 
 export default function MovieCard({
-  id,
-  title,
-  thumbnail,
-  duration,
-  language,
-  free = false,
-  rating,
-  genre,
-  dubbed = false,
+  movie,
   fullWidth = false,
 }: MovieCardProps) {
+  const isHindiDubbed =
+    movie.language === 'Hindi' ||
+    movie.language === 'Dubbed' ||
+    movie.title.toLowerCase().includes('hindi dubbed')
+
   return (
     <Link
-      href={`/movies/${id}`}
+      href={`/movies/${movie.videoId}`}
       className={`block active:scale-[0.97] transition-transform duration-150 ${
         fullWidth ? 'w-full' : 'w-[148px] flex-shrink-0'
       }`}
@@ -39,51 +30,62 @@ export default function MovieCard({
       <article className="bg-grovix-card rounded-2xl overflow-hidden border border-grovix-border">
         <div className="relative aspect-video">
           <Image
-            src={thumbnail}
-            alt={title}
+            src={movie.thumbnail}
+            alt={movie.title}
             fill
             className="object-cover"
             sizes={fullWidth ? '(max-width: 640px) 50vw, 33vw' : '148px'}
             loading="lazy"
+            unoptimized
           />
 
           {/* Top-left badge stack */}
           <div className="absolute top-1.5 left-1.5 flex flex-col gap-1">
-            {free && (
-              <span className="bg-grovix-success text-white text-[10px] font-bold rounded-full px-2 py-0.5">
+            {movie.free && (
+              <span className="bg-grovix-success text-white text-[9px] font-bold rounded-full px-1.5 py-0.5">
                 FREE
               </span>
             )}
-            {dubbed && (
-              <span className="bg-grovix-purple text-white text-[10px] font-bold rounded-full px-2 py-0.5">
+            {isHindiDubbed && (
+              <span className="bg-grovix-purple text-white text-[9px] font-bold rounded-full px-1.5 py-0.5">
                 Hindi Dubbed
               </span>
             )}
           </div>
 
-          {/* Rating badge */}
-          {rating && (
-            <span className="absolute top-1.5 right-1.5 bg-grovix-bg/80 text-grovix-cyan text-[10px] font-semibold rounded px-1 py-0.5">
-              ★ {rating}
-            </span>
-          )}
+          {/* Duration badge bottom-right */}
+          <span className="absolute bottom-1.5 right-1.5 bg-black/80 text-white text-[9px] font-medium rounded px-1 py-0.5">
+            {movie.duration}
+          </span>
 
           {/* Bottom gradient overlay */}
           <div className="absolute bottom-0 left-0 right-0 h-[40%] bg-gradient-to-t from-grovix-bg to-transparent pointer-events-none" />
         </div>
 
         <div className="p-2">
-          <h3 className="text-white text-sm font-medium truncate">{title}</h3>
-          <p className="text-grovix-muted text-xs mt-0.5 truncate">
-            {language} &bull; {duration}
+          {/* Title */}
+          <h3 className="text-white text-xs font-semibold leading-tight line-clamp-2 mb-1">
+            {movie.title}
+          </h3>
+
+          {/* Channel */}
+          <p className="text-grovix-muted text-[10px] truncate mb-1">
+            {movie.channel}
           </p>
-          {genre && genre.length > 0 && (
-            <p className="text-grovix-muted/60 text-[10px] mt-0.5 truncate">
-              {genre.slice(0, 2).join(', ')}
-            </p>
-          )}
+
+          {/* Stats row: views + likes */}
+          <div className="flex items-center gap-2">
+            <span className="flex items-center gap-0.5 text-grovix-muted text-[9px]">
+              <Eye size={9} />
+              {movie.views}
+            </span>
+            <span className="flex items-center gap-0.5 text-grovix-muted text-[9px]">
+              <ThumbsUp size={9} />
+              {movie.likes}
+            </span>
+          </div>
         </div>
       </article>
     </Link>
-  );
+  )
 }

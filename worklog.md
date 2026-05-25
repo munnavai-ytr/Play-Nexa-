@@ -59,3 +59,71 @@ Stage Summary:
 - Shorts page performance-optimized: IntersectionObserver + iframe lazy rendering
 - Search page with debounced filtering and 4 filter dimensions
 - All new pages mobile-first, 2GB RAM safe, CSS transitions only
+
+---
+Task ID: 3
+Agent: Main Agent
+Task: GROVIX YouTube Data API v3 Integration — Real Live Movie Content
+
+Work Log:
+- Installed axios dependency for YouTube API HTTP requests
+- Created .env.local with NEXT_PUBLIC_YOUTUBE_API_KEY
+- Updated next.config.ts: added i.ytimg.com to remote image patterns for YouTube thumbnails
+- Created /lib/youtube.ts: Full YouTube Data API v3 service
+  - parseDuration: ISO 8601 → seconds conversion
+  - formatDuration: seconds → "2h 10m" display format
+  - formatViews / formatLikes: number → "1.2M views" display format
+  - detectLanguage: title-based language detection (Hindi, Bangla, Tamil, Korean, etc.)
+  - isRealMovie: blacklist filter (trailer, teaser, clip, song, etc.) + duration > 40min
+  - searchMovies: YouTube search API with movie-only filters (videoDuration=long, embeddable, syndicated)
+  - fetchMoviesByCategory: 15 category-to-query mappings (Trending, Hollywood, Bollywood, Anime, etc.)
+  - fetchTrending: chart=mostPopular for Film & Animation (regionCode=BD)
+  - fetchVideoDetails: single video details for movie detail page
+  - fetchRelated: related movies based on title keywords
+  - Session cache (sessionStorage, 15-min TTL) for quota protection
+  - Error handling for 403 (quota), 400 (bad request), offline
+- Created /hooks/useMovies.ts: 5 custom hooks
+  - useTrending: fetches trending movies from YouTube
+  - useMovieCategory: fetches movies by category (parametric)
+  - useMovieSearch: debounced YouTube search
+  - useVideoDetail: single video detail with loading/error
+  - useRelatedMovies: related movies excluding current
+- Updated /components/movies/MovieCard.tsx: Now accepts YouTubeMovie type
+  - Real thumbnail from YouTube API (unoptimized for external URLs)
+  - FREE badge + Hindi Dubbed badge
+  - Duration badge bottom-right
+  - Real channel name
+  - Real views (Eye icon) + likes (ThumbsUp icon) from API
+  - Bottom gradient overlay
+- Updated /app/movies/page.tsx: 8 live API sections
+  - Each section independently fetches from YouTube via useMovieCategory hook
+  - LoadingShimmer during fetch, error state, empty state
+  - CategoryFilter with 13 categories
+  - Sections: Trending BD, Hollywood, Bollywood, Anime, Korean, Sci-Fi, Action, Hindi Dubbed
+- Updated /app/movies/[id]/page.tsx: Real YouTube video detail
+  - useVideoDetail hook for live data
+  - useRelatedMovies hook for related content
+  - Real views/likes/comments stats with icons
+  - Real channel info with avatar circle
+  - FREE, language, duration, YouTube badges
+  - Show more/less description
+  - Share button (Web Share API)
+  - Related movies section with loading shimmer
+- Updated /app/search/page.tsx: Real YouTube search
+  - useMovieSearch hook with 500ms debounce
+  - Genre/language/access/platform filter chips
+  - Client-side language filtering on API results
+  - Recent searches (localStorage) + popular search suggestions
+  - Loading shimmer grid during search
+  - Empty state with clear filters
+- Updated /components/movies/RelatedMovies.tsx: Now accepts YouTubeMovie[] with loading state
+- Build succeeds with 0 errors, all pages return HTTP 200
+
+Stage Summary:
+- Movies section is now 100% real and live with YouTube Data API v3
+- Movie-only filter system: videoDuration=long + blacklist keywords + duration > 40min
+- Session cache for API quota protection (15-min TTL)
+- Real views, likes, comments, channel names, thumbnails, durations
+- Search queries auto-append "full movie" for movie-specific results
+- All 5 hooks properly handle loading/error/cancelled states
+- Mobile-first, 2GB RAM safe, no Framer Motion

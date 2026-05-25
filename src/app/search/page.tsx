@@ -1,206 +1,185 @@
-'use client';
+'use client'
 
-import { useState, useEffect, useCallback, useRef } from 'react';
-import { Search, X, Clock } from 'lucide-react';
-import TopBar from '@/components/layout/TopBar';
-import MovieCard from '@/components/movies/MovieCard';
-import { EmptyState } from '@/components/ui/EmptyState';
-import moviesData from '@/data/movies.json';
+import { useState, useEffect, useRef, useCallback } from 'react'
+import { Search, X, Clock } from 'lucide-react'
+import TopBar from '@/components/layout/TopBar'
+import MovieCard from '@/components/movies/MovieCard'
+import LoadingShimmer from '@/components/ui/LoadingShimmer'
+import { useMovieSearch } from '@/hooks/useMovies'
 
-interface DubbedVersion {
-  language: string;
-  videoId: string;
-}
+const GENRE_OPTIONS = ['All', 'Action', 'Anime', 'Horror', 'Sci-Fi', 'Comedy', 'Adventure', 'Korean', 'Bollywood']
+const LANGUAGE_OPTIONS = ['All', 'English', 'Hindi', 'Bangla', 'Tamil', 'Telugu', 'Japanese', 'Korean']
+const ACCESS_OPTIONS = ['All', 'FREE', 'Dubbed']
+const PLATFORM_OPTIONS = ['All', 'YouTube']
 
-interface MovieItem {
-  id: string;
-  title: string;
-  thumbnail: string;
-  videoId: string;
-  duration: string;
-  language: string;
-  genre: string[];
-  category: string;
-  dubbed: boolean;
-  dubbedVersions: DubbedVersion[];
-  rating: string;
-  source: string;
-  channel: string;
-  free: boolean;
-  trending: boolean;
-  viral: boolean;
-  description: string;
-  platform: string;
-}
+const POPULAR_SEARCHES = [
+  'Hindi Dubbed Movie',
+  'Anime Full Movie',
+  'Action Movie',
+  'Sci-Fi Movie',
+  'Korean Movie',
+  'Free Hollywood Movie',
+  'Bangla Movie',
+]
 
-const typedMovies = moviesData as MovieItem[];
-
-const GENRE_OPTIONS = ['All', 'Action', 'Anime', 'Horror', 'Sci-Fi', 'Comedy', 'Adventure'];
-const LANGUAGE_OPTIONS = ['All', 'English', 'Hindi', 'Bangla', 'Tamil', 'Telugu', 'Japanese', 'Korean'];
-const ACCESS_OPTIONS = ['All', 'FREE', 'Official', 'Dubbed'];
-const PLATFORM_OPTIONS = ['All', 'YouTube'];
-
-const POPULAR_SEARCHES = ['Anime', 'Hindi Dubbed', 'Action', 'Sci-Fi', 'Korean Movie', 'Free Movies'];
-const RECENT_KEY = 'grovix_recent_searches';
+const RECENT_KEY = 'grovix_recent_searches'
 
 function getRecentSearches(): string[] {
-  if (typeof window === 'undefined') return [];
+  if (typeof window === 'undefined') return []
   try {
-    const stored = localStorage.getItem(RECENT_KEY);
-    return stored ? JSON.parse(stored) : [];
+    const stored = localStorage.getItem(RECENT_KEY)
+    return stored ? JSON.parse(stored) : []
   } catch {
-    return [];
+    return []
   }
 }
 
 function saveRecentSearch(term: string) {
-  if (typeof window === 'undefined') return;
+  if (typeof window === 'undefined') return
   try {
-    const existing = getRecentSearches();
-    const filtered = existing.filter((s) => s.toLowerCase() !== term.toLowerCase());
-    const updated = [term, ...filtered].slice(0, 5);
-    localStorage.setItem(RECENT_KEY, JSON.stringify(updated));
+    const existing = getRecentSearches()
+    const filtered = existing.filter((s) => s.toLowerCase() !== term.toLowerCase())
+    const updated = [term, ...filtered].slice(0, 5)
+    localStorage.setItem(RECENT_KEY, JSON.stringify(updated))
   } catch {
     // Silently fail
   }
 }
 
 function removeRecentSearch(term: string): string[] {
-  if (typeof window === 'undefined') return [];
+  if (typeof window === 'undefined') return []
   try {
-    const existing = getRecentSearches();
-    const updated = existing.filter((s) => s !== term);
-    localStorage.setItem(RECENT_KEY, JSON.stringify(updated));
-    return updated;
+    const existing = getRecentSearches()
+    const updated = existing.filter((s) => s !== term)
+    localStorage.setItem(RECENT_KEY, JSON.stringify(updated))
+    return updated
   } catch {
-    return [];
+    return []
   }
 }
 
 export default function SearchPage() {
-  const [query, setQuery] = useState('');
-  const [debouncedQuery, setDebouncedQuery] = useState('');
-  const [activeGenre, setActiveGenre] = useState('All');
-  const [activeLang, setActiveLang] = useState('All');
-  const [activeAccess, setActiveAccess] = useState('All');
-  const [activePlatform, setActivePlatform] = useState('All');
-  const [recentSearches, setRecentSearches] = useState<string[]>(() => getRecentSearches());
-  const inputRef = useRef<HTMLInputElement>(null);
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [query, setQuery] = useState('')
+  const [debouncedQuery, setDebouncedQuery] = useState('')
+  const [activeGenre, setActiveGenre] = useState('All')
+  const [activeLang, setActiveLang] = useState('All')
+  const [activeAccess, setActiveAccess] = useState('All')
+  const [activePlatform, setActivePlatform] = useState('All')
+  const [recentSearches, setRecentSearches] = useState<string[]>(() => getRecentSearches())
+  const [hasSearched, setHasSearched] = useState(false)
+
+  const inputRef = useRef<HTMLInputElement>(null)
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const { results, loading, search } = useMovieSearch()
 
   // Auto-focus on mount
   useEffect(() => {
-    inputRef.current?.focus();
-  }, []);
+    inputRef.current?.focus()
+  }, [])
 
-  // Debounced search: 300ms
+  // Debounced search: 500ms
   useEffect(() => {
     if (debounceRef.current) {
-      clearTimeout(debounceRef.current);
+      clearTimeout(debounceRef.current)
     }
     debounceRef.current = setTimeout(() => {
-      setDebouncedQuery(query);
-    }, 300);
+      setDebouncedQuery(query)
+    }, 500)
     return () => {
       if (debounceRef.current) {
-        clearTimeout(debounceRef.current);
+        clearTimeout(debounceRef.current)
       }
-    };
-  }, [query]);
+    }
+  }, [query])
 
-  // Filter logic: client-side
-  const filteredMovies = useCallback(() => {
-    let results = typedMovies;
-
-    // Filter by query (title, channel, genre)
+  // Trigger YouTube API search when debounced query changes
+  useEffect(() => {
     if (debouncedQuery.trim()) {
-      const q = debouncedQuery.toLowerCase();
-      results = results.filter(
-        (m) =>
-          m.title.toLowerCase().includes(q) ||
-          m.channel.toLowerCase().includes(q) ||
-          m.genre.some((g) => g.toLowerCase().includes(q))
-      );
+      setHasSearched(true)
+      // Build search query with filters
+      let searchQ = debouncedQuery
+      if (activeGenre !== 'All') searchQ += ` ${activeGenre}`
+      if (activeLang !== 'All') searchQ += ` ${activeLang}`
+      if (activeAccess === 'Dubbed') searchQ += ' dubbed'
+      search(searchQ)
+    } else {
+      setHasSearched(false)
     }
+  }, [debouncedQuery, activeGenre, activeLang, activeAccess, search])
 
-    // Filter by genre
-    if (activeGenre !== 'All') {
-      results = results.filter((m) =>
-        m.genre.some((g) => g.toLowerCase() === activeGenre.toLowerCase())
-      );
-    }
+  // Client-side filter for language (supplementary)
+  const filteredResults = useCallback(() => {
+    let filtered = results
 
-    // Filter by language
+    // Filter by language (client-side since API doesn't have exact lang filter)
     if (activeLang !== 'All') {
-      results = results.filter(
-        (m) => m.language.toLowerCase() === activeLang.toLowerCase()
-      );
+      filtered = filtered.filter((m) => {
+        const lower = m.title.toLowerCase()
+        switch (activeLang) {
+          case 'Hindi':
+            return lower.includes('hindi') || m.language === 'Hindi'
+          case 'Bangla':
+            return lower.includes('bangla') || lower.includes('bengali') || m.language === 'Bangla'
+          case 'Korean':
+            return lower.includes('korean') || m.language === 'Korean'
+          case 'Japanese':
+            return lower.includes('anime') || lower.includes('japanese') || m.language === 'Japanese'
+          case 'Tamil':
+            return lower.includes('tamil') || m.language === 'Tamil'
+          case 'Telugu':
+            return lower.includes('telugu') || m.language === 'Telugu'
+          case 'English':
+            return m.language === 'English'
+          default:
+            return true
+        }
+      })
     }
 
-    // Filter by access
-    if (activeAccess === 'FREE') {
-      results = results.filter((m) => m.free);
-    } else if (activeAccess === 'Official') {
-      results = results.filter((m) => m.source === 'Official Upload');
-    } else if (activeAccess === 'Dubbed') {
-      results = results.filter((m) => m.dubbed);
-    }
+    return filtered
+  }, [results, activeLang])
 
-    // Filter by platform
-    if (activePlatform !== 'All') {
-      results = results.filter(
-        (m) => m.platform.toLowerCase() === activePlatform.toLowerCase()
-      );
-    }
-
-    return results.slice(0, 20);
-  }, [debouncedQuery, activeGenre, activeLang, activeAccess, activePlatform]);
-
-  const results = filteredMovies();
-  const hasActiveFilters = debouncedQuery.trim() || activeGenre !== 'All' || activeLang !== 'All' || activeAccess !== 'All' || activePlatform !== 'All';
-
-  const handleSearchSubmit = useCallback(() => {
-    const trimmed = query.trim();
-    if (trimmed) {
-      saveRecentSearch(trimmed);
-      setRecentSearches(getRecentSearches());
-    }
-  }, [query]);
+  const displayResults = filteredResults()
+  const hasActiveFilters = debouncedQuery.trim() || activeGenre !== 'All' || activeLang !== 'All' || activeAccess !== 'All' || activePlatform !== 'All'
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLInputElement>) => {
       if (e.key === 'Enter') {
-        handleSearchSubmit();
+        const trimmed = query.trim()
+        if (trimmed) {
+          saveRecentSearch(trimmed)
+          setRecentSearches(getRecentSearches())
+        }
       }
     },
-    [handleSearchSubmit]
-  );
+    [query]
+  )
 
   const handlePopularClick = useCallback((term: string) => {
-    setQuery(term);
-    setDebouncedQuery(term);
-    saveRecentSearch(term);
-    setRecentSearches(getRecentSearches());
-  }, []);
+    setQuery(term)
+    setDebouncedQuery(term)
+    saveRecentSearch(term)
+    setRecentSearches(getRecentSearches())
+  }, [])
 
   const handleRecentClick = useCallback((term: string) => {
-    setQuery(term);
-    setDebouncedQuery(term);
-  }, []);
+    setQuery(term)
+    setDebouncedQuery(term)
+  }, [])
 
   const handleRemoveRecent = useCallback((term: string) => {
-    const updated = removeRecentSearch(term);
-    setRecentSearches(updated);
-  }, []);
+    const updated = removeRecentSearch(term)
+    setRecentSearches(updated)
+  }, [])
 
   const clearFilters = useCallback(() => {
-    setQuery('');
-    setDebouncedQuery('');
-    setActiveGenre('All');
-    setActiveLang('All');
-    setActiveAccess('All');
-    setActivePlatform('All');
-  }, []);
+    setQuery('')
+    setDebouncedQuery('')
+    setActiveGenre('All')
+    setActiveLang('All')
+    setActiveAccess('All')
+    setActivePlatform('All')
+  }, [])
 
   return (
     <div className="flex min-h-screen flex-col bg-grovix-bg">
@@ -208,7 +187,7 @@ export default function SearchPage() {
 
       <main className="flex-1 pb-24">
         {/* Search Input */}
-        <div className="px-4 pt-3 pb-2">
+        <div className="px-4 pt-3 pb-2 sticky top-14 z-10 bg-grovix-bg">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-grovix-muted" />
             <input
@@ -217,15 +196,15 @@ export default function SearchPage() {
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Search movies, genres, channels..."
+              placeholder="Search movies on YouTube..."
               className="w-full h-11 pl-10 pr-10 bg-grovix-card border border-grovix-border rounded-xl text-white text-sm placeholder:text-grovix-muted focus:outline-none focus:border-grovix-purple transition-colors duration-150"
             />
             {query && (
               <button
                 type="button"
                 onClick={() => {
-                  setQuery('');
-                  setDebouncedQuery('');
+                  setQuery('')
+                  setDebouncedQuery('')
                 }}
                 className="absolute right-3 top-1/2 -translate-y-1/2 w-6 h-6 flex items-center justify-center text-grovix-muted hover:text-white transition-colors duration-150"
                 aria-label="Clear search"
@@ -316,37 +295,47 @@ export default function SearchPage() {
         </div>
 
         {/* Results or Empty State */}
-        {hasActiveFilters ? (
-          results.length > 0 ? (
+        {hasActiveFilters && hasSearched ? (
+          loading ? (
             <div className="px-4 pt-2">
-              <p className="text-grovix-muted text-xs mb-3">
-                {results.length} result{results.length !== 1 ? 's' : ''} found
-              </p>
               <div className="grid grid-cols-2 gap-3">
-                {results.map((movie) => (
-                  <MovieCard
-                    key={movie.id}
-                    id={movie.id}
-                    title={movie.title}
-                    thumbnail={movie.thumbnail}
-                    duration={movie.duration}
-                    language={movie.language}
-                    free={movie.free}
-                    rating={movie.rating}
-                    genre={movie.genre}
-                    dubbed={movie.dubbed}
-                    fullWidth
+                {Array.from({ length: 6 }).map((_, i) => (
+                  <LoadingShimmer
+                    key={i}
+                    className="w-full h-[160px] rounded-2xl"
                   />
                 ))}
               </div>
             </div>
+          ) : displayResults.length > 0 ? (
+            <div className="px-4 pt-2">
+              <p className="text-grovix-muted text-xs mb-3">
+                {displayResults.length} result{displayResults.length !== 1 ? 's' : ''} found
+              </p>
+              <div className="grid grid-cols-2 gap-3">
+                {displayResults.map((movie) => (
+                  <MovieCard key={movie.id} movie={movie} fullWidth />
+                ))}
+              </div>
+            </div>
           ) : (
-            <EmptyState
-              icon={Search}
-              title="No results found"
-              description="Try different keywords or adjust your filters"
-              action={{ label: 'Clear Filters', onClick: clearFilters }}
-            />
+            <div className="flex-1 flex items-center justify-center px-4 mt-10">
+              <div className="text-center">
+                <p className="text-white font-semibold mb-2">
+                  No results found
+                </p>
+                <p className="text-grovix-muted text-sm mb-4">
+                  Try different keywords or adjust your filters
+                </p>
+                <button
+                  onClick={clearFilters}
+                  className="bg-grovix-card border border-grovix-border rounded-full px-4 py-2 text-xs text-grovix-muted font-medium min-h-[44px] transition-colors duration-150 hover:text-white hover:border-grovix-purple/50"
+                  type="button"
+                >
+                  Clear Filters
+                </button>
+              </div>
+            </div>
           )
         ) : (
           /* When input empty: Popular Searches + Recent Searches */
@@ -388,7 +377,7 @@ export default function SearchPage() {
             {/* Popular Searches */}
             <section>
               <h2 className="text-sm font-semibold text-white mb-3">
-                Popular Searches
+                🔥 Popular Searches
               </h2>
               <div className="flex flex-wrap gap-2">
                 {POPULAR_SEARCHES.map((term) => (
@@ -407,5 +396,5 @@ export default function SearchPage() {
         )}
       </main>
     </div>
-  );
+  )
 }
