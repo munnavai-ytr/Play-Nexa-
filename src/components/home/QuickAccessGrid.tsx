@@ -1,0 +1,46 @@
+'use client';
+
+import Link from 'next/link';
+import { Download, Film, Gamepad2, Music, Play, Smartphone } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
+
+interface QuickAccessCard {
+  icon: LucideIcon;
+  title: string;
+  subtitle: string;
+  href: string;
+}
+
+const cards: QuickAccessCard[] = [
+  { icon: Download, title: 'Smart Download', subtitle: 'Videos & Audio', href: '/download' },
+  { icon: Film, title: 'Movie Hub', subtitle: 'Watch Free Movies', href: '/movies' },
+  { icon: Gamepad2, title: 'Offline Games', subtitle: 'Play Anytime', href: '/games' },
+  { icon: Music, title: 'Music Player', subtitle: 'Listen & Enjoy', href: '/music' },
+  { icon: Play, title: 'Video Player', subtitle: 'Custom Player', href: '/player' },
+  { icon: Smartphone, title: 'Platforms', subtitle: 'Streaming Hub', href: '/platforms' },
+];
+
+export default function QuickAccessGrid() {
+  return (
+    <section className="px-4">
+      <div className="grid grid-cols-2 gap-3">
+        {cards.map((card) => {
+          const Icon = card.icon;
+          return (
+            <Link
+              key={card.href}
+              href={card.href}
+              className="flex flex-col gap-2 rounded-2xl border border-grovix-border bg-grovix-card p-4 shadow-[0_0_20px_rgba(124,92,255,0.1)] active:scale-[0.97] transition-transform duration-150"
+            >
+              <Icon className="h-7 w-7 text-grovix-purple" aria-hidden="true" />
+              <div>
+                <p className="text-sm font-semibold text-white">{card.title}</p>
+                <p className="text-xs text-grovix-muted">{card.subtitle}</p>
+              </div>
+            </Link>
+          );
+        })}
+      </div>
+    </section>
+  );
+}

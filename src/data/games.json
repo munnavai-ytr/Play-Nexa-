@@ -1,0 +1,102 @@
+[
+  {
+    "id": "1",
+    "title": "Hill Climb Racing",
+    "thumbnail": "https://play-lh.googleusercontent.com/SjgO5iVDt0SH_Hn0yMx2VKLnnNcYrCmDB6OoG3TofU1RvCi5JncS1-mPn4E7Y3vVnA=w240-h480-rw",
+    "rating": "4.7",
+    "sizeMB": 98,
+    "category": "Racing",
+    "offline": true,
+    "playUrl": "https://play.google.com/store/apps/details?id=com.fingersoft.hillclimb"
+  },
+  {
+    "id": "2",
+    "title": "Subway Surfers",
+    "thumbnail": "https://play-lh.googleusercontent.com/EqSK7PKrJXWpF1LOamSAzNNJQEmJz2VoT6EeTixbJF5J3G5Bq2lEeQ3NTBCwPvQxhg=w240-h480-rw",
+    "rating": "4.5",
+    "sizeMB": 152,
+    "category": "Arcade",
+    "offline": true,
+    "playUrl": "https://play.google.com/store/apps/details?id=com.kiloo.subwaysurf"
+  },
+  {
+    "id": "3",
+    "title": "Temple Run 2",
+    "thumbnail": "https://play-lh.googleusercontent.com/O1AHMEKjJlT6MzlPJGgJSMLOEEqPipyl_bVmSHV0jKf3YQfB7f7oEbJ37vN6OA9wGQ=w240-h480-rw",
+    "rating": "4.3",
+    "sizeMB": 110,
+    "category": "Action",
+    "offline": true,
+    "playUrl": "https://play.google.com/store/apps/details?id=com.imangi.templerun2"
+  },
+  {
+    "id": "4",
+    "title": "2048",
+    "thumbnail": "https://play-lh.googleusercontent.com/PJoA6cS1iSH5b2bS9GGqY0E3JBBYgxxC-4GpPQePMHm7W3V5V3b-3jLNwJl_B3qSFQ=w240-h480-rw",
+    "rating": "4.4",
+    "sizeMB": 12,
+    "category": "Puzzle",
+    "offline": true,
+    "playUrl": "https://play.google.com/store/apps/details?id=com.digiplex.game"
+  },
+  {
+    "id": "5",
+    "title": "Asphalt 8: Airborne",
+    "thumbnail": "https://play-lh.googleusercontent.com/I6MdGZiaBJk0YTBsQvLbdhtpvHLM3SQJgQJbCP-2G7eKMN5s7kIlMx3jZty-YDhv65Y=w240-h480-rw",
+    "rating": "4.4",
+    "sizeMB": 1800,
+    "category": "Racing",
+    "offline": false,
+    "playUrl": "https://play.google.com/store/apps/details?id=com.gameloft.android.ANMP.GloftA8HM"
+  },
+  {
+    "id": "6",
+    "title": "Plants vs Zombies",
+    "thumbnail": "https://play-lh.googleusercontent.com/gooLmHjEFd0YXzlQL3iWw_oS5JUlZMD5p3U8fG0eMSMN3NSuoIi3VR0KJBP4FCXhVw=w240-h480-rw",
+    "rating": "4.6",
+    "sizeMB": 95,
+    "category": "Zombie",
+    "offline": true,
+    "playUrl": "https://play.google.com/store/apps/details?id=com.ea.game.pvzfree_row"
+  },
+  {
+    "id": "7",
+    "title": "Fruit Ninja",
+    "thumbnail": "https://play-lh.googleusercontent.com/6UzF2fMKtUGW8sD0JrJDFbWaPqMIiF1D6HIwG8IMFhObYkRGw4Tg6vJEumN7RnOFhg=w240-h480-rw",
+    "rating": "4.2",
+    "sizeMB": 45,
+    "category": "Arcade",
+    "offline": true,
+    "playUrl": "https://play.google.com/store/apps/details?id=com.halfbrick.fruitninjafree"
+  },
+  {
+    "id": "8",
+    "title": "Angry Birds 2",
+    "thumbnail": "https://play-lh.googleusercontent.com/7cOqH3hxHb2Z4V6bLiGP8wKR14Wk0p2VJ2IxA_A5eGsK5A3KMJfNz0FqyK3TlqkqgOw=w240-h480-rw",
+    "rating": "4.3",
+    "sizeMB": 200,
+    "category": "Puzzle",
+    "offline": false,
+    "playUrl": "https://play.google.com/store/apps/details?id=com.rovio.baba"
+  },
+  {
+    "id": "9",
+    "title": "Dead Trigger 2",
+    "thumbnail": "https://play-lh.googleusercontent.com/0OxDj__Pj5QS2_4IZtCXU6A6xdzFQzBbEaLnVqV-axtiJ1LRGK7N2KXQ0_3D6etUfQ=w240-h480-rw",
+    "rating": "4.4",
+    "sizeMB": 320,
+    "category": "Zombie",
+    "offline": false,
+    "playUrl": "https://play.google.com/store/apps/details?id=com.madfingergames.deadtrigger2"
+  },
+  {
+    "id": "10",
+    "title": "Candy Crush Saga",
+    "thumbnail": "https://play-lh.googleusercontent.com/RmKbVGmMxARfXb5Pz0nfR3vJ3f_qQ6fvFOf1-cHN6YlQGkL95K9bXmaV0DJqP-G5Zg=w240-h480-rw",
+    "rating": "4.6",
+    "sizeMB": 85,
+    "category": "Puzzle",
+    "offline": true,
+    "playUrl": "https://play.google.com/store/apps/details?id=com.king.candycrushsaga"
+  }
+]

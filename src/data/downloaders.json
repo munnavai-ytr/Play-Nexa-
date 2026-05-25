@@ -1,0 +1,26 @@
+[
+  {
+    "id": "s1",
+    "name": "SaveFrom",
+    "baseUrl": "https://en.savefrom.net/#url=",
+    "supports": ["youtube", "vimeo", "facebook"]
+  },
+  {
+    "id": "s2",
+    "name": "SnapSave",
+    "baseUrl": "https://snapsave.app/result?url=",
+    "supports": ["facebook", "instagram", "tiktok"]
+  },
+  {
+    "id": "s3",
+    "name": "SSYouTube",
+    "baseUrl": "https://ssyoutube.com/watch?v=",
+    "supports": ["youtube"]
+  },
+  {
+    "id": "s4",
+    "name": "Y2Mate",
+    "baseUrl": "https://www.y2mate.com/youtube/",
+    "supports": ["youtube"]
+  }
+]
