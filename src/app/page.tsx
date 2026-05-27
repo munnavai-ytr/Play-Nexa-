@@ -14,23 +14,23 @@ import gamesData from '@/data/games.json'
 import type { Movie } from '@/lib/search'
 
 // Map games data to Movie shape for TrendingRow compatibility
-const mappedGames = (gamesData as typeof gamesData).map((game) => ({
+const mappedGames = gamesData.games.map((game) => ({
   id: game.id,
   title: game.title,
   thumbnail: game.thumbnail,
   videoId: '',
-  duration: `${game.sizeMB} MB`,
+  duration: game.sizeLabel,
   language: game.category,
   genre: [game.category],
   dubbed: false,
-  rating: game.rating,
+  rating: String(game.rating),
   year: '',
-  channel: 'Google Play',
-  description: `${game.category} game - ${game.sizeMB}MB`,
+  channel: 'HTML5 Game',
+  description: `${game.category} game - ${game.sizeLabel} - ${game.performanceLevel}`,
   category: game.category,
-  trending: false,
+  trending: game.isTrending,
   viral: false,
-  free: game.offline,
+  free: true,
 }))
 
 export default function Home() {

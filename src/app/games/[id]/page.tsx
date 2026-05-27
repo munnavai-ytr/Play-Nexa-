@@ -7,10 +7,12 @@ import { useEffect, useState, use } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   ChevronLeft, Maximize2,
-  Star, Share2
+  Star, Share2, Zap, Users
 } from 'lucide-react'
-import games from '@/data/games.json'
+import gamesData from '@/data/games.json'
 import GameCard from '@/components/games/GameCard'
+
+const games = gamesData.games
 
 export default function GamePlayerPage(
   { params }: { params: Promise<{ id: string }> }
@@ -190,14 +192,11 @@ export default function GamePlayerPage(
                              text-white mb-1">
                 {game.title}
               </h1>
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2 flex-wrap">
                 <span className="flex items-center gap-1
                                  text-yellow-400 text-sm">
                   <Star size={14} fill="currentColor" />
                   {game.rating}
-                </span>
-                <span className="text-[#94A3B8] text-xs">
-                  {game.plays} plays
                 </span>
                 <span className="bg-[#7C5CFF]/20
                                  text-[#7C5CFF]
@@ -206,8 +205,47 @@ export default function GamePlayerPage(
                                  px-2 py-0.5">
                   {game.category}
                 </span>
+                {game.isMultiplayer && (
+                  <span className="flex items-center gap-1
+                                   bg-[#00D4FF]/20
+                                   text-[#00D4FF]
+                                   border border-[#00D4FF]/30
+                                   text-xs rounded-full
+                                   px-2 py-0.5">
+                    <Users size={10} />
+                    Multiplayer
+                  </span>
+                )}
+                <span className="flex items-center gap-1
+                                 bg-[#111827]
+                                 border border-[#1E293B]
+                                 text-[#94A3B8] text-xs
+                                 rounded-full
+                                 px-2 py-0.5">
+                  <Zap size={10} />
+                  {game.sizeLabel}
+                </span>
               </div>
             </div>
+          </div>
+
+          {/* Performance badge */}
+          <div className="mb-4">
+            <span className={`text-[11px] rounded-full
+                             px-2.5 py-1 font-medium
+                             ${game.performanceLevel === 'Low-End Friendly'
+                               ? 'bg-[#22C55E]/10 text-[#22C55E] border border-[#22C55E]/30'
+                               : game.performanceLevel === 'Mid-Range'
+                                 ? 'bg-yellow-500/10 text-yellow-400 border border-yellow-500/30'
+                                 : 'bg-red-500/10 text-red-400 border border-red-500/30'
+                             }`}>
+              {game.performanceLevel === 'Low-End Friendly'
+                ? '✅ ' + game.performanceLevel
+                : game.performanceLevel === 'Mid-Range'
+                  ? '⚡ ' + game.performanceLevel
+                  : '🔥 ' + game.performanceLevel
+              }
+            </span>
           </div>
 
           {/* Action buttons */}
@@ -245,27 +283,6 @@ export default function GamePlayerPage(
             >
               <Share2 size={16} />
             </button>
-          </div>
-
-          {/* Description */}
-          {game.description && (
-            <p className="text-[#94A3B8] text-sm
-                          leading-relaxed mb-4">
-              {game.description}
-            </p>
-          )}
-
-          {/* Tags */}
-          <div className="flex flex-wrap gap-2 mb-5">
-            {game.tags?.map((tag: string) => (
-              <span key={tag}
-                    className="bg-[#111827]
-                               border border-[#1E293B]
-                               text-[#94A3B8] text-xs
-                               rounded-full px-3 py-1">
-                #{tag}
-              </span>
-            ))}
           </div>
 
           {/* More games from same category */}

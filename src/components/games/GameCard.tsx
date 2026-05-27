@@ -1,15 +1,28 @@
 "use client"
 import Image from 'next/image'
 import { useRouter } from 'next/navigation'
-import { Play, Star } from 'lucide-react'
+import { Star } from 'lucide-react'
+
+interface Game {
+  id: string
+  title: string
+  thumbnail: string
+  gameUrl: string
+  category: string
+  rating: number
+  isTrending: boolean
+  isMultiplayer: boolean
+  sizeLabel: string
+  performanceLevel: string
+}
 
 export default function GameCard(
   { game, size = 'normal' }:
-  { game: any, size?: 'normal' | 'large' }
+  { game: Game, size?: 'normal' | 'large' }
 ) {
   const router = useRouter()
 
-  // Large card for featured games
+  // Large card for trending/featured games
   if (size === 'large') {
     return (
       <button
@@ -38,7 +51,7 @@ export default function GameCard(
                }}
           />
           {/* Trending badge */}
-          {game.trending && (
+          {game.isTrending && (
             <span className="absolute top-2 left-2
                              bg-[#7C5CFF] text-white
                              text-[9px] font-bold
@@ -62,7 +75,7 @@ export default function GameCard(
               {game.rating}
             </span>
             <span className="text-[#94A3B8] text-[9px]">
-              {game.plays} plays
+              {game.sizeLabel}
             </span>
           </div>
         </div>
@@ -97,6 +110,15 @@ export default function GameCard(
                          px-2 py-0.5">
           {game.category}
         </span>
+        {/* Multiplayer badge */}
+        {game.isMultiplayer && (
+          <span className="absolute top-2 right-2
+                           bg-[#00D4FF]/80 text-white
+                           text-[9px] font-bold
+                           rounded-full px-2 py-0.5">
+            MP
+          </span>
+        )}
       </div>
 
       {/* Info */}
@@ -113,7 +135,7 @@ export default function GameCard(
             {game.rating}
           </span>
           <span className="text-[#94A3B8] text-[10px]">
-            {game.plays}
+            {game.sizeLabel}
           </span>
         </div>
       </div>

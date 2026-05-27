@@ -1,17 +1,17 @@
 "use client"
 import { useState, useMemo, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
 import GameCard from '@/components/games/GameCard'
-import games from '@/data/games.json'
+import gamesData from '@/data/games.json'
+
+const games = gamesData.games
 
 const CATEGORIES = [
   'All','Trending','Racing','Action',
-  'Puzzle','Arcade','Zombie',
-  'Adventure','Sports','Multiplayer'
+  'Puzzle','Arcade','Multiplayer',
+  'Adventure','Viral'
 ]
 
 export default function GamesPage() {
-  const router = useRouter()
   const [active, setActive] = useState('All')
   const [recentIds, setRecentIds] = useState<string[]>([])
 
@@ -21,15 +21,15 @@ export default function GamesPage() {
     if (saved) setRecentIds(JSON.parse(saved))
   }, [])
 
-  // Featured games (trending + featured flag)
+  // Featured = trending games shown in large cards
   const featured = useMemo(
-    () => games.filter(g => g.featured).slice(0, 8),
+    () => games.filter(g => g.isTrending).slice(0, 8),
     []
   )
 
   // Trending games
   const trending = useMemo(
-    () => games.filter(g => g.trending).slice(0, 10),
+    () => games.filter(g => g.isTrending).slice(0, 10),
     []
   )
 
@@ -37,7 +37,7 @@ export default function GamesPage() {
   const filtered = useMemo(() => {
     if (active === 'All') return games
     if (active === 'Trending')
-      return games.filter(g => g.trending)
+      return games.filter(g => g.isTrending)
     return games.filter(g => g.category === active)
   }, [active])
 
@@ -135,7 +135,7 @@ export default function GamesPage() {
               {recentGames.map(game => (
                 <div key={game!.id}
                      className="flex-shrink-0 w-[140px]">
-                  <GameCard game={game} />
+                  <GameCard game={game!} />
                 </div>
               ))}
             </div>
