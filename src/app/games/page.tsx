@@ -1,158 +1,219 @@
-'use client';
+"use client"
+import { useState, useMemo, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
+import GameCard from '@/components/games/GameCard'
+import games from '@/data/games.json'
 
-import { useState, useMemo } from 'react';
-import Image from 'next/image';
-import TopBar from '@/components/layout/TopBar';
-import GameCard from '@/components/games/GameCard';
-import GameCategories from '@/components/games/GameCategories';
-import gamesData from '@/data/games.json';
-
-interface Game {
-  id: string;
-  title: string;
-  thumbnail: string;
-  rating: string;
-  sizeMB: number;
-  category: string;
-  offline: boolean;
-  playUrl: string;
-}
-
-const typedGamesData = gamesData as Game[];
-
-const CATEGORIES = ['All', 'Racing', 'Arcade', 'Action', 'Zombie', 'Puzzle'];
-
-const CATEGORY_ROWS: { emoji: string; label: string; category: string }[] = [
-  { emoji: '🏎️', label: 'Racing Games', category: 'Racing' },
-  { emoji: '🧩', label: 'Puzzle Games', category: 'Puzzle' },
-  { emoji: '⚔️', label: 'Action Games', category: 'Action' },
-  { emoji: '👾', label: 'Arcade Classics', category: 'Arcade' },
-];
+const CATEGORIES = [
+  'All','Trending','Racing','Action',
+  'Puzzle','Arcade','Zombie',
+  'Adventure','Sports','Multiplayer'
+]
 
 export default function GamesPage() {
-  const [activeCategory, setActiveCategory] = useState('All');
+  const router = useRouter()
+  const [active, setActive] = useState('All')
+  const [recentIds, setRecentIds] = useState<string[]>([])
 
-  const featuredGame = typedGamesData[0];
+  // Load recently played from localStorage
+  useEffect(() => {
+    const saved = localStorage.getItem('grovix_recent_games')
+    if (saved) setRecentIds(JSON.parse(saved))
+  }, [])
 
-  const filteredGames = useMemo(() => {
-    if (activeCategory === 'All') return typedGamesData;
-    return typedGamesData.filter((game) => game.category === activeCategory);
-  }, [activeCategory]);
+  // Featured games (trending + featured flag)
+  const featured = useMemo(
+    () => games.filter(g => g.featured).slice(0, 8),
+    []
+  )
+
+  // Trending games
+  const trending = useMemo(
+    () => games.filter(g => g.trending).slice(0, 10),
+    []
+  )
+
+  // Filtered by category
+  const filtered = useMemo(() => {
+    if (active === 'All') return games
+    if (active === 'Trending')
+      return games.filter(g => g.trending)
+    return games.filter(g => g.category === active)
+  }, [active])
+
+  // Recently played
+  const recentGames = useMemo(
+    () => recentIds
+      .map(id => games.find(g => g.id === id))
+      .filter(Boolean)
+      .slice(0, 6),
+    [recentIds]
+  )
 
   return (
-    <div className="min-h-screen bg-grovix-bg pb-24">
-      <TopBar title="Offline Games" showBack showSearch />
+    <div className="min-h-screen bg-[#070B14] pb-24">
 
-      {/* Category Chips */}
-      <GameCategories
-        categories={CATEGORIES}
-        active={activeCategory}
-        onChange={setActiveCategory}
-      />
+      {/* TopBar */}
+      <div className="sticky top-0 z-50 bg-[#070B14]
+                      border-b border-[#1E293B]
+                      px-4 h-14 flex items-center
+                      justify-between">
+        <h1 className="text-lg font-bold text-white">
+          Game Hub
+        </h1>
+        <span className="text-xs text-[#7C5CFF]
+                         bg-[#7C5CFF]/10 rounded-full
+                         px-3 py-1">
+          {games.length} Games
+        </span>
+      </div>
 
-      {/* Featured Game Banner */}
-      {featuredGame && (
-        <div className="bg-grovix-card border border-grovix-border rounded-2xl p-4 mx-4 mb-6">
-          <div className="flex gap-4">
-            <div className="relative w-24 h-24 flex-shrink-0 rounded-xl overflow-hidden">
-              <Image
-                src={featuredGame.thumbnail}
-                alt={featuredGame.title}
-                fill
-                className="object-cover"
-                sizes="96px"
-              />
-            </div>
-            <div className="flex-1 min-w-0 flex flex-col justify-between">
-              <div>
-                <h2 className="text-white font-bold text-lg truncate">
-                  {featuredGame.title}
-                </h2>
-                <div className="flex items-center gap-2 mt-1 flex-wrap">
-                  <span className="text-grovix-muted text-xs">
-                    ★ {featuredGame.rating}
-                  </span>
-                  <span className="text-grovix-muted text-xs">
-                    {featuredGame.sizeMB}MB
-                  </span>
-                  {featuredGame.offline && (
-                    <span className="inline-flex items-center bg-grovix-success/20 text-grovix-success text-[10px] font-semibold rounded-full px-2 py-0.5">
-                      Offline ✓
-                    </span>
-                  )}
+      {/* Featured Banner */}
+      <div className="px-4 pt-4 mb-5">
+        <div className="relative w-full h-[140px]
+                        rounded-2xl overflow-hidden"
+             style={{
+               background:
+                 'linear-gradient(135deg, #7C5CFF 0%, #00D4FF 100%)'
+             }}>
+          <div className="absolute inset-0 p-5
+                          flex flex-col justify-end">
+            <p className="text-white/70 text-xs mb-1">
+              🎮 Featured
+            </p>
+            <h2 className="text-white font-bold text-xl">
+              Play Instantly
+            </h2>
+            <p className="text-white/70 text-xs mt-1">
+              No download. No install. Just play.
+            </p>
+          </div>
+          {/* Decorative circles */}
+          <div className="absolute -right-8 -top-8
+                          w-32 h-32 rounded-full
+                          bg-white/10" />
+          <div className="absolute -right-4 top-8
+                          w-20 h-20 rounded-full
+                          bg-white/5" />
+        </div>
+      </div>
+
+      {/* Category Filter */}
+      <div className="overflow-x-auto scrollbar-hide
+                      px-4 mb-4">
+        <div className="flex gap-2">
+          {CATEGORIES.map(cat => (
+            <button
+              key={cat}
+              onClick={() => setActive(cat)}
+              className={`flex-shrink-0 rounded-full
+                         px-4 py-2 text-xs font-medium
+                         transition-all duration-200
+                         ${active === cat
+                           ? 'bg-[#7C5CFF] text-white'
+                           : 'bg-[#111827] border border-[#1E293B] text-[#94A3B8]'
+                         }`}
+            >
+              {cat}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Recently Played */}
+      {recentGames.length > 0 && (
+        <div className="mb-5">
+          <div className="flex items-center
+                          justify-between px-4 mb-3">
+            <h2 className="text-base font-semibold
+                           text-white">
+              🕐 Continue Playing
+            </h2>
+          </div>
+          <div className="overflow-x-auto scrollbar-hide">
+            <div className="flex gap-3 px-4 pb-2">
+              {recentGames.map(game => (
+                <div key={game!.id}
+                     className="flex-shrink-0 w-[140px]">
+                  <GameCard game={game} />
                 </div>
-              </div>
-              <button
-                onClick={() => window.open(featuredGame.playUrl, '_blank')}
-                className="mt-2 h-10 bg-grovix-purple text-white text-sm font-semibold rounded-xl flex items-center justify-center gap-1.5 transition-colors duration-150 hover:bg-grovix-purple/90 active:scale-[0.97]"
-                type="button"
-              >
-                ▶ Play Now
-              </button>
+              ))}
             </div>
           </div>
         </div>
       )}
 
-      {/* Category Rows */}
-      {CATEGORY_ROWS.map((row) => {
-        const rowGames = typedGamesData.filter(
-          (game) => game.category === row.category
-        );
-        if (rowGames.length === 0) return null;
-
-        return (
-          <section key={row.category} className="mb-6">
-            <h2 className="text-white font-semibold text-base px-4 mb-3">
-              {row.emoji} {row.label}
+      {/* Featured Row */}
+      {active === 'All' && (
+        <div className="mb-5">
+          <div className="flex items-center
+                          justify-between px-4 mb-3">
+            <h2 className="text-base font-semibold
+                           text-white">
+              ⭐ Featured Games
             </h2>
-            <div className="flex gap-3 overflow-x-auto scrollbar-hide px-4">
-              {rowGames.map((game) => (
+            <span className="text-xs text-[#7C5CFF]">
+              See All →
+            </span>
+          </div>
+          <div className="overflow-x-auto scrollbar-hide">
+            <div className="flex gap-3 px-4 pb-2">
+              {featured.map(game => (
                 <GameCard
                   key={game.id}
-                  id={game.id}
-                  title={game.title}
-                  thumbnail={game.thumbnail}
-                  rating={game.rating}
-                  sizeMB={game.sizeMB}
-                  category={game.category}
-                  offline={game.offline}
-                  playUrl={game.playUrl}
+                  game={game}
+                  size="large"
                 />
               ))}
             </div>
-          </section>
-        );
-      })}
-
-      {/* All Games Grid (shown when filtered) */}
-      {activeCategory !== 'All' && (
-        <section className="px-4">
-          <h2 className="text-white font-semibold text-base mb-3">
-            {activeCategory} Games
-          </h2>
-          <div className="grid grid-cols-3 gap-3">
-            {filteredGames.map((game) => (
-              <GameCard
-                key={game.id}
-                id={game.id}
-                title={game.title}
-                thumbnail={game.thumbnail}
-                rating={game.rating}
-                sizeMB={game.sizeMB}
-                category={game.category}
-                offline={game.offline}
-                playUrl={game.playUrl}
-              />
-            ))}
           </div>
-          {filteredGames.length === 0 && (
-            <p className="text-grovix-muted text-sm text-center py-8">
-              No games found in this category.
-            </p>
-          )}
-        </section>
+        </div>
       )}
+
+      {/* Trending Row */}
+      {active === 'All' && (
+        <div className="mb-5">
+          <div className="flex items-center
+                          justify-between px-4 mb-3">
+            <h2 className="text-base font-semibold
+                           text-white">
+              🔥 Trending Games
+            </h2>
+            <span className="text-xs text-[#7C5CFF]">
+              See All →
+            </span>
+          </div>
+          <div className="overflow-x-auto scrollbar-hide">
+            <div className="flex gap-3 px-4 pb-2">
+              {trending.map(game => (
+                <div key={game.id}
+                     className="flex-shrink-0 w-[140px]">
+                  <GameCard game={game} />
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Main Grid */}
+      <div className="px-4">
+        <div className="flex items-center
+                        justify-between mb-3">
+          <h2 className="text-base font-semibold
+                         text-white">
+            {active === 'All' ? '🎮 All Games' : active}
+          </h2>
+          <span className="text-xs text-[#94A3B8]">
+            {filtered.length} games
+          </span>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          {filtered.map(game => (
+            <GameCard key={game.id} game={game} />
+          ))}
+        </div>
+      </div>
     </div>
-  );
+  )
 }
