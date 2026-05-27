@@ -2,6 +2,8 @@ import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
 import BottomNav from "@/components/layout/BottomNav";
+import OfflineIndicator from "@/components/OfflineIndicator";
+import ServiceWorkerRegistrar from "@/components/ServiceWorkerRegistrar";
 
 const inter = Inter({
   variable: "--font-geist-sans",
@@ -14,6 +16,12 @@ export const metadata: Metadata = {
   description: "Download, watch, play and manage entertainment — all in one place. Premium futuristic media ecosystem.",
   keywords: ["GROVIX", "Media", "Download", "Movies", "Games", "Music", "Streaming"],
   authors: [{ name: "GROVIX" }],
+  manifest: "/manifest.json",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
+    title: "GROVIX",
+  },
   openGraph: {
     title: "GROVIX — Your Ultimate Media Universe",
     description: "Download, watch, play and manage entertainment — all in one place.",
@@ -26,7 +34,7 @@ export const viewport: Viewport = {
   initialScale: 1,
   maximumScale: 1,
   userScalable: false,
-  themeColor: "#070B14",
+  themeColor: "#7c3aed",
 };
 
 export default function RootLayout({
@@ -36,9 +44,16 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" suppressHydrationWarning>
+      <head>
+        <link rel="manifest" href="/manifest.json" />
+        <meta name="mobile-web-app-capable" content="yes" />
+        <link rel="apple-touch-icon" href="/icons/icon-192.png" />
+      </head>
       <body
         className={`${inter.variable} antialiased bg-grovix-bg text-white min-h-screen`}
       >
+        <OfflineIndicator />
+        <ServiceWorkerRegistrar />
         <main className="min-h-screen">
           {children}
         </main>
