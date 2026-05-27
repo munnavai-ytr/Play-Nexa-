@@ -36,6 +36,10 @@ const nextConfig: NextConfig = {
         protocol: "https",
         hostname: "img.gamedistribution.com",
       },
+      {
+        protocol: "https",
+        hostname: "img.itch.zone",
+      },
     ],
   },
   async headers() {

@@ -152,7 +152,9 @@ export default function GamePlayerPage(
           className={`w-full border-none
                       ${fullscreen
                         ? 'h-screen'
-                        : 'h-[55vw] min-h-[280px]'
+                        : game.orientation === 'portrait'
+                          ? 'h-[120vw] min-h-[420px] max-h-[70vh]'
+                          : 'h-[55vw] min-h-[280px]'
                       }`}
           allowFullScreen
           allow="autoplay; fullscreen;
@@ -225,6 +227,15 @@ export default function GamePlayerPage(
                   <Zap size={10} />
                   {game.sizeLabel}
                 </span>
+                {game.orientation && (
+                  <span className="bg-[#111827]
+                                   border border-[#1E293B]
+                                   text-[#94A3B8] text-xs
+                                   rounded-full
+                                   px-2 py-0.5">
+                    {game.orientation === 'portrait' ? '📱 Portrait' : '🖥️ Landscape'}
+                  </span>
+                )}
               </div>
             </div>
           </div>

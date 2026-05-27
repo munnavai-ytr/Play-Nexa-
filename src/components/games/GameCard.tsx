@@ -14,6 +14,8 @@ interface Game {
   isMultiplayer: boolean
   sizeLabel: string
   performanceLevel: string
+  source: string
+  orientation: string
 }
 
 export default function GameCard(
@@ -110,12 +112,22 @@ export default function GameCard(
                          px-2 py-0.5">
           {game.category}
         </span>
+        {/* Orientation badge */}
+        {game.orientation === 'portrait' && (
+          <span className="absolute top-2 right-2
+                           bg-[#00D4FF]/80 text-white
+                           text-[9px] font-bold
+                           rounded-full px-2 py-0.5">
+            📱
+          </span>
+        )}
         {/* Multiplayer badge */}
         {game.isMultiplayer && (
           <span className="absolute top-2 right-2
                            bg-[#00D4FF]/80 text-white
                            text-[9px] font-bold
-                           rounded-full px-2 py-0.5">
+                           rounded-full px-2 py-0.5"
+                  style={{ left: game.orientation === 'portrait' ? undefined : 'auto', right: game.orientation === 'portrait' ? '2.5rem' : '0.5rem' }}>
             MP
           </span>
         )}

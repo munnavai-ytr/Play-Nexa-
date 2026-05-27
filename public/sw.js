@@ -84,6 +84,7 @@ self.addEventListener('fetch', (event) => {
     url.hostname.includes('img.youtube.com') ||
     url.hostname.includes('i.ytimg.com') ||
     url.hostname.includes('img.gamedistribution.com') ||
+    url.hostname.includes('img.itch.zone') ||
     (url.pathname.includes('/thumbnail') && req.destination === 'image');
 
   if (isThumb) {
@@ -97,7 +98,8 @@ self.addEventListener('fetch', (event) => {
     url.hostname.includes('crazygames.com') ||
     url.hostname.includes('gamepix.com') ||
     url.hostname.includes('gamedistribution.com') ||
-    url.hostname.includes('html5.gamedistribution.com');
+    url.hostname.includes('html5.gamedistribution.com') ||
+    url.hostname.includes('itch.io');
 
   if (isGameUrl && (req.destination === 'iframe' || req.mode === 'navigate')) {
     event.respondWith(networkFirstGame(req));
