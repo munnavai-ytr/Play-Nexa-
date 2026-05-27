@@ -1,26 +1,234 @@
-[
-  {
-    "id": "s1",
-    "name": "SaveFrom",
-    "baseUrl": "https://en.savefrom.net/#url=",
-    "supports": ["youtube", "vimeo", "facebook"]
+{
+  "youtube": {
+    "video": [
+      {
+        "id": "y2mate",
+        "name": "Y2Mate",
+        "url": "https://www.y2mate.com/youtube/",
+        "buildUrl": "id",
+        "note": "append videoId"
+      },
+      {
+        "id": "ytmate",
+        "name": "YT5s",
+        "url": "https://yt5s.io/en66/",
+        "buildUrl": "param",
+        "param": "url",
+        "note": "?url=full_youtube_url"
+      },
+      {
+        "id": "savefrom",
+        "name": "SaveFrom",
+        "url": "https://en.savefrom.net/#url=",
+        "buildUrl": "append",
+        "note": "append encoded full url"
+      },
+      {
+        "id": "9xbuddy",
+        "name": "9xBuddy",
+        "url": "https://9xbuddy.in/process?url=",
+        "buildUrl": "append",
+        "note": "append encoded full url"
+      }
+    ],
+    "audio": [
+      {
+        "id": "loader",
+        "name": "Loader.to",
+        "url": "https://loader.to/api/button/?url=",
+        "buildUrl": "append"
+      },
+      {
+        "id": "ytmp3",
+        "name": "YTMP3",
+        "url": "https://ytmp3.cc/en13/",
+        "buildUrl": "param",
+        "param": "url"
+      }
+    ]
   },
-  {
-    "id": "s2",
-    "name": "SnapSave",
-    "baseUrl": "https://snapsave.app/result?url=",
-    "supports": ["facebook", "instagram", "tiktok"]
+  "tiktok": {
+    "video": [
+      {
+        "id": "snaptik",
+        "name": "SnapTik",
+        "url": "https://snaptik.app/",
+        "buildUrl": "param",
+        "param": "url"
+      },
+      {
+        "id": "ssstik",
+        "name": "SSSTik",
+        "url": "https://ssstik.io/en",
+        "buildUrl": "param",
+        "param": "url"
+      },
+      {
+        "id": "tikmate",
+        "name": "TikMate",
+        "url": "https://tikmate.online/",
+        "buildUrl": "param",
+        "param": "url"
+      }
+    ],
+    "audio": [
+      {
+        "id": "musicallydown",
+        "name": "MusicallyDown",
+        "url": "https://musicallydown.com/",
+        "buildUrl": "param",
+        "param": "url"
+      }
+    ]
   },
-  {
-    "id": "s3",
-    "name": "SSYouTube",
-    "baseUrl": "https://ssyoutube.com/watch?v=",
-    "supports": ["youtube"]
+  "facebook": {
+    "video": [
+      {
+        "id": "snapsave",
+        "name": "SnapSave",
+        "url": "https://snapsave.app/result?url=",
+        "buildUrl": "append"
+      },
+      {
+        "id": "fdownloader",
+        "name": "FDownloader",
+        "url": "https://fdownloader.net/",
+        "buildUrl": "param",
+        "param": "url"
+      },
+      {
+        "id": "getfvid",
+        "name": "GetFVid",
+        "url": "https://www.getfvid.com/",
+        "buildUrl": "param",
+        "param": "url"
+      }
+    ],
+    "audio": [
+      {
+        "id": "savefrom_fb",
+        "name": "SaveFrom",
+        "url": "https://en.savefrom.net/#url=",
+        "buildUrl": "append"
+      }
+    ]
   },
-  {
-    "id": "s4",
-    "name": "Y2Mate",
-    "baseUrl": "https://www.y2mate.com/youtube/",
-    "supports": ["youtube"]
+  "instagram": {
+    "video": [
+      {
+        "id": "snapinsta",
+        "name": "SnapInsta",
+        "url": "https://snapinsta.app/",
+        "buildUrl": "param",
+        "param": "url"
+      },
+      {
+        "id": "igram",
+        "name": "iGram",
+        "url": "https://igram.world/",
+        "buildUrl": "param",
+        "param": "url"
+      },
+      {
+        "id": "fastdl",
+        "name": "FastDL",
+        "url": "https://fastdl.app/",
+        "buildUrl": "param",
+        "param": "url"
+      }
+    ],
+    "audio": [
+      {
+        "id": "saveinsta",
+        "name": "SaveInsta",
+        "url": "https://www.saveinsta.app/",
+        "buildUrl": "param",
+        "param": "url"
+      }
+    ]
+  },
+  "twitter": {
+    "video": [
+      {
+        "id": "ssstwitter",
+        "name": "SSSTwitter",
+        "url": "https://ssstwitter.com/",
+        "buildUrl": "param",
+        "param": "url"
+      },
+      {
+        "id": "tweetvid",
+        "name": "SaveTweetVid",
+        "url": "https://www.savetweetvid.com/",
+        "buildUrl": "param",
+        "param": "url"
+      },
+      {
+        "id": "twdown",
+        "name": "TWDown",
+        "url": "https://twdown.net/",
+        "buildUrl": "param",
+        "param": "url"
+      }
+    ],
+    "audio": [
+      {
+        "id": "redketchup",
+        "name": "RedKetchup",
+        "url": "https://redketchup.io/video-downloader#",
+        "buildUrl": "append"
+      }
+    ]
+  },
+  "vimeo": {
+    "video": [
+      {
+        "id": "savevideo",
+        "name": "SaveVideo",
+        "url": "https://savevideo.me/",
+        "buildUrl": "param",
+        "param": "url"
+      },
+      {
+        "id": "9xbuddy_v",
+        "name": "9xBuddy",
+        "url": "https://9xbuddy.in/process?url=",
+        "buildUrl": "append"
+      }
+    ],
+    "audio": [
+      {
+        "id": "loader_v",
+        "name": "Loader.to",
+        "url": "https://loader.to/api/button/?url=",
+        "buildUrl": "append"
+      }
+    ]
+  },
+  "soundcloud": {
+    "video": [],
+    "audio": [
+      {
+        "id": "klickaud",
+        "name": "KlickAud",
+        "url": "https://klickaud.co/",
+        "buildUrl": "param",
+        "param": "url"
+      },
+      {
+        "id": "sccloud",
+        "name": "SoundCloud DL",
+        "url": "https://soundclouddownloader.io/",
+        "buildUrl": "param",
+        "param": "url"
+      },
+      {
+        "id": "musicverter",
+        "name": "MusicVerter",
+        "url": "https://musicverter.com/",
+        "buildUrl": "param",
+        "param": "url"
+      }
+    ]
   }
-]
+}
