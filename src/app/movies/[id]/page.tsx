@@ -12,7 +12,6 @@ import { getMovieById, getRelated } from '@/lib/search'
 import type { Movie } from '@/lib/search'
 import MovieCard from '@/components/movies/MovieCard'
 import SaveButton from '@/components/offline/SaveButton'
-import DownloadButton from '@/components/offline/DownloadButton'
 
 // ── Skeleton loader ──
 function MovieDetailSkeleton() {
@@ -222,13 +221,6 @@ export default function MovieDetailPage(
               channel: movie.channel,
               genre: movie.genre,
             }}
-          />
-
-          {/* Download — real external redirect */}
-          <DownloadButton
-            videoId={movie.videoId}
-            type="video"
-            title={movie.title}
           />
         </div>
 

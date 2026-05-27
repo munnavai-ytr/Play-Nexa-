@@ -9,7 +9,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { Heart, Share2 } from 'lucide-react'
 import SaveButton from '@/components/offline/SaveButton'
-import DownloadButton from '@/components/offline/DownloadButton'
+
 import { allShorts } from '@/lib/search'
 import type { Short } from '@/lib/search'
 
@@ -197,15 +197,6 @@ export default function ShortsPage() {
                       channel: short.channel,
                       genre: [],
                     }}
-                  />
-                </div>
-
-                {/* Download */}
-                <div className="flex flex-col items-center gap-1">
-                  <DownloadButton
-                    videoId={short.videoId}
-                    type="short"
-                    title={short.title}
                   />
                 </div>
               </div>
