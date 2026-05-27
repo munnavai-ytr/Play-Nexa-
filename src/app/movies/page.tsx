@@ -1,16 +1,16 @@
+// ── GROVIX Movies Page ─────────────────────────────────────
+// Zero API — all data from JSON
+// Instant load — no network for movie list
+// useMemo on all filter functions
+
 'use client'
 
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
-import TopBar from '@/components/layout/TopBar'
-import CategoryFilter from '@/components/movies/CategoryFilter'
 import MovieCard from '@/components/movies/MovieCard'
-import LoadingShimmer from '@/components/ui/LoadingShimmer'
-import { useMovieCategory, useTrending } from '@/hooks/useMovies'
-import type { YouTubeMovie } from '@/lib/youtube'
+import { getByCategory } from '@/lib/search'
 
 const CATEGORIES = [
-  'All',
   'Trending',
   'Hollywood',
   'Bollywood',
@@ -18,15 +18,11 @@ const CATEGORIES = [
   'Korean',
   'Sci-Fi',
   'Action',
-  'Horror',
-  'Comedy',
   'Hindi Dubbed',
-  'Bangla',
-  'Adventure',
 ]
 
 const SECTIONS = [
-  { label: '🔥 Trending in Bangladesh', cat: 'Trending' },
+  { label: '🔥 Trending Now', cat: 'Trending' },
   { label: '🎬 Hollywood Hits', cat: 'Hollywood' },
   { label: '🎭 Bollywood', cat: 'Bollywood' },
   { label: '🎌 Anime Universe', cat: 'Anime' },
@@ -37,85 +33,74 @@ const SECTIONS = [
 ]
 
 function MovieSection({ label, category }: { label: string; category: string }) {
-  const { movies, loading, error } = useMovieCategory(category)
+  // useMemo = no recalculation on re-render
+  const movies = useMemo(
+    () => getByCategory(category).slice(0, 15),
+    [category],
+  )
+
+  if (movies.length === 0) return null
 
   return (
-    <section className="mb-6">
+    <div className="mb-6">
       <div className="flex items-center justify-between px-4 mb-3">
         <h2 className="text-base font-semibold text-white">{label}</h2>
-        <button
-          type="button"
-          className="text-xs text-grovix-purple font-medium min-h-[44px] min-w-[44px] flex items-center justify-center transition-opacity duration-150 hover:opacity-80 active:scale-95"
-        >
-          See All →
-        </button>
+        <span className="text-xs text-grovix-purple">See All →</span>
       </div>
-
-      <div className="flex gap-3 px-4 overflow-x-auto scrollbar-hide pb-2">
-        {loading ? (
-          Array.from({ length: 5 }).map((_, i) => (
-            <LoadingShimmer
-              key={i}
-              className="w-[148px] h-[120px] rounded-2xl flex-shrink-0"
-            />
-          ))
-        ) : error ? (
-          <div className="flex items-center justify-center w-full py-8">
-            <p className="text-grovix-muted text-xs">{error}</p>
-          </div>
-        ) : movies.length === 0 ? (
-          <div className="flex items-center justify-center w-full py-8">
-            <p className="text-grovix-muted text-xs">No movies found</p>
-          </div>
-        ) : (
-          movies.map((movie: YouTubeMovie) => (
-            <div key={movie.id} className="flex-shrink-0">
-              <MovieCard movie={movie} />
-            </div>
-          ))
-        )}
+      <div className="overflow-x-auto scrollbar-hide">
+        <div className="flex gap-3 px-4 pb-2">
+          {movies.map(movie => (
+            <MovieCard key={movie.id} movie={movie} />
+          ))}
+        </div>
       </div>
-    </section>
+    </div>
   )
 }
 
 export default function MoviesPage() {
   const router = useRouter()
-  const [activeCategory, setActiveCategory] = useState('All')
+  const [active, setActive] = useState('Trending')
 
   return (
-    <div className="flex min-h-screen flex-col bg-grovix-bg">
-      <TopBar
-        title="Movies"
-        showBack
-        showSearch
-        onSearchClick={() => router.push('/search')}
-      />
+    <div className="min-h-screen bg-grovix-bg pb-24">
+      {/* TopBar */}
+      <div className="sticky top-0 z-50 bg-grovix-bg border-b border-grovix-border px-4 h-14 flex items-center justify-between">
+        <h1 className="text-lg font-bold text-white">Movies</h1>
+        <button
+          onClick={() => router.push('/search')}
+          type="button"
+          className="p-2 rounded-full bg-grovix-card border border-grovix-border active:scale-90 transition-transform duration-150 min-h-[44px] min-w-[44px] flex items-center justify-center"
+          aria-label="Search"
+        >
+          <span className="text-sm">🔍</span>
+        </button>
+      </div>
 
-      <main className="flex-1 space-y-6 pb-24">
-        {/* Category Filter */}
-        <CategoryFilter
-          categories={CATEGORIES}
-          active={activeCategory}
-          onChange={setActiveCategory}
-        />
+      {/* Category chips */}
+      <div className="overflow-x-auto scrollbar-hide py-3">
+        <div className="flex gap-2 px-4">
+          {CATEGORIES.map(cat => (
+            <button
+              key={cat}
+              onClick={() => setActive(cat)}
+              type="button"
+              className={`flex-shrink-0 rounded-full px-4 py-2 text-xs font-medium transition-all duration-200 min-h-[44px] ${
+                active === cat
+                  ? 'bg-grovix-purple text-white'
+                  : 'bg-grovix-card border border-grovix-border text-grovix-muted'
+              }`}
+            >
+              {cat}
+            </button>
+          ))}
+        </div>
+      </div>
 
-        {/* Movie Sections */}
-        {activeCategory === 'All' ? (
-          SECTIONS.map((section) => (
-            <MovieSection
-              key={section.cat}
-              label={section.label}
-              category={section.cat}
-            />
-          ))
-        ) : (
-          <MovieSection
-            label={`Showing: ${activeCategory}`}
-            category={activeCategory}
-          />
-        )}
-      </main>
+      {/* All sections — instant, zero API */}
+      {SECTIONS.map(s => (
+        <MovieSection key={s.cat} label={s.label} category={s.cat} />
+      ))}
     </div>
   )
 }

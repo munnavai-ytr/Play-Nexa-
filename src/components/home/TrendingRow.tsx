@@ -1,35 +1,22 @@
-'use client';
+// ── GROVIX Trending Row ────────────────────────────────────
+// Zero API — uses local JSON data
+// Instant load — no network for movie list
 
-import Image from 'next/image';
-import Link from 'next/link';
-import moviesData from '@/data/movies.json';
+'use client'
 
-interface MovieItem {
-  id: string;
-  title: string;
-  thumbnail: string;
-  videoId: string;
-  duration: string;
-  language: string;
-  genre: string[];
-  dubbed: boolean;
-  dubbedVersions: string[];
-  rating: string;
-  source: string;
-  free: boolean;
-  description: string;
-  platform: string;
-  category: string;
-}
+import Image from 'next/image'
+import Link from 'next/link'
+import moviesData from '@/data/movies.json'
+import type { Movie } from '@/lib/search'
 
 interface TrendingRowProps {
-  title: string;
-  items?: MovieItem[];
-  type?: 'movie' | 'game';
+  title: string
+  items?: Movie[]
+  type?: 'movie' | 'game'
 }
 
 export default function TrendingRow({ title, items, type = 'movie' }: TrendingRowProps) {
-  const displayItems = items ?? (moviesData as MovieItem[]).slice(0, 8);
+  const displayItems = items ?? (moviesData as Movie[]).slice(0, 8)
 
   return (
     <section>
@@ -49,6 +36,7 @@ export default function TrendingRow({ title, items, type = 'movie' }: TrendingRo
                 height={79}
                 loading="lazy"
                 className="w-full h-[79px] object-cover"
+                unoptimized
               />
               {item.free && (
                 <span className="absolute top-1.5 left-1.5 rounded-md bg-grovix-purple px-1.5 py-0.5 text-[10px] font-bold text-white">
@@ -66,5 +54,5 @@ export default function TrendingRow({ title, items, type = 'movie' }: TrendingRo
         ))}
       </div>
     </section>
-  );
+  )
 }

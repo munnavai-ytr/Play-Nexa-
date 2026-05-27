@@ -1,33 +1,20 @@
-'use client';
+// ── GROVIX Home Page ───────────────────────────────────────
+// Zero API — all data from local JSON
+// Instant load — no network needed
 
-import TopBar from '@/components/layout/TopBar';
-import HeroSection from '@/components/home/HeroSection';
-import QuickAccessGrid from '@/components/home/QuickAccessGrid';
-import TrendingRow from '@/components/home/TrendingRow';
-import ToolChips from '@/components/home/ToolChips';
-import moviesData from '@/data/movies.json';
-import gamesData from '@/data/games.json';
+'use client'
 
-interface MovieItem {
-  id: string;
-  title: string;
-  thumbnail: string;
-  videoId: string;
-  duration: string;
-  language: string;
-  genre: string[];
-  dubbed: boolean;
-  dubbedVersions: string[];
-  rating: string;
-  source: string;
-  free: boolean;
-  description: string;
-  platform: string;
-  category: string;
-}
+import TopBar from '@/components/layout/TopBar'
+import HeroSection from '@/components/home/HeroSection'
+import QuickAccessGrid from '@/components/home/QuickAccessGrid'
+import TrendingRow from '@/components/home/TrendingRow'
+import ToolChips from '@/components/home/ToolChips'
+import moviesData from '@/data/movies.json'
+import gamesData from '@/data/games.json'
+import type { Movie } from '@/lib/search'
 
-// Map games data to MovieItem shape for TrendingRow compatibility
-const mappedGames: MovieItem[] = (gamesData as typeof gamesData).map((game) => ({
+// Map games data to Movie shape for TrendingRow compatibility
+const mappedGames = (gamesData as typeof gamesData).map((game) => ({
   id: game.id,
   title: game.title,
   thumbnail: game.thumbnail,
@@ -36,14 +23,15 @@ const mappedGames: MovieItem[] = (gamesData as typeof gamesData).map((game) => (
   language: game.category,
   genre: [game.category],
   dubbed: false,
-  dubbedVersions: [],
   rating: game.rating,
-  source: 'Google Play',
-  free: game.offline,
+  year: '',
+  channel: 'Google Play',
   description: `${game.category} game - ${game.sizeMB}MB`,
-  platform: 'Google Play',
   category: game.category,
-}));
+  trending: false,
+  viral: false,
+  free: game.offline,
+}))
 
 export default function Home() {
   return (
@@ -61,7 +49,7 @@ export default function Home() {
         <QuickAccessGrid />
         <TrendingRow
           title="🔥 Trending Now"
-          items={(moviesData as MovieItem[]).slice(0, 8)}
+          items={(moviesData as Movie[]).filter(m => m.trending).slice(0, 8)}
           type="movie"
         />
         <TrendingRow
@@ -72,5 +60,5 @@ export default function Home() {
         <ToolChips />
       </main>
     </div>
-  );
+  )
 }

@@ -3,7 +3,7 @@ import { openDB, type IDBPDatabase } from 'idb'
 // ── Database Schema ──────────────────────────────────────────
 
 interface GrovixDB {
-  media: {
+  savedMedia: {
     key: string
     value: {
       id: string
@@ -11,24 +11,18 @@ interface GrovixDB {
       thumbnail: string
       videoId: string
       duration: string
-      durationSec: number
       type: 'movie' | 'short'
       language: string
       channel: string
-      quality: 'auto' | 'low' | 'medium' | 'hd'
-      estimatedSizeMB: number
-      savedAt: number
-      status: 'saving' | 'saved' | 'failed'
-      watchProgress: number      // seconds watched
-      watchPercent: number       // 0-100
-      lastWatchedAt: number | null
-      platform: string
       genre: string[]
-      source: string
+      savedAt: number
+      watchProgress: number
+      watchPercent: number
+      lastWatchedAt: number | null
+      lists: string[]
     }
     indexes: {
       'by-type': string
-      'by-status': string
       'by-savedAt': number
     }
   }
@@ -37,28 +31,14 @@ interface GrovixDB {
     value: {
       id: string
       name: string
-      type: 'movies' | 'shorts' | 'anime' | 'favorites' | 'watchLater' | 'custom'
+      emoji: string
       mediaIds: string[]
       createdAt: number
       updatedAt: number
       isDefault: boolean
     }
   }
-  watchHistory: {
-    key: string
-    value: {
-      id: string
-      mediaId: string
-      title: string
-      thumbnail: string
-      videoId: string
-      watchedAt: number
-      progress: number
-      percent: number
-    }
-    indexes: { 'by-watchedAt': number }
-  }
-  // Existing stores from Phase 1 (preserved for backward compat)
+  // Legacy stores from Phase 1 (preserved for backward compat)
   downloads: {
     key: string
     value: {
@@ -79,86 +59,70 @@ interface GrovixDB {
   }
 }
 
-const DB_NAME = 'grovix-db'
-const DB_VERSION = 2
-
-let dbInstance: IDBPDatabase<GrovixDB> | null = null
+const DB_NAME = 'grovix-v1'
+const DB_VER = 1
+let db: IDBPDatabase<GrovixDB> | null = null
 
 export const getDB = async () => {
-  if (dbInstance) return dbInstance
-
-  dbInstance = await openDB<GrovixDB>(DB_NAME, DB_VERSION, {
-    upgrade(db, oldVersion) {
-      // Phase 1 stores — keep if they already exist
-      if (!db.objectStoreNames.contains('downloads')) {
-        db.createObjectStore('downloads', { keyPath: 'id' })
-      }
-      if (!db.objectStoreNames.contains('settings')) {
-        db.createObjectStore('settings', { keyPath: 'key' })
+  if (db) return db
+  db = await openDB<GrovixDB>(DB_NAME, DB_VER, {
+    upgrade(database) {
+      // savedMedia store
+      if (!database.objectStoreNames.contains('savedMedia')) {
+        const s = database.createObjectStore('savedMedia', { keyPath: 'id' })
+        s.createIndex('by-type', 'type')
+        s.createIndex('by-savedAt', 'savedAt')
       }
 
-      // Phase 3 — Offline Media stores
-      if (!db.objectStoreNames.contains('media')) {
-        const mediaStore = db.createObjectStore('media', {
-          keyPath: 'id',
-        })
-        mediaStore.createIndex('by-type', 'type')
-        mediaStore.createIndex('by-status', 'status')
-        mediaStore.createIndex('by-savedAt', 'savedAt')
+      // playlists store
+      if (!database.objectStoreNames.contains('playlists')) {
+        database.createObjectStore('playlists', { keyPath: 'id' })
       }
 
-      if (!db.objectStoreNames.contains('playlists')) {
-        db.createObjectStore('playlists', { keyPath: 'id' })
+      // Legacy Phase 1 stores
+      if (!database.objectStoreNames.contains('downloads')) {
+        database.createObjectStore('downloads', { keyPath: 'id' })
       }
-
-      if (!db.objectStoreNames.contains('watchHistory')) {
-        const histStore = db.createObjectStore('watchHistory', {
-          keyPath: 'id',
-        })
-        histStore.createIndex('by-watchedAt', 'watchedAt')
+      if (!database.objectStoreNames.contains('settings')) {
+        database.createObjectStore('settings', { keyPath: 'key' })
       }
     },
   })
-
-  return dbInstance
+  return db
 }
 
-// ── Media CRUD ──────────────────────────────────────────────
+// ── Saved Media ──────────────────────────────────────────────
 
-export const saveMedia = async (media: GrovixDB['media']['value']) => {
-  const db = await getDB()
-  await db.put('media', media)
+export const saveItem = async (item: GrovixDB['savedMedia']['value']) => {
+  const d = await getDB()
+  await d.put('savedMedia', item)
 }
 
-export const getMedia = async (id: string) => {
-  const db = await getDB()
-  return db.get('media', id)
+export const getItem = async (id: string) => {
+  const d = await getDB()
+  return d.get('savedMedia', id)
 }
 
-export const getAllMedia = async () => {
-  const db = await getDB()
-  return db.getAll('media')
+export const getAllSaved = async () => {
+  const d = await getDB()
+  return d.getAll('savedMedia')
 }
 
-export const getMediaByType = async (type: 'movie' | 'short') => {
-  const db = await getDB()
-  return db.getAllFromIndex('media', 'by-type', type)
+export const getSavedByType = async (type: 'movie' | 'short') => {
+  const d = await getDB()
+  return d.getAllFromIndex('savedMedia', 'by-type', type)
 }
 
-export const deleteMedia = async (id: string) => {
-  const db = await getDB()
-  await db.delete('media', id)
+export const deleteItem = async (id: string) => {
+  const d = await getDB()
+  await d.delete('savedMedia', id)
 }
 
-export const updateWatchProgress = async (
-  id: string,
-  seconds: number,
-  percent: number
-) => {
-  const db = await getDB()
-  const item = await db.get('media', id)
+export const updateProgress = async (id: string, seconds: number, percent: number) => {
+  const d = await getDB()
+  const item = await d.get('savedMedia', id)
   if (!item) return
-  await db.put('media', {
+  await d.put('savedMedia', {
     ...item,
     watchProgress: seconds,
     watchPercent: percent,
@@ -166,49 +130,42 @@ export const updateWatchProgress = async (
   })
 }
 
-// ── Storage estimate ──────────────────────────────────────────
-
-export const getStorageInfo = async () => {
-  try {
-    const estimate = await navigator.storage.estimate()
-    const usedMB = Math.round((estimate.usage || 0) / 1024 / 1024)
-    const totalMB = Math.round((estimate.quota || 0) / 1024 / 1024)
-    return { usedMB, totalMB }
-  } catch {
-    return { usedMB: 0, totalMB: 4096 }
-  }
+export const isItemSaved = async (id: string): Promise<boolean> => {
+  const d = await getDB()
+  const item = await d.get('savedMedia', id)
+  return !!item
 }
 
-// ── Playlist CRUD ──────────────────────────────────────────────
+// ── Playlists ────────────────────────────────────────────────
 
-export const createDefaultPlaylists = async () => {
-  const db = await getDB()
-  const existing = await db.getAll('playlists')
-  if (existing.length > 0) return
+export const initDefaultPlaylists = async () => {
+  const d = await getDB()
+  const all = await d.getAll('playlists')
+  if (all.length > 0) return
 
   const defaults: GrovixDB['playlists']['value'][] = [
     {
-      id: 'favorites',
-      name: '⭐ Favorites',
-      type: 'favorites',
-      mediaIds: [],
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-      isDefault: true,
-    },
-    {
       id: 'watch-later',
-      name: '🕐 Watch Later',
-      type: 'watchLater',
+      name: 'Watch Later',
+      emoji: '🕐',
       mediaIds: [],
       createdAt: Date.now(),
       updatedAt: Date.now(),
       isDefault: true,
     },
     {
-      id: 'anime-list',
-      name: '🎌 Anime List',
-      type: 'anime',
+      id: 'favorites',
+      name: 'Favorites',
+      emoji: '⭐',
+      mediaIds: [],
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      isDefault: true,
+    },
+    {
+      id: 'anime',
+      name: 'Anime List',
+      emoji: '🎌',
       mediaIds: [],
       createdAt: Date.now(),
       updatedAt: Date.now(),
@@ -216,8 +173,8 @@ export const createDefaultPlaylists = async () => {
     },
     {
       id: 'my-movies',
-      name: '🎬 My Movies',
-      type: 'movies',
+      name: 'My Movies',
+      emoji: '🎬',
       mediaIds: [],
       createdAt: Date.now(),
       updatedAt: Date.now(),
@@ -225,130 +182,103 @@ export const createDefaultPlaylists = async () => {
     },
   ]
 
-  for (const playlist of defaults) {
-    await db.put('playlists', playlist)
+  for (const p of defaults) {
+    await d.put('playlists', p)
   }
 }
 
 export const getAllPlaylists = async () => {
-  const db = await getDB()
-  return db.getAll('playlists')
+  const d = await getDB()
+  return d.getAll('playlists')
 }
 
-export const createPlaylist = async (
-  name: string,
-  type: GrovixDB['playlists']['value']['type'] = 'custom'
-) => {
-  const db = await getDB()
-  const playlist: GrovixDB['playlists']['value'] = {
-    id: `playlist_${Date.now()}`,
+export const getPlaylist = async (id: string) => {
+  const d = await getDB()
+  return d.get('playlists', id)
+}
+
+export const createPlaylist = async (name: string, emoji = '📁') => {
+  const d = await getDB()
+  const p: GrovixDB['playlists']['value'] = {
+    id: `pl_${Date.now()}`,
     name,
-    type,
+    emoji,
     mediaIds: [],
     createdAt: Date.now(),
     updatedAt: Date.now(),
     isDefault: false,
   }
-  await db.put('playlists', playlist)
-  return playlist
+  await d.put('playlists', p)
+  return p
 }
 
 export const addToPlaylist = async (playlistId: string, mediaId: string) => {
-  const db = await getDB()
-  const playlist = await db.get('playlists', playlistId)
-  if (!playlist) return
-  if (playlist.mediaIds.includes(mediaId)) return
-  await db.put('playlists', {
-    ...playlist,
-    mediaIds: [...playlist.mediaIds, mediaId],
+  const d = await getDB()
+  const p = await d.get('playlists', playlistId)
+  if (!p || p.mediaIds.includes(mediaId)) return
+  await d.put('playlists', {
+    ...p,
+    mediaIds: [...p.mediaIds, mediaId],
     updatedAt: Date.now(),
   })
 }
 
 export const removeFromPlaylist = async (playlistId: string, mediaId: string) => {
-  const db = await getDB()
-  const playlist = await db.get('playlists', playlistId)
-  if (!playlist) return
-  await db.put('playlists', {
-    ...playlist,
-    mediaIds: playlist.mediaIds.filter((id) => id !== mediaId),
-    updatedAt: Date.now(),
-  })
-}
-
-export const renamePlaylist = async (id: string, newName: string) => {
-  const db = await getDB()
-  const playlist = await db.get('playlists', id)
-  if (!playlist) return
-  await db.put('playlists', {
-    ...playlist,
-    name: newName,
+  const d = await getDB()
+  const p = await d.get('playlists', playlistId)
+  if (!p) return
+  await d.put('playlists', {
+    ...p,
+    mediaIds: p.mediaIds.filter((id) => id !== mediaId),
     updatedAt: Date.now(),
   })
 }
 
 export const deletePlaylist = async (id: string) => {
-  const db = await getDB()
-  const playlist = await db.get('playlists', id)
-  if (playlist?.isDefault) return // protect defaults
-  await db.delete('playlists', id)
+  const d = await getDB()
+  const p = await d.get('playlists', id)
+  if (!p || p.isDefault) return
+  await d.delete('playlists', id)
 }
 
-// ── Watch History ──────────────────────────────────────────────
-
-export const addToHistory = async (media: {
-  mediaId: string
-  title: string
-  thumbnail: string
-  videoId: string
-  progress: number
-  percent: number
-}) => {
-  const db = await getDB()
-  await db.put('watchHistory', {
-    id: `history_${media.mediaId}`,
-    ...media,
-    watchedAt: Date.now(),
+export const renamePlaylist = async (id: string, name: string, emoji: string) => {
+  const d = await getDB()
+  const p = await d.get('playlists', id)
+  if (!p) return
+  await d.put('playlists', {
+    ...p,
+    name,
+    emoji,
+    updatedAt: Date.now(),
   })
-}
-
-export const getWatchHistory = async (limit = 20) => {
-  const db = await getDB()
-  const all = await db.getAllFromIndex('watchHistory', 'by-watchedAt')
-  return all.reverse().slice(0, limit)
-}
-
-export const clearHistory = async () => {
-  const db = await getDB()
-  await db.clear('watchHistory')
 }
 
 // ── Legacy Phase 1 functions (preserved for backward compat) ──
 
 export async function saveDownload(record: GrovixDB['downloads']['value']): Promise<void> {
-  const db = await getDB()
-  await db.put('downloads', record)
+  const d = await getDB()
+  await d.put('downloads', record)
 }
 
 export async function getRecentDownloads(limit = 10): Promise<GrovixDB['downloads']['value'][]> {
-  const db = await getDB()
-  const all = await db.getAll('downloads')
+  const d = await getDB()
+  const all = await d.getAll('downloads')
   all.sort((a, b) => b.timestamp - a.timestamp)
   return all.slice(0, limit)
 }
 
 export async function clearDownloads(): Promise<void> {
-  const db = await getDB()
-  await db.clear('downloads')
+  const d = await getDB()
+  await d.clear('downloads')
 }
 
 export async function saveSetting(key: string, value: unknown): Promise<void> {
-  const db = await getDB()
-  await db.put('settings', { key, value })
+  const d = await getDB()
+  await d.put('settings', { key, value })
 }
 
 export async function getSetting<T>(key: string): Promise<T | null> {
-  const db = await getDB()
-  const result = await db.get('settings', key)
+  const d = await getDB()
+  const result = await d.get('settings', key)
   return result ? (result.value as T) : null
 }
