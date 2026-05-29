@@ -282,3 +282,19 @@ export async function getSetting<T>(key: string): Promise<T | null> {
   const result = await d.get('settings', key)
   return result ? (result.value as T) : null
 }
+
+// ── Storage Info ─────────────────────────────────────────────
+
+export const getStorageInfo = async () => {
+  try {
+    if ('storage' in navigator && 'estimate' in navigator.storage) {
+      const est = await navigator.storage.estimate()
+      const usedMB = Math.round((est.usage || 0) / (1024 * 1024))
+      const totalMB = Math.round((est.quota || 0) / (1024 * 1024))
+      return { usedMB, totalMB }
+    }
+  } catch {
+    // fallback
+  }
+  return { usedMB: 0, totalMB: 4096 }
+}

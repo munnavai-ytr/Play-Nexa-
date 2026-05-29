@@ -5,12 +5,12 @@ import {
   Settings, ChevronRight, Download,
   Heart, ListMusic, Gamepad2,
   Moon, Bell, HelpCircle,
-  Star, Share2, Clock
+  Star, Share2, Clock,
+  Check, X, Palette
 } from 'lucide-react'
 import { useProfile } from '@/hooks/useProfile'
 import { getSettings, saveSettings } from '@/lib/settings'
 import { applyTheme } from '@/lib/theme'
-import ShareSheet from '@/components/ui/ShareSheet'
 
 const AVATAR_COLORS = [
   '#7C5CFF','#00D4FF','#FF6B6B',
@@ -20,24 +20,18 @@ const AVATAR_COLORS = [
 export default function ProfilePage() {
   const router = useRouter()
   const { profile, loading, updateProfile } = useProfile()
-  const [showEdit, setShowEdit]     = useState(false)
-  const [editName, setEditName]     = useState('')
+  const [showEdit, setShowEdit]   = useState(false)
+  const [editName, setEditName]   = useState('')
   const [editHandle, setEditHandle] = useState('')
-  const [darkMode, setDarkMode]     = useState(true)
-  const [showRating, setShowRating] = useState(false)
-  const [ratingValue, setRatingValue] = useState(0)
-  const [ratingDone, setRatingDone] = useState(false)
-  const [showShare, setShowShare] = useState(false)
+  const [darkMode, setDarkMode]   = useState(true)
+  const [notif, setNotif]         = useState(false)
 
   useEffect(() => {
     const s = getSettings()
     setDarkMode(s.theme !== 'amoled')
-    // Check if already rated
-    const rated = localStorage.getItem('grovix_rated')
-    if (rated) {
-      setRatingValue(parseInt(rated))
-      setRatingDone(true)
-    }
+    // Load notification pref
+    const n = localStorage.getItem('grovix_notif')
+    setNotif(n === 'true')
   }, [])
 
   const openEdit = () => {
@@ -65,28 +59,29 @@ export default function ProfilePage() {
     applyTheme(theme)
   }
 
-  const handleRate = () => {
-    const isStandalone =
-      window.matchMedia('(display-mode: standalone)').matches ||
-      (window.navigator as any).standalone === true
-    const isAndroid = /android/i.test(navigator.userAgent)
-    const PLAY_STORE_URL = 'https://play.google.com/store/apps'
+  const handleNotif = async (val: boolean) => {
+    if (val && 'Notification' in window) {
+      const perm = await Notification.requestPermission()
+      if (perm !== 'granted') {
+        setNotif(false)
+        return
+      }
+    }
+    setNotif(val)
+    localStorage.setItem('grovix_notif', String(val))
+  }
 
-    if (isStandalone && isAndroid) {
-      window.open(PLAY_STORE_URL, '_blank', 'noopener,noreferrer')
-    } else {
-      setShowRating(true)
+  const handleShare = async () => {
+    try {
+      await navigator.share({
+        title: 'GROVIX App',
+        text: 'Check out GROVIX — Premium entertainment!',
+        url: window.location.origin
+      })
+    } catch {
+      navigator.clipboard.writeText(window.location.origin)
     }
   }
-
-  const submitRating = () => {
-    if (ratingValue === 0) return
-    localStorage.setItem('grovix_rated', String(ratingValue))
-    setRatingDone(true)
-    setShowRating(false)
-  }
-
-  // Share handled by ShareSheet component
 
   const ACTIVITY_ITEMS = [
     {
@@ -245,7 +240,7 @@ export default function ProfilePage() {
                 className="w-full flex items-center gap-4
                            bg-[#111827] border border-[#1E293B]
                            rounded-2xl p-4
-                           active:scale-[0.97]
+                           active:scale-95
                            transition-transform duration-150"
               >
                 <div className="w-9 h-9 rounded-xl
@@ -290,198 +285,76 @@ export default function ProfilePage() {
               />
             </div>
 
-            {/* Notifications — Coming Soon */}
-            <div
-              className="flex items-center gap-4
-                         bg-[#111827] border border-[#1E293B]
-                         rounded-2xl p-4"
-            >
+            {/* Notifications toggle */}
+            <div className="flex items-center gap-4
+                            bg-[#111827] border border-[#1E293B]
+                            rounded-2xl p-4">
               <div className="w-9 h-9 rounded-xl bg-[#0F172A]
                               flex items-center justify-center">
                 <Bell size={18} className="text-[#7C5CFF]" />
               </div>
-              <div className="flex-1">
-                <p className="text-white text-sm font-medium">
-                  Notifications
-                </p>
-                <p className="text-[#94A3B8] text-xs mt-0.5">
-                  Coming Soon
-                </p>
-              </div>
-              <span className="text-[10px] text-[#7C5CFF]
-                               bg-[#7C5CFF]/10
-                               rounded-full
-                               px-2.5 py-1 font-medium">
-                Soon
-              </span>
+              <p className="text-white text-sm
+                            font-medium flex-1">
+                Notifications
+              </p>
+              <Toggle
+                value={notif}
+                onChange={handleNotif}
+              />
             </div>
           </div>
         </div>
 
         {/* More Options */}
         <div className="space-y-2 pb-4">
-          {/* Help & Support — Coming Soon */}
-          <div
-            className="w-full flex items-center gap-4
-                       bg-[#111827] border border-[#1E293B]
-                       rounded-2xl p-4"
-          >
-            <div className="w-9 h-9 rounded-xl
-                            bg-[#0F172A] flex items-center
-                            justify-center flex-shrink-0">
-              <HelpCircle size={18} className="text-blue-400" />
-            </div>
-            <div className="flex-1 text-left">
-              <p className="text-white text-sm font-medium">
-                Help & Support
+          {[
+            {
+              icon: <HelpCircle size={18}
+                                className="text-blue-400" />,
+              label: 'Help & Support',
+              onTap: () => window.open(
+                'mailto:support@grovix.app', '_blank'
+              )
+            },
+            {
+              icon: <Star size={18}
+                          className="text-yellow-400" />,
+              label: 'Rate GROVIX',
+              onTap: () => window.open(
+                'https://play.google.com', '_blank'
+              )
+            },
+            {
+              icon: <Share2 size={18}
+                            className="text-green-400" />,
+              label: 'Share App',
+              onTap: handleShare
+            }
+          ].map(item => (
+            <button
+              key={item.label}
+              onClick={item.onTap}
+              className="w-full flex items-center gap-4
+                         bg-[#111827] border border-[#1E293B]
+                         rounded-2xl p-4
+                         active:scale-95
+                         transition-transform duration-150"
+            >
+              <div className="w-9 h-9 rounded-xl
+                              bg-[#0F172A] flex items-center
+                              justify-center flex-shrink-0">
+                {item.icon}
+              </div>
+              <p className="text-white text-sm
+                            font-medium flex-1 text-left">
+                {item.label}
               </p>
-              <p className="text-[#94A3B8] text-xs mt-0.5">
-                Coming Soon
-              </p>
-            </div>
-            <span className="text-[10px] text-[#7C5CFF]
-                             bg-[#7C5CFF]/10
-                             rounded-full
-                             px-2.5 py-1 font-medium">
-              Soon
-            </span>
-          </div>
-
-          {/* Rate PlayNexa */}
-          <button
-            onClick={handleRate}
-            className="w-full flex items-center gap-4
-                       bg-[#111827] border border-[#1E293B]
-                       rounded-2xl p-4
-                       active:scale-[0.97]
-                       transition-transform duration-150"
-          >
-            <div className="w-9 h-9 rounded-xl
-                            bg-[#0F172A] flex items-center
-                            justify-center flex-shrink-0">
-              <Star size={18} className="text-yellow-400" />
-            </div>
-            <p className="text-white text-sm
-                          font-medium flex-1 text-left">
-              {ratingDone
-                ? `Rated ${'⭐'.repeat(ratingValue)}`
-                : 'Rate PlayNexa'}
-            </p>
-            <ChevronRight size={16}
-                          className="text-[#94A3B8]" />
-          </button>
-
-          {/* Share App */}
-          <button
-            onClick={() => setShowShare(true)}
-            className="w-full flex items-center gap-4
-                       bg-[#111827] border border-[#1E293B]
-                       rounded-2xl p-4
-                       active:scale-[0.97]
-                       transition-transform duration-150"
-          >
-            <div className="w-9 h-9 rounded-xl
-                            bg-[#0F172A] flex items-center
-                            justify-center flex-shrink-0">
-              <Share2 size={18} className="text-green-400" />
-            </div>
-            <p className="text-white text-sm
-                          font-medium flex-1 text-left">
-              Share App
-            </p>
-            <ChevronRight size={16}
-                          className="text-[#94A3B8]" />
-          </button>
+              <ChevronRight size={16}
+                            className="text-[#94A3B8]" />
+            </button>
+          ))}
         </div>
       </div>
-
-      {/* Share Sheet */}
-      <ShareSheet
-        isOpen={showShare}
-        onClose={() => setShowShare(false)}
-        title="PlayNexa"
-        text="🎬 Check out PlayNexa — Stream movies, watch shorts & play games! 🎮"
-        url={typeof window !== 'undefined'
-          ? window.location.origin : ''}
-      />
-
-      {/* Rating Modal */}
-      {showRating && (
-        <div className="fixed inset-0 z-50 flex items-end">
-          <div
-            className="absolute inset-0 bg-black/80"
-            onClick={() => setShowRating(false)}
-          />
-          <div className="relative w-full bg-[#111827]
-                          border-t border-[#1E293B]
-                          rounded-t-3xl p-6 z-10">
-
-            <div className="w-10 h-1 bg-[#1E293B]
-                            rounded-full mx-auto mb-5" />
-
-            <div className="text-center mb-5">
-              <p className="text-4xl mb-3">⭐</p>
-              <h3 className="text-white font-bold text-lg">
-                Rate PlayNexa
-              </h3>
-              <p className="text-[#94A3B8] text-sm mt-1">
-                How do you like the app?
-              </p>
-            </div>
-
-            {/* Stars */}
-            <div className="flex justify-center gap-3 mb-6">
-              {[1,2,3,4,5].map(star => (
-                <button
-                  key={star}
-                  onClick={() => setRatingValue(star)}
-                  className="text-4xl transition-transform
-                             duration-150 active:scale-90"
-                >
-                  {star <= ratingValue ? '⭐' : '☆'}
-                </button>
-              ))}
-            </div>
-
-            {/* Feedback text */}
-            {ratingValue > 0 && (
-              <p className="text-center text-[#94A3B8]
-                            text-sm mb-5">
-                {ratingValue === 5 ? '🎉 Awesome! Thank you!'
-                 : ratingValue === 4 ? '😊 Great! Thanks!'
-                 : ratingValue === 3 ? '🙂 Thanks for feedback!'
-                 : ratingValue === 2 ? '😕 We will improve!'
-                 : '😔 Sorry! We will do better!'}
-              </p>
-            )}
-
-            <div className="flex gap-3">
-              <button
-                onClick={() => setShowRating(false)}
-                className="flex-1 h-12 rounded-xl border
-                           border-[#1E293B] text-[#94A3B8]
-                           text-sm font-medium"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={submitRating}
-                disabled={ratingValue === 0}
-                className={`flex-1 h-12 rounded-xl
-                            text-white text-sm font-semibold
-                            transition-all duration-150
-                            active:scale-95
-                            ${ratingValue > 0
-                              ? 'bg-[#7C5CFF]'
-                              : 'bg-[#1E293B] text-[#94A3B8]'
-                            }`}
-              >
-                Submit Rating
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Edit Profile Modal */}
       {showEdit && (

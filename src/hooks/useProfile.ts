@@ -17,8 +17,8 @@ const PROFILE_KEY = 'grovix_profile'
 
 export const useProfile = () => {
   const [profile, setProfile] = useState<ProfileData>({
-    username: 'PlayNexa User',
-    handle: '@playnexa_user',
+    username: 'Grovix User',
+    handle: '@grovix_user',
     avatarColor: '#7C5CFF',
     downloadCount: 0,
     savedCount: 0,
@@ -44,8 +44,8 @@ export const useProfile = () => {
       const savedMedia = await getAllSaved()
 
       setProfile({
-        username:      profileData.username || 'PlayNexa User',
-        handle:        profileData.handle   || '@playnexa_user',
+        username:      profileData.username || 'Grovix User',
+        handle:        profileData.handle   || '@grovix_user',
         avatarColor:   profileData.avatarColor || '#7C5CFF',
         downloadCount: downloads.length,
         savedCount:    savedMedia.length,

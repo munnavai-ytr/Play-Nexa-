@@ -48,6 +48,27 @@ export default function RootLayout({
         <link rel="manifest" href="/manifest.json" />
         <meta name="mobile-web-app-capable" content="yes" />
         <link rel="apple-touch-icon" href="/icons/icon-192.png" />
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              try {
+                const s = JSON.parse(
+                  localStorage.getItem('grovix_settings') || '{}'
+                );
+                const theme = s.theme || 'dark';
+                const themes = {
+                  dark:   { bg: '#070B14', accent: '#7C5CFF' },
+                  amoled: { bg: '#000000', accent: '#7C5CFF' },
+                  neon:   { bg: '#070B14', accent: '#00FF88' }
+                };
+                const t = themes[theme] || themes.dark;
+                document.documentElement.style
+                  .setProperty('--accent', t.accent);
+                document.body.style.backgroundColor = t.bg;
+              } catch(e) {}
+            `
+          }}
+        />
       </head>
       <body
         className={`${inter.variable} antialiased bg-grovix-bg text-white min-h-screen`}

@@ -377,3 +377,25 @@ Stage Summary:
 - Playback via YouTube iframe embed (free, unlimited)
 - All existing features preserved: Save/Download/Like/Share, playlists, library, shorts, channel pages
 - Old youtube.ts, cache.ts, fallback.ts, useMovies.ts still exist but no longer imported by any active page
+---
+Task ID: 1
+Agent: Super Z (Main)
+Task: Rebuild GROVIX Profile + Settings pages with real working data
+
+Work Log:
+- Verified /lib/settings.ts already matches user spec exactly — no changes needed
+- Updated /lib/theme.ts to match spec exactly (removed data-theme attribute, simplified perf mode injection)
+- Updated /hooks/useProfile.ts to use 'Grovix User' defaults per spec
+- Added getStorageInfo() function to /lib/db.ts using navigator.storage.estimate()
+- Rebuilt /app/profile/page.tsx — real counts from localStorage/IndexedDB, working notifications toggle with browser permission API, navigator.share, edit profile modal, avatar color picker
+- Rebuilt /app/settings/page.tsx — uses getSettings/saveSettings directly, real storage via navigator.storage.estimate(), working Clear Cache/Optimize Memory/Reset App, all toggles save instantly and apply side effects
+- Added theme flash prevention script to /app/layout.tsx <head> section
+- Verified build compiles with zero errors, both pages return HTTP 200
+
+Stage Summary:
+- 6 files modified: theme.ts, useProfile.ts, db.ts, profile/page.tsx, settings/page.tsx, layout.tsx
+- All data is real — no fake/static numbers anywhere
+- Settings save to localStorage instantly and apply side effects immediately
+- Theme applies without flash on page load
+- Storage info comes from navigator.storage.estimate()
+- Zero build errors, all routes compile successfully

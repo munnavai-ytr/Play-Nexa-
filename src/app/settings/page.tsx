@@ -1,379 +1,469 @@
-'use client';
-
-import { useState, useCallback } from 'react';
+"use client"
+import { useState, useEffect, useCallback } from 'react'
+import { useRouter } from 'next/navigation'
 import {
-  Palette,
-  Zap,
-  Globe,
-  Shield,
-  HardDrive,
-  Moon,
-  Sun,
-  Sparkles,
-} from 'lucide-react';
-import TopBar from '@/components/layout/TopBar';
-import { Badge } from '@/components/ui/Badge';
-import { ConfirmModal } from '@/components/ui/ConfirmModal';
-import { useSettings } from '@/hooks/useSettings';
-
-type ThemeMode = 'dark' | 'amoled' | 'neon';
-
-interface ToggleProps {
-  label: string;
-  checked: boolean;
-  onChange: () => void;
-}
-
-function Toggle({ label, checked, onChange }: ToggleProps) {
-  return (
-    <div className="flex items-center justify-between min-h-[48px]">
-      <span className="text-white text-sm font-medium">{label}</span>
-      <button
-        onClick={onChange}
-        className={`relative w-12 h-6 rounded-full transition-colors duration-150 ${
-          checked ? 'bg-grovix-purple' : 'bg-grovix-border'
-        }`}
-        role="switch"
-        aria-checked={checked}
-        aria-label={`Toggle ${label}`}
-        type="button"
-      >
-        <span
-          className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform duration-150 ${
-            checked ? 'translate-x-6' : 'translate-x-0'
-          }`}
-        />
-      </button>
-    </div>
-  );
-}
-
-interface PillSelectorProps {
-  options: string[];
-  selected: string;
-  onChange: (value: string) => void;
-}
-
-function PillSelector({ options, selected, onChange }: PillSelectorProps) {
-  return (
-    <div className="flex gap-2">
-      {options.map((option) => (
-        <button
-          key={option}
-          onClick={() => onChange(option)}
-          className={`min-h-[40px] px-4 rounded-xl text-xs font-medium transition-colors duration-150 ${
-            selected === option
-              ? 'bg-grovix-purple text-white'
-              : 'bg-grovix-secondary text-grovix-muted border border-grovix-border hover:text-white'
-          }`}
-          type="button"
-          aria-pressed={selected === option}
-        >
-          {option}
-        </button>
-      ))}
-    </div>
-  );
-}
-
-const themes: { id: ThemeMode; label: string; icon: React.ReactNode; description: string }[] = [
-  {
-    id: 'dark',
-    label: 'Dark',
-    icon: <Moon className="w-5 h-5" />,
-    description: 'Classic dark theme',
-  },
-  {
-    id: 'amoled',
-    label: 'AMOLED',
-    icon: <Sun className="w-5 h-5" />,
-    description: 'Pure black for OLED',
-  },
-  {
-    id: 'neon',
-    label: 'Neon',
-    icon: <Sparkles className="w-5 h-5" />,
-    description: 'Vibrant neon colors',
-  },
-];
+  ChevronLeft, Palette, Zap,
+  Globe, Shield, HardDrive,
+  Moon, Cpu, Trash2,
+  RotateCcw, Settings2
+} from 'lucide-react'
+import {
+  getSettings, saveSettings,
+  GrovixSettings
+} from '@/lib/settings'
+import {
+  applyTheme, applyPerformanceMode,
+  Theme
+} from '@/lib/theme'
+import { getStorageInfo } from '@/lib/db'
 
 export default function SettingsPage() {
-  const { settings, updateSetting, resetSettings } = useSettings();
+  const router = useRouter()
+  const [settings, setSettings] =
+    useState<GrovixSettings>(getSettings())
+  const [storage, setStorage] = useState({
+    usedMB: 0, totalMB: 4096
+  })
+  const [clearMsg, setClearMsg] = useState('')
 
-  const [clearCacheModal, setClearCacheModal] = useState(false);
-  const [optimizeModal, setOptimizeModal] = useState(false);
-  const [resetModal, setResetModal] = useState(false);
+  useEffect(() => {
+    getStorageInfo().then(setStorage)
+  }, [])
 
-  const handleClearCache = useCallback(() => {
-    try {
-      localStorage.removeItem('grovix_cache');
-    } catch {
-      // ignore
+  // Save + apply instantly
+  const update = useCallback((
+    key: keyof GrovixSettings,
+    value: any
+  ) => {
+    const updated = saveSettings({ [key]: value })
+    setSettings(updated)
+
+    // Apply side effects immediately
+    if (key === 'theme') {
+      applyTheme(value as Theme)
     }
-    setClearCacheModal(false);
-  }, []);
+    if (key === 'liteAnimation' ||
+        key === 'batterySaver') {
+      applyPerformanceMode(
+        updated.liteAnimation,
+        updated.batterySaver
+      )
+    }
+    if (key === 'batterySaver' && value === true) {
+      // Battery saver auto-enables lite animation
+      const u2 = saveSettings({ liteAnimation: true })
+      setSettings(u2)
+      applyPerformanceMode(true, true)
+    }
+  }, [])
 
-  const handleOptimize = useCallback(() => {
-    setOptimizeModal(false);
-  }, []);
+  const usedPct = Math.min(
+    Math.round((storage.usedMB / storage.totalMB) * 100),
+    100
+  )
 
-  const handleReset = useCallback(() => {
-    resetSettings();
-    setResetModal(false);
-  }, [resetSettings]);
+  const handleClearCache = () => {
+    // Clear session + non-critical localStorage
+    sessionStorage.clear()
+    const keep = [
+      'grovix_settings', 'grovix_profile',
+      'grovix_likes', 'grovix_recent_games',
+      'grovix_recent_dl', 'grovix_notif'
+    ]
+    Object.keys(localStorage)
+      .filter(k => k.startsWith('grovix_cat_') ||
+                   k.startsWith('grovix_search_') ||
+                   k.startsWith('grovix_trending') ||
+                   k.startsWith('grovix_video_'))
+      .forEach(k => localStorage.removeItem(k))
+    setClearMsg('Cache cleared!')
+    setTimeout(() => setClearMsg(''), 2500)
+    getStorageInfo().then(setStorage)
+  }
 
-  const storageUsed = 1.2;
-  const storageTotal = 4;
-  const storagePercent = (storageUsed / storageTotal) * 100;
+  const handleOptimizeMemory = () => {
+    // Remove old cache entries (keep newest 20)
+    const cacheKeys = Object.keys(localStorage)
+      .filter(k => k.startsWith('grovix_'))
+      .filter(k => !['grovix_settings',
+        'grovix_profile','grovix_likes',
+        'grovix_recent_games','grovix_recent_dl',
+        'grovix_notif'].includes(k))
+
+    // Remove all cache except protected keys
+    cacheKeys.slice(20).forEach(k =>
+      localStorage.removeItem(k)
+    )
+    setClearMsg('Memory optimized!')
+    setTimeout(() => setClearMsg(''), 2500)
+  }
+
+  const handleResetApp = () => {
+    if (!confirm(
+      'Reset GROVIX? This clears all settings, ' +
+      'history and saved data.'
+    )) return
+    localStorage.clear()
+    sessionStorage.clear()
+    window.location.href = '/'
+  }
 
   return (
-    <div className="min-h-screen bg-grovix-bg pb-24">
-      <TopBar title="Settings" showBack />
+    <div className="min-h-screen bg-[#070B14] pb-24">
 
-      <div className="px-4 pt-4 space-y-6">
-        {/* Appearance Section */}
-        <section>
-          <div className="flex items-center gap-2 mb-3">
-            <Palette className="w-4 h-4 text-grovix-purple" />
-            <h2 className="text-white font-semibold text-base">Appearance</h2>
-          </div>
-          <div className="grid grid-cols-3 gap-2">
-            {themes.map((theme) => {
-              const isSelected = settings.theme === theme.id;
-              return (
-                <button
-                  key={theme.id}
-                  onClick={() => updateSetting('theme', theme.id)}
-                  className={`rounded-2xl p-3 flex flex-col items-center gap-2 transition-colors duration-150 ${
-                    isSelected
-                      ? 'border border-grovix-purple bg-grovix-purple/10'
-                      : 'border border-grovix-border bg-grovix-card hover:border-grovix-purple/50'
-                  }`}
-                  type="button"
-                  aria-pressed={isSelected}
-                >
-                  <div
-                    className={`w-10 h-10 rounded-full flex items-center justify-center ${
-                      isSelected
-                        ? 'bg-grovix-purple/20 text-grovix-purple'
-                        : 'bg-grovix-secondary text-grovix-muted'
-                    }`}
-                  >
-                    {theme.icon}
-                  </div>
-                  <span
-                    className={`text-xs font-medium ${
-                      isSelected ? 'text-grovix-purple' : 'text-white'
-                    }`}
-                  >
-                    {theme.label}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-        </section>
+      {/* TopBar */}
+      <div className="sticky top-0 z-50 bg-[#070B14]
+                      border-b border-[#1E293B]
+                      px-4 h-14 flex items-center gap-3">
+        <button
+          onClick={() => router.back()}
+          className="p-2 rounded-full bg-[#111827]
+                     border border-[#1E293B]
+                     active:scale-90
+                     transition-transform duration-150"
+        >
+          <ChevronLeft size={18} className="text-white" />
+        </button>
+        <h1 className="text-lg font-bold text-white">
+          Settings
+        </h1>
+      </div>
 
-        {/* Performance Section */}
-        <section>
-          <div className="flex items-center gap-2 mb-3">
-            <Zap className="w-4 h-4 text-grovix-purple" />
-            <h2 className="text-white font-semibold text-base">Performance</h2>
-          </div>
-          <div className="bg-grovix-card border border-grovix-border rounded-2xl p-4 space-y-1">
-            <Toggle
-              label="Smooth Mode"
-              checked={settings.smoothMode}
-              onChange={() => updateSetting('smoothMode', !settings.smoothMode)}
-            />
-            <Toggle
-              label="Battery Saver"
-              checked={settings.batterySaver}
-              onChange={() =>
-                updateSetting('batterySaver', !settings.batterySaver)
-              }
-            />
-            <Toggle
-              label="Lite Animation"
-              checked={settings.liteAnimation}
-              onChange={() =>
-                updateSetting('liteAnimation', !settings.liteAnimation)
-              }
-            />
-            <Toggle
-              label="Performance Boost"
-              checked={settings.performanceBoost}
-              onChange={() =>
-                updateSetting('performanceBoost', !settings.performanceBoost)
-              }
-            />
-          </div>
-        </section>
+      <div className="px-4 pt-4 space-y-5">
 
-        {/* Network Section */}
-        <section>
-          <div className="flex items-center gap-2 mb-3">
-            <Globe className="w-4 h-4 text-grovix-purple" />
-            <h2 className="text-white font-semibold text-base">Network</h2>
+        {/* Toast message */}
+        {clearMsg && (
+          <div className="fixed top-20 left-4 right-4
+                          z-50 bg-[#22C55E] rounded-xl
+                          p-3 text-center text-white
+                          text-sm font-semibold">
+            ✓ {clearMsg}
           </div>
-          <div className="bg-grovix-card border border-grovix-border rounded-2xl p-4 space-y-1">
-            <Toggle
-              label="Low Data Mode"
-              checked={settings.lowDataMode}
-              onChange={() =>
-                updateSetting('lowDataMode', !settings.lowDataMode)
+        )}
+
+        {/* ── APPEARANCE ── */}
+        <Section icon={<Palette size={16} />}
+                 title="Appearance">
+          <div className="grid grid-cols-3 gap-3 p-4">
+            {(
+              ['dark', 'amoled', 'neon'] as Theme[]
+            ).map(t => (
+              <button
+                key={t}
+                onClick={() => update('theme', t)}
+                className={`flex flex-col items-center
+                            gap-2 p-4 rounded-xl border
+                            transition-all duration-200
+                            active:scale-95
+                            ${settings.theme === t
+                              ? 'border-[#7C5CFF] bg-[#7C5CFF]/10'
+                              : 'border-[#1E293B] bg-[#0F172A]'
+                            }`}
+              >
+                <span className="text-2xl">
+                  {t === 'dark'  ? '🌙'
+                   : t === 'amoled' ? '☀️'
+                   : '✨'}
+                </span>
+                <p className={`text-xs font-semibold
+                               capitalize
+                               ${settings.theme === t
+                                 ? 'text-[#7C5CFF]'
+                                 : 'text-[#94A3B8]'
+                               }`}>
+                  {t}
+                </p>
+              </button>
+            ))}
+          </div>
+        </Section>
+
+        {/* ── PERFORMANCE ── */}
+        <Section icon={<Zap size={16} />}
+                 title="Performance">
+          <div className="divide-y divide-[#1E293B]">
+            {[
+              {
+                key: 'smoothMode' as const,
+                label: 'Smooth Mode',
+                desc: 'Optimized scroll & transitions'
+              },
+              {
+                key: 'batterySaver' as const,
+                label: 'Battery Saver',
+                desc: 'Reduces animations & brightness'
+              },
+              {
+                key: 'liteAnimation' as const,
+                label: 'Lite Animation',
+                desc: 'Minimal UI animations'
+              },
+              {
+                key: 'performanceBoost' as const,
+                label: 'Performance Boost',
+                desc: 'Reduces image quality for speed'
               }
-            />
-            <Toggle
-              label="Smart Loading"
-              checked={settings.smartLoading}
-              onChange={() =>
-                updateSetting('smartLoading', !settings.smartLoading)
-              }
-            />
-            <div className="flex items-center justify-between min-h-[48px]">
-              <span className="text-white text-sm font-medium">
-                Thumbnail Quality
-              </span>
-              <PillSelector
-                options={['Low', 'Medium', 'High']}
-                selected={
-                  settings.thumbnailQuality.charAt(0).toUpperCase() +
-                  settings.thumbnailQuality.slice(1)
-                }
-                onChange={(val) =>
-                  updateSetting(
-                    'thumbnailQuality',
-                    val.toLowerCase() as 'low' | 'medium' | 'high'
-                  )
-                }
+            ].map(item => (
+              <SettingRow
+                key={item.key}
+                label={item.label}
+                desc={item.desc}
+                value={settings[item.key] as boolean}
+                onChange={v => update(item.key, v)}
               />
+            ))}
+          </div>
+        </Section>
+
+        {/* ── NETWORK ── */}
+        <Section icon={<Globe size={16} />}
+                 title="Network">
+          <div className="divide-y divide-[#1E293B]">
+            <SettingRow
+              label="Low Data Mode"
+              desc="Uses smaller thumbnails"
+              value={settings.lowDataMode}
+              onChange={v => update('lowDataMode', v)}
+            />
+            <SettingRow
+              label="Smart Loading"
+              desc="Loads content as you scroll"
+              value={settings.smartLoading}
+              onChange={v => update('smartLoading', v)}
+            />
+          </div>
+
+          {/* Thumbnail quality */}
+          <div className="px-4 pb-4">
+            <p className="text-white text-sm font-medium mb-2">
+              Thumbnail Quality
+            </p>
+            <div className="flex gap-2">
+              {(['low', 'medium', 'high'] as const).map(q => (
+                <button
+                  key={q}
+                  onClick={() => update('thumbnailQuality', q)}
+                  className={`flex-1 h-10 rounded-xl text-xs
+                              font-medium border capitalize
+                              transition-all duration-150
+                              active:scale-95
+                              ${settings.thumbnailQuality === q
+                                ? 'bg-[#7C5CFF] border-[#7C5CFF] text-white'
+                                : 'bg-[#0F172A] border-[#1E293B] text-[#94A3B8]'
+                              }`}
+                >
+                  {q}
+                </button>
+              ))}
             </div>
           </div>
-        </section>
+        </Section>
 
-        {/* Security Section */}
-        <section>
-          <div className="flex items-center gap-2 mb-3">
-            <Shield className="w-4 h-4 text-grovix-purple" />
-            <h2 className="text-white font-semibold text-base">Security</h2>
-          </div>
-          <div className="bg-grovix-card border border-grovix-border rounded-2xl p-4 space-y-1">
-            <Toggle
+        {/* ── SECURITY ── */}
+        <Section icon={<Shield size={16} />}
+                 title="Security">
+          <div className="divide-y divide-[#1E293B]">
+            <SettingRow
               label="Safe Redirect"
-              checked={settings.safeRedirect}
-              onChange={() =>
-                updateSetting('safeRedirect', !settings.safeRedirect)
-              }
+              desc="Verify URLs before redirecting"
+              value={settings.safeRedirect}
+              onChange={v => update('safeRedirect', v)}
             />
-            <Toggle
+            <SettingRow
               label="External Warning"
-              checked={settings.externalWarning}
-              onChange={() =>
-                updateSetting('externalWarning', !settings.externalWarning)
-              }
+              desc="Show warning before leaving app"
+              value={settings.externalWarning}
+              onChange={v => update('externalWarning', v)}
             />
-            <Toggle
+            <SettingRow
               label="Secure Browser Mode"
-              checked={settings.secureBrowser}
-              onChange={() =>
-                updateSetting('secureBrowser', !settings.secureBrowser)
-              }
+              desc="Block tracking on redirects"
+              value={settings.secureBrowser}
+              onChange={v => update('secureBrowser', v)}
             />
           </div>
-        </section>
+        </Section>
 
-        {/* Storage Section */}
-        <section>
-          <div className="flex items-center gap-2 mb-3">
-            <HardDrive className="w-4 h-4 text-grovix-purple" />
-            <h2 className="text-white font-semibold text-base">Storage</h2>
-          </div>
-          <div className="bg-grovix-card border border-grovix-border rounded-2xl p-4">
-            {/* Progress Bar */}
-            <div className="mb-3">
-              <div className="flex justify-between mb-1">
-                <span className="text-white text-sm font-medium">
-                  Used: {storageUsed} GB / {storageTotal} GB
-                </span>
-                <Badge variant="purple">
-                  {Math.round(storagePercent)}%
-                </Badge>
-              </div>
-              <div className="w-full h-2 bg-grovix-border rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-grovix-purple rounded-full transition-all duration-300"
-                  style={{ width: `${storagePercent}%` }}
-                />
-              </div>
+        {/* ── STORAGE ── */}
+        <Section icon={<HardDrive size={16} />}
+                 title="Storage">
+          <div className="p-4">
+
+            {/* Storage bar */}
+            <div className="flex items-center
+                            justify-between mb-2">
+              <p className="text-white text-sm font-medium">
+                Used: {storage.usedMB} MB
+                / {storage.totalMB} MB
+              </p>
+              <span className="text-xs text-white
+                               bg-[#7C5CFF] rounded-full
+                               px-2 py-0.5">
+                {usedPct}%
+              </span>
+            </div>
+            <div className="w-full h-2 bg-[#1E293B]
+                            rounded-full mb-3">
+              <div
+                className="h-2 rounded-full
+                           transition-all duration-300"
+                style={{
+                  width: `${usedPct}%`,
+                  backgroundColor: usedPct > 80
+                    ? '#EF4444'
+                    : usedPct > 60
+                    ? '#F59E0B'
+                    : '#7C5CFF'
+                }}
+              />
             </div>
 
             {/* Breakdown */}
-            <div className="space-y-2 mb-4">
-              <div className="flex justify-between">
-                <span className="text-grovix-muted text-xs">Downloads</span>
-                <span className="text-white text-xs">800MB</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-grovix-muted text-xs">Cache</span>
-                <span className="text-white text-xs">250MB</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-grovix-muted text-xs">Other</span>
-                <span className="text-white text-xs">150MB</span>
-              </div>
+            <div className="space-y-1.5 mb-4">
+              {[
+                {
+                  label: 'Downloads',
+                  value: Math.round(storage.usedMB * 0.6)
+                },
+                {
+                  label: 'Cache',
+                  value: Math.round(storage.usedMB * 0.3)
+                },
+                {
+                  label: 'Other',
+                  value: Math.round(storage.usedMB * 0.1)
+                }
+              ].map(item => (
+                <div key={item.label}
+                     className="flex justify-between">
+                  <p className="text-[#94A3B8] text-sm">
+                    {item.label}
+                  </p>
+                  <p className="text-[#94A3B8] text-sm">
+                    {item.value} MB
+                  </p>
+                </div>
+              ))}
             </div>
 
-            {/* Action Buttons */}
+            {/* Action buttons */}
             <div className="space-y-2">
               <button
-                onClick={() => setClearCacheModal(true)}
-                className="w-full h-12 rounded-xl bg-grovix-secondary text-white text-sm font-medium flex items-center justify-center gap-2 transition-colors duration-150 hover:bg-grovix-secondary/80 active:scale-[0.97]"
-                type="button"
+                onClick={handleClearCache}
+                className="w-full h-12 rounded-xl
+                           bg-[#0F172A] border border-[#1E293B]
+                           text-white text-sm font-medium
+                           flex items-center justify-center gap-2
+                           active:scale-95
+                           transition-transform duration-150"
               >
-                🗑️ Clear Cache
+                <Trash2 size={16}
+                        className="text-[#94A3B8]" />
+                Clear Cache
               </button>
+
               <button
-                onClick={() => setOptimizeModal(true)}
-                className="w-full h-12 rounded-xl bg-grovix-secondary text-white text-sm font-medium flex items-center justify-center gap-2 transition-colors duration-150 hover:bg-grovix-secondary/80 active:scale-[0.97]"
-                type="button"
+                onClick={handleOptimizeMemory}
+                className="w-full h-12 rounded-xl
+                           bg-[#0F172A] border border-[#1E293B]
+                           text-white text-sm font-medium
+                           flex items-center justify-center gap-2
+                           active:scale-95
+                           transition-transform duration-150"
               >
-                ⚙️ Optimize Memory
+                <Settings2 size={16}
+                           className="text-[#94A3B8]" />
+                Optimize Memory
               </button>
+
               <button
-                onClick={() => setResetModal(true)}
-                className="w-full h-12 rounded-xl bg-grovix-secondary text-red-500 text-sm font-medium flex items-center justify-center gap-2 transition-colors duration-150 hover:bg-grovix-secondary/80 active:scale-[0.97]"
-                type="button"
+                onClick={handleResetApp}
+                className="w-full h-12 rounded-xl
+                           bg-red-500/10 border border-red-500/30
+                           text-red-400 text-sm font-medium
+                           flex items-center justify-center gap-2
+                           active:scale-95
+                           transition-transform duration-150"
               >
-                🔄 Reset App
+                <RotateCcw size={16} />
+                Reset App
               </button>
             </div>
           </div>
-        </section>
-      </div>
+        </Section>
 
-      {/* Confirm Modals */}
-      <ConfirmModal
-        isOpen={clearCacheModal}
-        onClose={() => setClearCacheModal(false)}
-        onConfirm={handleClearCache}
-        title="Clear Cache"
-        message="This will clear all cached data. Your downloads and settings will not be affected. Continue?"
-      />
-      <ConfirmModal
-        isOpen={optimizeModal}
-        onClose={() => setOptimizeModal(false)}
-        onConfirm={handleOptimize}
-        title="Optimize Memory"
-        message="This will optimize app memory usage by clearing temporary files and reloading resources. Continue?"
-      />
-      <ConfirmModal
-        isOpen={resetModal}
-        onClose={() => setResetModal(false)}
-        onConfirm={handleReset}
-        title="Reset App"
-        message="This will reset all app settings to their defaults. Your downloads will not be affected. This action cannot be undone. Continue?"
-      />
+        {/* Version */}
+        <p className="text-center text-[#94A3B8]
+                      text-xs pb-2">
+          GROVIX v1.0.0 • Made with ❤️
+        </p>
+      </div>
     </div>
-  );
+  )
+}
+
+// Reusable Section wrapper
+function Section({
+  icon, title, children
+}: {
+  icon: React.ReactNode
+  title: string
+  children: React.ReactNode
+}) {
+  return (
+    <div className="bg-[#111827] border border-[#1E293B]
+                    rounded-2xl overflow-hidden">
+      <div className="flex items-center gap-2
+                      px-4 py-3
+                      border-b border-[#1E293B]">
+        <span className="text-[#7C5CFF]">{icon}</span>
+        <p className="text-white font-semibold text-sm">
+          {title}
+        </p>
+      </div>
+      {children}
+    </div>
+  )
+}
+
+// Reusable SettingRow
+function SettingRow({
+  label, desc, value, onChange
+}: {
+  label: string
+  desc: string
+  value: boolean
+  onChange: (v: boolean) => void
+}) {
+  return (
+    <div className="flex items-center gap-4 px-4 py-3.5">
+      <div className="flex-1">
+        <p className="text-white text-sm font-medium">
+          {label}
+        </p>
+        <p className="text-[#94A3B8] text-xs mt-0.5">
+          {desc}
+        </p>
+      </div>
+      <button
+        onClick={() => onChange(!value)}
+        className={`w-12 h-6 rounded-full relative
+                    flex-shrink-0
+                    transition-colors duration-200
+                    ${value
+                      ? 'bg-[#7C5CFF]'
+                      : 'bg-[#1E293B]'
+                    }`}
+      >
+        <div className={`absolute top-0.5 w-5 h-5
+                         rounded-full bg-white
+                         transition-transform duration-200
+                         ${value
+                           ? 'translate-x-6'
+                           : 'translate-x-0.5'
+                         }`}
+        />
+      </button>
+    </div>
+  )
 }

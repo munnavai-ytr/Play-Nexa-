@@ -59,21 +59,15 @@ export const applyTheme = (theme: Theme) => {
 
   // AMOLED: pure black body for OLED screens
   document.body.style.backgroundColor = colors.bgPrimary
-
-  // Also update the data-theme attribute for CSS selectors
-  root.setAttribute('data-theme', theme)
 }
 
 export const applyPerformanceMode = (
   liteAnimation: boolean,
   batterySaver: boolean
 ) => {
-  let style = document.getElementById('grovix-perf') as HTMLStyleElement | null
-  if (!style) {
-    style = document.createElement('style')
-    style.id = 'grovix-perf'
-    document.head.appendChild(style)
-  }
+  const style = document.getElementById('grovix-perf')
+    || document.createElement('style')
+  style.id = 'grovix-perf'
 
   if (liteAnimation || batterySaver) {
     style.textContent = `
@@ -84,5 +78,9 @@ export const applyPerformanceMode = (
     `
   } else {
     style.textContent = ''
+  }
+
+  if (!document.getElementById('grovix-perf')) {
+    document.head.appendChild(style)
   }
 }
