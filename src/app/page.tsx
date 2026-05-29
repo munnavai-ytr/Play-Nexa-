@@ -1,14 +1,17 @@
-// ── GROVIX Home Page ───────────────────────────────────────
+// ── PlayNexa Home Page ───────────────────────────────────────
 // Zero API — all data from local JSON
 // Instant load — no network needed
 
 'use client'
 
-import TopBar from '@/components/layout/TopBar'
+import { useState } from 'react'
+import { useRouter } from 'next/navigation'
+import { Search, Settings } from 'lucide-react'
 import HeroSection from '@/components/home/HeroSection'
 import QuickAccessGrid from '@/components/home/QuickAccessGrid'
 import TrendingRow from '@/components/home/TrendingRow'
 import ToolChips from '@/components/home/ToolChips'
+import UniversalSearch from '@/components/ui/UniversalSearch'
 import moviesData from '@/data/movies.json'
 import gamesData from '@/data/games.json'
 import type { Movie } from '@/lib/search'
@@ -34,15 +37,71 @@ const mappedGames = gamesData.games.map((game) => ({
 }))
 
 export default function Home() {
+  const router = useRouter()
+  const [showSearch, setShowSearch] = useState(false)
+
   return (
-    <div className="flex min-h-screen flex-col bg-grovix-bg">
-      <TopBar
-        title=""
-        showSearch
-        showSettings
-        onSearchClick={() => {}}
-        onSettingsClick={() => {}}
-      />
+    <div className="flex min-h-screen flex-col bg-[#070B14]">
+
+      {/* Fixed header — proper z-index + touch handling */}
+      <div
+        className="sticky top-0 z-50 bg-[#070B14]
+                   border-b border-[#1E293B]
+                   px-4 h-14 flex items-center
+                   justify-between"
+        style={{ touchAction: 'manipulation' }}
+      >
+        {/* Logo */}
+        <div className="flex items-center gap-2">
+          <span className="font-black text-xl tracking-tight select-none">
+            <span style={{ color: '#7C5CFF' }}>Play</span>
+            <span className="text-white">Nexa</span>
+          </span>
+        </div>
+
+        {/* Right buttons */}
+        <div className="flex items-center gap-2"
+             style={{ position: 'relative', zIndex: 51 }}>
+
+          {/* Search button */}
+          <button
+            onClick={() => setShowSearch(true)}
+            style={{
+              touchAction: 'manipulation',
+              WebkitTapHighlightColor: 'transparent',
+              cursor: 'pointer',
+              position: 'relative',
+              zIndex: 51
+            }}
+            className="w-10 h-10 rounded-full
+                       bg-[#111827] border border-[#1E293B]
+                       flex items-center justify-center
+                       active:scale-90
+                       transition-transform duration-150"
+          >
+            <Search size={18} className="text-white" />
+          </button>
+
+          {/* Settings button */}
+          <button
+            onClick={() => router.push('/settings')}
+            style={{
+              touchAction: 'manipulation',
+              WebkitTapHighlightColor: 'transparent',
+              cursor: 'pointer',
+              position: 'relative',
+              zIndex: 51
+            }}
+            className="w-10 h-10 rounded-full
+                       bg-[#111827] border border-[#1E293B]
+                       flex items-center justify-center
+                       active:scale-90
+                       transition-transform duration-150"
+          >
+            <Settings size={18} className="text-white" />
+          </button>
+        </div>
+      </div>
 
       <main className="flex-1 space-y-6 pb-24">
         <HeroSection />
@@ -59,6 +118,12 @@ export default function Home() {
         />
         <ToolChips />
       </main>
+
+      {/* Universal Search Overlay */}
+      <UniversalSearch
+        isOpen={showSearch}
+        onClose={() => setShowSearch(false)}
+      />
     </div>
   )
 }
