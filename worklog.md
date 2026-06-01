@@ -19,3 +19,25 @@ Stage Summary:
 - New db-cache.ts provides Supabase-first fetch with 60-min filter built into every query
 - Data flow: Supabase DB (60-min filter) → LocalStorage → YouTube API (60-min filter) → Static Fallback
 - No UI files touched — Movie Hub grid/list component is 100% unchanged
+
+---
+Task ID: 2
+Agent: Main Agent
+Task: Gemini AI Multi-Key Rotation & Movie Discovery Engine
+
+Work Log:
+- Created /src/lib/gemini.ts — 5-Key Lottery Manager with health tracking, weighted random selection, 429 auto-fallback, key pool status
+- Created /src/app/api/cron/ai-movie-hunter/route.ts — 4-step AI pipeline: Gemini suggests → YouTube fetches → Gemini verifies → Supabase saves
+- Created /src/app/api/search/ai/route.ts — Natural language AI search: Gemini parses intent → searches Supabase + YouTube → merges results
+- Updated .env with GEMINI_KEY_1-5 placeholders + CRON_SECRET + Supabase + YouTube keys
+- Updated /supabase/schema.sql — Added upsert_missing_request RPC + INSERT/UPDATE policies for missing_requests
+- TypeScript compile check: ZERO errors in all new files
+- Verified ZERO UI files were modified — only API routes and server utilities
+
+Stage Summary:
+- Gemini Key Rotator: 5 keys, lottery-style weighted selection, automatic 429 detection + rotation, health tracking per key
+- AI Movie Hunter: POST /api/cron/ai-movie-hunter — 4-step pipeline processes missing requests + category queries + Gemini suggestions
+- AI Smart Search: POST /api/search/ai — Natural language interpretation, multi-strategy Supabase search + YouTube fallback
+- Rate limiting: 30 requests/minute global for AI search, CRON_SECRET auth for hunter
+- All processing server-side only — zero client-side overhead
+- Data flow: User NL query → Gemini parses intent → Supabase genre/language/text search → YouTube API fallback → merged results

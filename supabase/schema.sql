@@ -73,6 +73,48 @@ CREATE POLICY "Missing requests are publicly readable"
   USING (true);
 
 
+-- ════════════════════════════════════════════════════════════════════════════
+--  RPC: upsert_missing_request — used by AI Smart Search & AI Movie Hunter
+-- ════════════════════════════════════════════════════════════════════════════
+-- When a user searches for something not in the DB, this function logs it.
+-- If the search query already exists, it increments the request_count instead
+-- of creating a duplicate. This lets the AI Movie Hunter prioritize the most
+-- requested searches.
+
+CREATE OR REPLACE FUNCTION upsert_missing_request(
+  p_query TEXT,
+  p_category TEXT DEFAULT 'movie'
+)
+RETURNS VOID
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  INSERT INTO missing_requests (search_query, category, status, request_count)
+  VALUES (p_query, p_category, 'pending', 1)
+  ON CONFLICT (search_query, category)
+  DO UPDATE SET
+    request_count = missing_requests.request_count + 1,
+    updated_at = now();
+END;
+$$;
+
+-- ── Allow anon access to the RPC (server-side only, but uses anon key) ──
+GRANT EXECUTE ON FUNCTION upsert_missing_request(TEXT, TEXT) TO anon, authenticated;
+
+-- ── Allow the service role to INSERT/UPDATE missing_requests ──
+-- (Needed for the fallback upsert in AI Smart Search)
+CREATE POLICY "Allow insert on missing_requests"
+  ON missing_requests FOR INSERT
+  TO anon, authenticated
+  WITH CHECK (true);
+
+CREATE POLICY "Allow update on missing_requests"
+  ON missing_requests FOR UPDATE
+  TO anon, authenticated
+  USING (true)
+  WITH CHECK (true);
+
+
 -- ══════════════════════════════════════════════════════════════════════════════
 --  CLEANUP COMMAND — Run this in Supabase SQL Editor NOW
 -- ══════════════════════════════════════════════════════════════════════════════
