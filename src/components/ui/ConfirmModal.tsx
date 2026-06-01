@@ -14,8 +14,8 @@ export function ConfirmModal({
   isOpen,
   onClose,
   onConfirm,
-  title = 'Leaving GROVIX',
-  message = 'You are about to open an external platform. GROVIX is not responsible for external content.',
+  title = 'Leaving Play Nexa',
+  message = 'You are about to open an external platform. Play Nexa is not responsible for external content.',
 }: ConfirmModalProps) {
   if (!isOpen) return null;
 
@@ -29,7 +29,7 @@ export function ConfirmModal({
       aria-describedby="confirm-modal-desc"
     >
       <div
-        className="bg-grovix-card border border-grovix-border rounded-2xl p-6 max-w-sm w-full animate-fade-in"
+        className="bg-pn-card border border-pn-border rounded-2xl p-6 max-w-sm w-full animate-fade-in"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -44,7 +44,7 @@ export function ConfirmModal({
           </div>
           <button
             onClick={onClose}
-            className="flex items-center justify-center w-8 h-8 rounded-lg text-grovix-muted hover:text-white hover:bg-grovix-secondary transition-colors duration-150"
+            className="flex items-center justify-center w-8 h-8 rounded-lg text-pn-muted hover:text-white hover:bg-pn-secondary transition-colors duration-150"
             aria-label="Close modal"
           >
             <X className="w-4 h-4" />
@@ -52,7 +52,7 @@ export function ConfirmModal({
         </div>
 
         {/* Body */}
-        <p id="confirm-modal-desc" className="text-grovix-muted text-sm mb-6 leading-relaxed">
+        <p id="confirm-modal-desc" className="text-pn-muted text-sm mb-6 leading-relaxed">
           {message}
         </p>
 
@@ -60,13 +60,13 @@ export function ConfirmModal({
         <div className="flex gap-3">
           <button
             onClick={onClose}
-            className="flex-1 h-12 rounded-xl bg-grovix-secondary text-white font-medium text-sm transition-colors duration-150 hover:bg-grovix-secondary/80 active:scale-[0.97]"
+            className="flex-1 h-12 rounded-xl bg-pn-secondary text-white font-medium text-sm transition-colors duration-150 hover:bg-pn-secondary/80 active:scale-[0.97]"
           >
             Cancel
           </button>
           <button
             onClick={onConfirm}
-            className="flex-1 h-12 rounded-xl bg-grovix-purple text-white font-medium text-sm transition-colors duration-150 hover:bg-grovix-purple/90 active:scale-[0.97]"
+            className="flex-1 h-12 rounded-xl bg-pn-purple text-white font-medium text-sm transition-colors duration-150 hover:bg-pn-purple/90 active:scale-[0.97]"
           >
             Continue
           </button>

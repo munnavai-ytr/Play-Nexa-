@@ -26,14 +26,14 @@ export default function GamePlayerPage(
   // Save to recently played
   useEffect(() => {
     if (!game) return
-    const saved = localStorage.getItem('grovix_recent_games')
+    const saved = localStorage.getItem('pn_recent_games') || localStorage.getItem('grovix_recent_games')
     const recent: string[] = saved ? JSON.parse(saved) : []
     const updated = [
       game.id,
       ...recent.filter(rid => rid !== game.id)
     ].slice(0, 10)
     localStorage.setItem(
-      'grovix_recent_games',
+      'pn_recent_games',
       JSON.stringify(updated)
     )
   }, [game])
@@ -279,7 +279,7 @@ export default function GamePlayerPage(
                 try {
                   await navigator.share({
                     title: game.title,
-                    text: `Play ${game.title} on GROVIX`,
+                    text: `Play ${game.title} on Play Nexa`,
                     url: window.location.href
                   })
                 } catch {}

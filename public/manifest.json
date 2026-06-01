@@ -1,7 +1,7 @@
 {
-  "name": "GROVIX",
-  "short_name": "GROVIX",
-  "description": "Futuristic Media & Gaming Platform",
+  "name": "Play Nexa",
+  "short_name": "Play Nexa",
+  "description": "Premium Media Ecosystem — Watch, Play & Download",
   "start_url": "/",
   "display": "standalone",
   "orientation": "portrait",

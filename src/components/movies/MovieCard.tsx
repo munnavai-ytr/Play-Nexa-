@@ -1,4 +1,4 @@
-// ── GROVIX Movie Card — YouTube Premium Style ────────────────
+// ── Play Nexa Movie Card — YouTube Premium Style ────────────────
 // Responsive: full-width in grid, fixed-width in horizontal scroll
 // GPU-only animations: opacity + transform (no layout thrash)
 // 2GB RAM safe: no backdrop-blur, no complex filters
@@ -41,7 +41,7 @@ export default function MovieCard({ movie, fullWidth = false, onPlay }: MovieCar
     e.stopPropagation()
     setSaved(s => !s)
     try {
-      const key = 'grovix_watch_later'
+      const key = 'pn_watch_later'
       const list: string[] = JSON.parse(localStorage.getItem(key) || '[]')
       if (!saved) {
         if (!list.includes(movie.videoId)) list.push(movie.videoId)
@@ -57,7 +57,7 @@ export default function MovieCard({ movie, fullWidth = false, onPlay }: MovieCar
     e.stopPropagation()
     setFavorited(f => !f)
     try {
-      const key = 'grovix_likes'
+      const key = 'pn_likes'
       const list: string[] = JSON.parse(localStorage.getItem(key) || '[]')
       if (!favorited) {
         if (!list.includes(movie.id)) list.push(movie.id)
@@ -81,12 +81,12 @@ export default function MovieCard({ movie, fullWidth = false, onPlay }: MovieCar
       role="button"
       tabIndex={0}
       onKeyDown={(e) => { if (e.key === 'Enter') handleClick() }}
-      className={`group cursor-pointer active:scale-[0.97] transition-transform duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-grovix-purple rounded-xl ${
+      className={`group cursor-pointer active:scale-[0.97] transition-transform duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-pn-purple rounded-xl ${
         fullWidth ? 'w-full' : 'w-[168px] flex-shrink-0'
       }`}
     >
       {/* ── THUMBNAIL ── */}
-      <div className="relative aspect-video rounded-xl overflow-hidden bg-grovix-card">
+      <div className="relative aspect-video rounded-xl overflow-hidden bg-pn-card">
         <Image
           src={movie.thumbnail}
           alt={movie.title}
@@ -107,7 +107,7 @@ export default function MovieCard({ movie, fullWidth = false, onPlay }: MovieCar
 
         {/* Play icon overlay */}
         <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 group-active:opacity-100 transition-opacity duration-200 bg-black/30">
-          <div className="w-12 h-12 rounded-full bg-grovix-purple/90 flex items-center justify-center">
+          <div className="w-12 h-12 rounded-full bg-pn-purple/90 flex items-center justify-center">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="white">
               <path d="M8 5v14l11-7z" />
             </svg>
@@ -116,14 +116,14 @@ export default function MovieCard({ movie, fullWidth = false, onPlay }: MovieCar
 
         {/* FREE badge — top-left */}
         {'free' in movie && movie.free && (
-          <span className="absolute top-2 left-2 bg-grovix-success text-white text-[9px] font-bold rounded px-1.5 py-0.5 tracking-wide">
+          <span className="absolute top-2 left-2 bg-pn-success text-white text-[9px] font-bold rounded px-1.5 py-0.5 tracking-wide">
             FREE
           </span>
         )}
 
         {/* Dubbed badge — top-right */}
         {(isLocalMovie(movie) && movie.dubbed) || (dubbedTags && dubbedTags.length > 0) ? (
-          <span className="absolute top-2 right-2 bg-grovix-purple text-white text-[9px] font-bold rounded px-1.5 py-0.5">
+          <span className="absolute top-2 right-2 bg-pn-purple text-white text-[9px] font-bold rounded px-1.5 py-0.5">
             {dubbedTags && dubbedTags.length > 0
               ? dubbedTags[0].replace('Dubbed', 'DUB').replace('Sub', 'SUB')
               : 'DUB'}
@@ -141,7 +141,7 @@ export default function MovieCard({ movie, fullWidth = false, onPlay }: MovieCar
             onClick={handleSave}
             type="button"
             className={`w-7 h-7 rounded-full flex items-center justify-center transition-colors duration-150 ${
-              saved ? 'bg-grovix-cyan text-grovix-bg' : 'bg-black/70 text-white hover:bg-black/90'
+              saved ? 'bg-pn-cyan text-pn-bg' : 'bg-black/70 text-white hover:bg-black/90'
             }`}
             aria-label={saved ? 'Remove from Watch Later' : 'Watch Later'}
           >
@@ -176,15 +176,15 @@ export default function MovieCard({ movie, fullWidth = false, onPlay }: MovieCar
         </h3>
 
         {/* Channel */}
-        <p className="text-grovix-muted text-[11px] truncate mb-0.5">
+        <p className="text-pn-muted text-[11px] truncate mb-0.5">
           {movie.channel}
         </p>
 
         {/* Meta row: year • language • rating */}
-        <div className="flex items-center gap-1 text-[11px] text-grovix-muted flex-wrap">
-          {isLocalMovie(movie) && <><span>{movie.year}</span><span className="text-grovix-border">•</span></>}
+        <div className="flex items-center gap-1 text-[11px] text-pn-muted flex-wrap">
+          {isLocalMovie(movie) && <><span>{movie.year}</span><span className="text-pn-border">•</span></>}
           <span>{movie.language}</span>
-          {isLocalMovie(movie) && <><span className="text-grovix-border">•</span><span className="text-grovix-cyan font-medium">★ {movie.rating}</span></>}
+          {isLocalMovie(movie) && <><span className="text-pn-border">•</span><span className="text-pn-cyan font-medium">★ {movie.rating}</span></>}
         </div>
 
         {/* ── Dubbed / Language Tags — Premium lightweight badges ── */}
@@ -198,10 +198,10 @@ export default function MovieCard({ movie, fullWidth = false, onPlay }: MovieCar
                   key={tag}
                   className={`text-[9px] font-medium rounded-full px-2 py-0.5 border ${
                     isDub
-                      ? 'text-grovix-purple bg-grovix-purple/10 border-grovix-purple/30'
+                      ? 'text-pn-purple bg-pn-purple/10 border-pn-purple/30'
                       : isSub
-                        ? 'text-grovix-cyan bg-grovix-cyan/10 border-grovix-cyan/30'
-                        : 'text-grovix-muted bg-grovix-card border-grovix-border'
+                        ? 'text-pn-cyan bg-pn-cyan/10 border-pn-cyan/30'
+                        : 'text-pn-muted bg-pn-card border-pn-border'
                   }`}
                 >
                   {tag}
@@ -215,7 +215,7 @@ export default function MovieCard({ movie, fullWidth = false, onPlay }: MovieCar
         {fullWidth && movie.genre && movie.genre.length > 0 && (
           <div className="flex gap-1 mt-1.5 flex-wrap">
             {movie.genre.slice(0, 2).map(g => (
-              <span key={g} className="text-[9px] text-grovix-muted bg-grovix-card border border-grovix-border rounded-full px-2 py-0.5">
+              <span key={g} className="text-[9px] text-pn-muted bg-pn-card border border-pn-border rounded-full px-2 py-0.5">
                 {g}
               </span>
             ))}

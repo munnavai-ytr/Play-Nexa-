@@ -23,7 +23,7 @@ export default function PlatformCard({
       href={`/platforms/${id}`}
       className="block active:scale-[0.97] transition-transform duration-150"
     >
-      <article className="bg-grovix-card border border-grovix-border rounded-2xl p-4 flex flex-col gap-3">
+      <article className="bg-pn-card border border-pn-border rounded-2xl p-4 flex flex-col gap-3">
         <div className="flex items-center gap-2.5">
           <span
             className="w-3 h-3 rounded-full flex-shrink-0"
@@ -33,10 +33,10 @@ export default function PlatformCard({
           <h3 className="text-white font-semibold text-sm truncate">{name}</h3>
         </div>
 
-        <p className="text-grovix-muted text-xs leading-relaxed">{tagline}</p>
+        <p className="text-pn-muted text-xs leading-relaxed">{tagline}</p>
 
         <div className="mt-auto">
-          <span className="inline-flex items-center justify-center gap-1.5 border border-grovix-purple text-grovix-purple rounded-xl h-10 px-4 text-sm font-medium transition-colors duration-150 hover:bg-grovix-purple/10">
+          <span className="inline-flex items-center justify-center gap-1.5 border border-pn-purple text-pn-purple rounded-xl h-10 px-4 text-sm font-medium transition-colors duration-150 hover:bg-pn-purple/10">
             Open <ArrowRight className="w-3.5 h-3.5" />
           </span>
         </div>

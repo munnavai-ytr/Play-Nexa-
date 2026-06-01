@@ -1,4 +1,4 @@
-// ── GROVIX Library Page ────────────────────────────────────
+// ── Play Nexa Library Page ────────────────────────────────────
 // IndexedDB powered — saved movies, shorts, playlists
 // Routes to /movies/[id] using item.id
 
@@ -44,11 +44,11 @@ export default function LibraryPage() {
   }
 
   return (
-    <div className="min-h-screen bg-grovix-bg pb-24">
+    <div className="min-h-screen bg-pn-bg pb-24">
       {/* TopBar */}
-      <div className="sticky top-0 z-50 bg-grovix-bg border-b border-grovix-border px-4 h-14 flex items-center justify-between">
+      <div className="sticky top-0 z-50 bg-pn-bg border-b border-pn-border px-4 h-14 flex items-center justify-between">
         <h1 className="text-lg font-bold text-white">My Library</h1>
-        <span className="text-xs text-grovix-muted">{all.length} saved</span>
+        <span className="text-xs text-pn-muted">{all.length} saved</span>
       </div>
 
       {/* Continue Watching */}
@@ -64,7 +64,7 @@ export default function LibraryPage() {
                   key={item.id}
                   onClick={() => router.push(`/movies/${item.id}`)}
                   type="button"
-                  className="flex-shrink-0 w-[140px] bg-grovix-card rounded-xl overflow-hidden border border-grovix-border active:scale-95 transition-transform duration-150"
+                  className="flex-shrink-0 w-[140px] bg-pn-card rounded-xl overflow-hidden border border-pn-border active:scale-95 transition-transform duration-150"
                 >
                   <div className="relative w-full aspect-video">
                     <Image
@@ -78,7 +78,7 @@ export default function LibraryPage() {
                     />
                     <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-black/50">
                       <div
-                        className="h-0.5 bg-grovix-purple"
+                        className="h-0.5 bg-pn-purple"
                         style={{ width: `${item.watchPercent}%` }}
                       />
                     </div>
@@ -103,8 +103,8 @@ export default function LibraryPage() {
               type="button"
               className={`flex-shrink-0 rounded-full px-4 py-2 text-xs font-medium transition-all duration-200 ${
                 tab === t.key
-                  ? 'bg-grovix-purple text-white'
-                  : 'bg-grovix-card border border-grovix-border text-grovix-muted'
+                  ? 'bg-pn-purple text-white'
+                  : 'bg-pn-card border border-pn-border text-pn-muted'
               }`}
             >
               {t.label}
@@ -129,13 +129,13 @@ export default function LibraryPage() {
             <div className="flex flex-col items-center justify-center mt-24 gap-3">
               <p className="text-5xl">{'📂'}</p>
               <p className="text-white font-semibold">Nothing here yet</p>
-              <p className="text-grovix-muted text-sm text-center px-8">
+              <p className="text-pn-muted text-sm text-center px-8">
                 Tap Save on any movie or short to add it here
               </p>
               <button
                 onClick={() => router.push('/movies')}
                 type="button"
-                className="mt-2 px-6 py-3 rounded-xl bg-grovix-purple text-white text-sm font-semibold"
+                className="mt-2 px-6 py-3 rounded-xl bg-pn-purple text-white text-sm font-semibold"
               >
                 Browse Movies
               </button>
@@ -145,7 +145,7 @@ export default function LibraryPage() {
               {display.map((item) => (
                 <div
                   key={item.id}
-                  className="bg-grovix-card border border-grovix-border rounded-2xl overflow-hidden"
+                  className="bg-pn-card border border-pn-border rounded-2xl overflow-hidden"
                 >
                   <div className="relative w-full aspect-video">
                     <Image
@@ -157,13 +157,13 @@ export default function LibraryPage() {
                       loading="lazy"
                       unoptimized
                     />
-                    <span className="absolute top-2 left-2 bg-grovix-purple text-white text-[9px] font-bold rounded-full px-2 py-0.5">
+                    <span className="absolute top-2 left-2 bg-pn-purple text-white text-[9px] font-bold rounded-full px-2 py-0.5">
                       SAVED
                     </span>
                     {item.watchPercent > 0 && (
                       <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-black/50">
                         <div
-                          className="h-0.5 bg-grovix-purple"
+                          className="h-0.5 bg-pn-purple"
                           style={{ width: `${item.watchPercent}%` }}
                         />
                       </div>
@@ -173,7 +173,7 @@ export default function LibraryPage() {
                     <p className="text-white text-xs font-semibold line-clamp-2 mb-2">
                       {item.title}
                     </p>
-                    <p className="text-grovix-muted text-[10px] mb-3">
+                    <p className="text-pn-muted text-[10px] mb-3">
                       {item.duration} &bull;{' '}
                       {new Date(item.savedAt).toLocaleDateString('en-US', {
                         month: 'short',
@@ -184,7 +184,7 @@ export default function LibraryPage() {
                       <button
                         onClick={() => router.push(`/movies/${item.id}`)}
                         type="button"
-                        className="flex-1 h-9 rounded-xl bg-grovix-purple text-white text-xs font-medium flex items-center justify-center gap-1 active:scale-95 transition-transform duration-150"
+                        className="flex-1 h-9 rounded-xl bg-pn-purple text-white text-xs font-medium flex items-center justify-center gap-1 active:scale-95 transition-transform duration-150"
                       >
                         <Play size={11} />
                         {item.watchPercent > 0 ? 'Continue' : 'Watch'}
@@ -196,7 +196,7 @@ export default function LibraryPage() {
                           }
                         }}
                         type="button"
-                        className="h-9 w-9 rounded-xl bg-grovix-border flex items-center justify-center active:scale-95 transition-transform duration-150"
+                        className="h-9 w-9 rounded-xl bg-pn-border flex items-center justify-center active:scale-95 transition-transform duration-150"
                       >
                         <Trash2 size={13} className="text-red-400" />
                       </button>
@@ -215,7 +215,7 @@ export default function LibraryPage() {
           <button
             onClick={() => setShowCreate(true)}
             type="button"
-            className="w-full h-12 rounded-xl border border-dashed border-grovix-purple text-grovix-purple text-sm font-medium flex items-center justify-center gap-2 mb-4 active:scale-95 transition-transform duration-150"
+            className="w-full h-12 rounded-xl border border-dashed border-pn-purple text-pn-purple text-sm font-medium flex items-center justify-center gap-2 mb-4 active:scale-95 transition-transform duration-150"
           >
             <Plus size={16} />
             Create New Playlist
@@ -227,13 +227,13 @@ export default function LibraryPage() {
                 key={pl.id}
                 onClick={() => router.push(`/library/playlist/${pl.id}`)}
                 type="button"
-                className="bg-grovix-card border border-grovix-border rounded-2xl p-4 text-left active:scale-95 transition-transform duration-150"
+                className="bg-pn-card border border-pn-border rounded-2xl p-4 text-left active:scale-95 transition-transform duration-150"
               >
                 <p className="text-3xl mb-2">{pl.emoji}</p>
                 <p className="text-white font-semibold text-sm line-clamp-1">
                   {pl.name}
                 </p>
-                <p className="text-grovix-muted text-xs mt-1">
+                <p className="text-pn-muted text-xs mt-1">
                   {pl.mediaIds.length} videos
                 </p>
               </button>
@@ -249,8 +249,8 @@ export default function LibraryPage() {
             className="absolute inset-0 bg-black/80"
             onClick={() => setShowCreate(false)}
           />
-          <div className="relative w-full bg-grovix-card rounded-t-3xl border-t border-grovix-border p-5 z-10">
-            <div className="w-10 h-1 bg-grovix-border rounded-full mx-auto mb-4" />
+          <div className="relative w-full bg-pn-card rounded-t-3xl border-t border-pn-border p-5 z-10">
+            <div className="w-10 h-1 bg-pn-border rounded-full mx-auto mb-4" />
             <h3 className="text-white font-bold text-base mb-4">New Playlist</h3>
 
             {/* Emoji picker */}
@@ -262,8 +262,8 @@ export default function LibraryPage() {
                   type="button"
                   className={`w-10 h-10 rounded-xl text-xl transition-all duration-150 ${
                     newEmoji === e
-                      ? 'bg-grovix-purple/20 border border-grovix-purple'
-                      : 'bg-grovix-bg border border-grovix-border'
+                      ? 'bg-pn-purple/20 border border-pn-purple'
+                      : 'bg-pn-bg border border-pn-border'
                   }`}
                 >
                   {e}
@@ -276,20 +276,20 @@ export default function LibraryPage() {
               value={newName}
               onChange={(e) => setNewName(e.target.value)}
               placeholder="Playlist name..."
-              className="w-full bg-grovix-bg border border-grovix-border rounded-xl h-12 px-4 text-white text-sm outline-none focus:border-grovix-purple transition-colors duration-200 mb-4"
+              className="w-full bg-pn-bg border border-pn-border rounded-xl h-12 px-4 text-white text-sm outline-none focus:border-pn-purple transition-colors duration-200 mb-4"
             />
             <div className="flex gap-3">
               <button
                 onClick={() => setShowCreate(false)}
                 type="button"
-                className="flex-1 h-12 rounded-xl border border-grovix-border text-grovix-muted text-sm"
+                className="flex-1 h-12 rounded-xl border border-pn-border text-pn-muted text-sm"
               >
                 Cancel
               </button>
               <button
                 onClick={handleCreate}
                 type="button"
-                className="flex-1 h-12 rounded-xl bg-grovix-purple text-white text-sm font-semibold"
+                className="flex-1 h-12 rounded-xl bg-pn-purple text-white text-sm font-semibold"
               >
                 Create
               </button>

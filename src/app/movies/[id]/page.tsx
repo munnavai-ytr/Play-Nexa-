@@ -1,4 +1,4 @@
-// ── GROVIX Movie Detail — YouTube-Style Cinematic Experience ─
+// ── Play Nexa Movie Detail — YouTube-Style Cinematic Experience ─
 // Zero API — movie data from JSON
 // Playback via StealthPlayer (maximum YouTube branding removal)
 // Related movies from Supabase/JSON filter (instant)
@@ -37,13 +37,13 @@ const REGION_FLAGS: Record<MovieRegion, string> = {
 
 function MovieDetailSkeleton() {
   return (
-    <div className="min-h-screen bg-grovix-bg pb-24">
-      <div className="w-full aspect-video bg-grovix-card animate-pulse" />
+    <div className="min-h-screen bg-pn-bg pb-24">
+      <div className="w-full aspect-video bg-pn-card animate-pulse" />
       <div className="max-w-6xl mx-auto px-4 pt-4 space-y-3">
-        <div className="h-6 bg-grovix-card rounded-xl w-3/4 animate-pulse" />
-        <div className="h-4 bg-grovix-card rounded-xl w-1/2 animate-pulse" />
-        <div className="h-4 bg-grovix-card rounded-xl w-full animate-pulse" />
-        <div className="h-4 bg-grovix-card rounded-xl w-2/3 animate-pulse" />
+        <div className="h-6 bg-pn-card rounded-xl w-3/4 animate-pulse" />
+        <div className="h-4 bg-pn-card rounded-xl w-1/2 animate-pulse" />
+        <div className="h-4 bg-pn-card rounded-xl w-full animate-pulse" />
+        <div className="h-4 bg-pn-card rounded-xl w-2/3 animate-pulse" />
       </div>
     </div>
   )
@@ -54,16 +54,16 @@ function MovieDetailSkeleton() {
 function MovieNotFound() {
   const router = useRouter()
   return (
-    <div className="min-h-screen bg-grovix-bg flex flex-col items-center justify-center gap-4 px-4">
+    <div className="min-h-screen bg-pn-bg flex flex-col items-center justify-center gap-4 px-4">
       <p className="text-5xl">🎬</p>
       <p className="text-white font-bold text-lg">Movie not found</p>
-      <p className="text-grovix-muted text-sm text-center">
+      <p className="text-pn-muted text-sm text-center">
         This movie may have been removed or the link is incorrect.
       </p>
       <button
         onClick={() => router.back()}
         type="button"
-        className="mt-4 px-6 py-3 rounded-xl bg-grovix-purple text-white text-sm font-semibold min-h-[44px] active:scale-95 transition-transform duration-150"
+        className="mt-4 px-6 py-3 rounded-xl bg-pn-purple text-white text-sm font-semibold min-h-[44px] active:scale-95 transition-transform duration-150"
       >
         ← Go Back
       </button>
@@ -100,7 +100,7 @@ export default function MovieDetailPage(
     try {
       await navigator.share({
         title: movie.title,
-        text: `Watch ${movie.title} on GROVIX`,
+        text: `Watch ${movie.title} on Play Nexa`,
         url: window.location.href,
       })
     } catch {
@@ -109,7 +109,7 @@ export default function MovieDetailPage(
   }
 
   return (
-    <div className="min-h-screen bg-grovix-bg pb-24">
+    <div className="min-h-screen bg-pn-bg pb-24">
       {/* ── PLAYER SECTION ── */}
       <div className="relative bg-black w-full">
         {/* Back button */}
@@ -144,27 +144,27 @@ export default function MovieDetailPage(
             </h1>
 
             {/* Region row — YouTube-style */}
-            <div className="flex items-center gap-2 text-grovix-muted text-xs mb-3">
+            <div className="flex items-center gap-2 text-pn-muted text-xs mb-3">
               <span className="flex items-center gap-1">
                 <MapPin size={10} />
                 {REGION_FLAGS[region]} {REGION_LABELS[region]}
               </span>
-              <span className="text-grovix-border">•</span>
+              <span className="text-pn-border">•</span>
               <span>{movie.year}</span>
             </div>
 
             {/* Meta badges — with dubbed language tags */}
             <div className="flex flex-wrap gap-2 mb-3">
-              <span className="bg-grovix-success text-white text-[11px] font-bold rounded-full px-2.5 py-1">
+              <span className="bg-pn-success text-white text-[11px] font-bold rounded-full px-2.5 py-1">
                 FREE
               </span>
-              <span className="flex items-center gap-1 bg-grovix-card border border-grovix-border text-grovix-muted text-[11px] rounded-full px-2.5 py-1">
+              <span className="flex items-center gap-1 bg-pn-card border border-pn-border text-pn-muted text-[11px] rounded-full px-2.5 py-1">
                 <Globe size={10} /> {movie.language}
               </span>
-              <span className="flex items-center gap-1 bg-grovix-card border border-grovix-border text-grovix-muted text-[11px] rounded-full px-2.5 py-1">
+              <span className="flex items-center gap-1 bg-pn-card border border-pn-border text-pn-muted text-[11px] rounded-full px-2.5 py-1">
                 <Clock size={10} /> {movie.duration}
               </span>
-              <span className="flex items-center gap-1 bg-grovix-card border border-grovix-border text-grovix-muted text-[11px] rounded-full px-2.5 py-1">
+              <span className="flex items-center gap-1 bg-pn-card border border-pn-border text-pn-muted text-[11px] rounded-full px-2.5 py-1">
                 <Calendar size={10} /> {movie.year}
               </span>
 
@@ -177,10 +177,10 @@ export default function MovieDetailPage(
                     key={tag}
                     className={`text-[11px] font-medium rounded-full px-2.5 py-1 border ${
                       isDub
-                        ? 'bg-grovix-purple/15 text-grovix-purple border-grovix-purple/30'
+                        ? 'bg-pn-purple/15 text-pn-purple border-pn-purple/30'
                         : isSub
-                          ? 'bg-grovix-cyan/15 text-grovix-cyan border-grovix-cyan/30'
-                          : 'bg-grovix-card text-grovix-muted border-grovix-border'
+                          ? 'bg-pn-cyan/15 text-pn-cyan border-pn-cyan/30'
+                          : 'bg-pn-card text-pn-muted border-pn-border'
                     }`}
                   >
                     {tag}
@@ -190,14 +190,14 @@ export default function MovieDetailPage(
 
               {/* Genre tags */}
               {movie.genre.slice(0, 2).map(g => (
-                <span key={g} className="bg-grovix-border text-grovix-muted text-[11px] rounded-full px-2.5 py-1">
+                <span key={g} className="bg-pn-border text-pn-muted text-[11px] rounded-full px-2.5 py-1">
                   {g}
                 </span>
               ))}
             </div>
 
             {/* Action buttons — YouTube-style horizontal row */}
-            <div className="flex gap-2 flex-wrap mb-4 py-2 border-y border-grovix-border">
+            <div className="flex gap-2 flex-wrap mb-4 py-2 border-y border-pn-border">
               {/* Like */}
               <button
                 onClick={() => setLiked(!liked)}
@@ -205,7 +205,7 @@ export default function MovieDetailPage(
                 className={`flex items-center gap-2 px-4 py-2.5 rounded-full text-xs font-medium min-h-[44px] border transition-all duration-200 active:scale-95 ${
                   liked
                     ? 'bg-red-500/10 border-red-500 text-red-400'
-                    : 'bg-grovix-card border-grovix-border text-white'
+                    : 'bg-pn-card border-pn-border text-white'
                 }`}
               >
                 <Heart size={16} fill={liked ? 'currentColor' : 'none'} />
@@ -216,7 +216,7 @@ export default function MovieDetailPage(
               <button
                 onClick={handleShare}
                 type="button"
-                className="flex items-center gap-2 px-4 py-2.5 rounded-full text-xs font-medium min-h-[44px] border border-grovix-border bg-grovix-card text-white active:scale-95 transition-all duration-200"
+                className="flex items-center gap-2 px-4 py-2.5 rounded-full text-xs font-medium min-h-[44px] border border-pn-border bg-pn-card text-white active:scale-95 transition-all duration-200"
               >
                 <Share2 size={16} />
                 Share
@@ -239,7 +239,7 @@ export default function MovieDetailPage(
             </div>
 
             {/* Channel info */}
-            <div className="flex items-center gap-3 bg-grovix-card border border-grovix-border rounded-2xl p-3 mb-4">
+            <div className="flex items-center gap-3 bg-pn-card border border-pn-border rounded-2xl p-3 mb-4">
               <div
                 className="w-10 h-10 rounded-full flex-shrink-0 flex items-center justify-center text-white font-bold"
                 style={{ background: 'linear-gradient(135deg, #7C5CFF, #00D4FF)' }}
@@ -248,24 +248,24 @@ export default function MovieDetailPage(
               </div>
               <div className="flex-1">
                 <p className="text-white text-sm font-semibold">{movie.channel}</p>
-                <p className="text-grovix-muted text-xs">YouTube Channel</p>
+                <p className="text-pn-muted text-xs">YouTube Channel</p>
               </div>
-              <span className="text-[10px] text-grovix-purple bg-grovix-purple/10 rounded-full px-2 py-1">
-                GROVIX
+              <span className="text-[10px] text-pn-purple bg-pn-purple/10 rounded-full px-2 py-1">
+                PLAY NEXA
               </span>
             </div>
 
             {/* Description */}
             {movie.description && (
-              <div className="mb-4 bg-grovix-card border border-grovix-border rounded-2xl p-3">
-                <p className={`text-grovix-muted text-sm leading-relaxed ${!showMore ? 'line-clamp-3' : ''}`}>
+              <div className="mb-4 bg-pn-card border border-pn-border rounded-2xl p-3">
+                <p className={`text-pn-muted text-sm leading-relaxed ${!showMore ? 'line-clamp-3' : ''}`}>
                   {movie.description}
                 </p>
                 {movie.description.length > 120 && (
                   <button
                     onClick={() => setShowMore(!showMore)}
                     type="button"
-                    className="text-grovix-purple text-xs mt-2 min-h-[44px] flex items-center font-medium"
+                    className="text-pn-purple text-xs mt-2 min-h-[44px] flex items-center font-medium"
                   >
                     {showMore ? 'Show less ↑' : 'Show more ↓'}
                   </button>
@@ -277,7 +277,7 @@ export default function MovieDetailPage(
           {/* ── RIGHT: Related Movies (sidebar on desktop, bottom on mobile) ── */}
           <div className="lg:w-[340px] flex-shrink-0">
             <h3 className="text-sm font-semibold text-white mb-3 flex items-center gap-1.5">
-              <span className="text-grovix-purple">▶</span>
+              <span className="text-pn-purple">▶</span>
               Related Movies
             </h3>
 
@@ -289,7 +289,7 @@ export default function MovieDetailPage(
 
             {related.length === 0 && (
               <div className="text-center py-8">
-                <p className="text-grovix-muted text-xs">No related movies found</p>
+                <p className="text-pn-muted text-xs">No related movies found</p>
               </div>
             )}
           </div>
@@ -315,10 +315,10 @@ function RelatedMovieItem({ movie }: { movie: Movie }) {
       role="button"
       tabIndex={0}
       onKeyDown={(e) => { if (e.key === 'Enter') handleClick() }}
-      className="flex gap-3 cursor-pointer active:scale-[0.98] transition-transform duration-150 p-2 rounded-xl hover:bg-grovix-card focus:outline-none focus-visible:ring-2 focus-visible:ring-grovix-purple"
+      className="flex gap-3 cursor-pointer active:scale-[0.98] transition-transform duration-150 p-2 rounded-xl hover:bg-pn-card focus:outline-none focus-visible:ring-2 focus-visible:ring-pn-purple"
     >
       {/* Thumbnail */}
-      <div className="relative w-[160px] flex-shrink-0 aspect-video rounded-lg overflow-hidden bg-grovix-card">
+      <div className="relative w-[160px] flex-shrink-0 aspect-video rounded-lg overflow-hidden bg-pn-card">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           src={movie.thumbnail}
@@ -336,17 +336,17 @@ function RelatedMovieItem({ movie }: { movie: Movie }) {
         <h4 className="text-white text-[12px] font-medium leading-snug line-clamp-2 mb-1">
           {movie.title}
         </h4>
-        <p className="text-grovix-muted text-[10px] truncate mb-0.5">
+        <p className="text-pn-muted text-[10px] truncate mb-0.5">
           {movie.channel}
         </p>
-        <div className="flex items-center gap-1 text-[10px] text-grovix-muted">
+        <div className="flex items-center gap-1 text-[10px] text-pn-muted">
           <span>{movie.language}</span>
-          <span className="text-grovix-border">•</span>
+          <span className="text-pn-border">•</span>
           <span>{movie.year}</span>
           {movie.dubbed && (
             <>
-              <span className="text-grovix-border">•</span>
-              <span className="text-grovix-purple">DUB</span>
+              <span className="text-pn-border">•</span>
+              <span className="text-pn-purple">DUB</span>
             </>
           )}
         </div>

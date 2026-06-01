@@ -9,7 +9,7 @@ import {
 } from 'lucide-react'
 import {
   getSettings, saveSettings,
-  GrovixSettings
+  PlayNexaSettings
 } from '@/lib/settings'
 import {
   applyTheme, applyPerformanceMode,
@@ -20,7 +20,7 @@ import { getStorageInfo } from '@/lib/db'
 export default function SettingsPage() {
   const router = useRouter()
   const [settings, setSettings] =
-    useState<GrovixSettings>(getSettings())
+    useState<PlayNexaSettings>(getSettings())
   const [storage, setStorage] = useState({
     usedMB: 0, totalMB: 4096
   })
@@ -32,7 +32,7 @@ export default function SettingsPage() {
 
   // Save + apply instantly
   const update = useCallback((
-    key: keyof GrovixSettings,
+    key: keyof PlayNexaSettings,
     value: any
   ) => {
     const updated = saveSettings({ [key]: value })
@@ -66,15 +66,22 @@ export default function SettingsPage() {
     // Clear session + non-critical localStorage
     sessionStorage.clear()
     const keep = [
+      'pn_settings', 'pn_profile',
+      'pn_likes', 'pn_recent_games',
+      'pn_recent_dl', 'pn_notif',
       'grovix_settings', 'grovix_profile',
-      'grovix_likes', 'grovix_recent_games',
-      'grovix_recent_dl', 'grovix_notif'
+      'pn_likes', 'grovix_recent_games',
+      'grovix_recent_dl', 'pn_notif'
     ]
     Object.keys(localStorage)
-      .filter(k => k.startsWith('grovix_cat_') ||
-                   k.startsWith('grovix_search_') ||
-                   k.startsWith('grovix_trending') ||
-                   k.startsWith('grovix_video_'))
+      .filter(k => k.startsWith('pn_cat_') ||
+                   k.startsWith('pn_search_') ||
+                   k.startsWith('pn_trending') ||
+                   k.startsWith('pn_video_') ||
+                   k.startsWith('pn_cat_') ||
+                   k.startsWith('pn_search_') ||
+                   k.startsWith('pn_trending') ||
+                   k.startsWith('pn_video_'))
       .forEach(k => localStorage.removeItem(k))
     setClearMsg('Cache cleared!')
     setTimeout(() => setClearMsg(''), 2500)
@@ -84,11 +91,15 @@ export default function SettingsPage() {
   const handleOptimizeMemory = () => {
     // Remove old cache entries (keep newest 20)
     const cacheKeys = Object.keys(localStorage)
-      .filter(k => k.startsWith('grovix_'))
-      .filter(k => !['grovix_settings',
-        'grovix_profile','grovix_likes',
+      .filter(k => k.startsWith('pn_') || k.startsWith('grovix_'))
+      .filter(k => !['pn_settings',
+        'pn_profile','pn_likes',
+        'pn_recent_games','pn_recent_dl',
+        'pn_notif',
+        'grovix_settings',
+        'grovix_profile','pn_likes',
         'grovix_recent_games','grovix_recent_dl',
-        'grovix_notif'].includes(k))
+        'pn_notif'].includes(k))
 
     // Remove all cache except protected keys
     cacheKeys.slice(20).forEach(k =>
@@ -100,7 +111,7 @@ export default function SettingsPage() {
 
   const handleResetApp = () => {
     if (!confirm(
-      'Reset GROVIX? This clears all settings, ' +
+      'Reset Play Nexa? This clears all settings, ' +
       'history and saved data.'
     )) return
     localStorage.clear()
@@ -395,7 +406,7 @@ export default function SettingsPage() {
         {/* Version */}
         <p className="text-center text-[#94A3B8]
                       text-xs pb-2">
-          GROVIX v1.0.0 • Made with ❤️
+          Play Nexa v1.0.0 • Made with ❤️
         </p>
       </div>
     </div>

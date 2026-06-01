@@ -1,4 +1,4 @@
-// ── GROVIX Recommended Section ─────────────────────────────
+// ── Play Nexa Recommended Section ─────────────────────────────
 // Zero API — filters local JSON only
 // IntersectionObserver — only renders when scrolled into view
 // Instant results — no network needed
@@ -57,7 +57,7 @@ export default function RecommendedSection(
         </h3>
         <button
           type="button"
-          className="text-xs text-grovix-purple font-medium min-h-[44px] min-w-[44px] flex items-center justify-center"
+          className="text-xs text-pn-purple font-medium min-h-[44px] min-w-[44px] flex items-center justify-center"
         >
           See All →
         </button>
@@ -69,7 +69,7 @@ export default function RecommendedSection(
             ? Array(5).fill(0).map((_, i) => (
                 <div
                   key={i}
-                  className="flex-shrink-0 w-[148px] h-[120px] rounded-2xl bg-grovix-card animate-pulse"
+                  className="flex-shrink-0 w-[148px] h-[120px] rounded-2xl bg-pn-card animate-pulse"
                 />
               ))
             : movies.map(movie => (

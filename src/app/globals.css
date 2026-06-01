@@ -8,14 +8,14 @@
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
-  --color-grovix-bg: #070B14;
-  --color-grovix-card: #111827;
-  --color-grovix-border: #1E293B;
-  --color-grovix-purple: #7C5CFF;
-  --color-grovix-cyan: #00D4FF;
-  --color-grovix-muted: #94A3B8;
-  --color-grovix-secondary: #0F172A;
-  --color-grovix-success: #22C55E;
+  --color-pn-bg: #070B14;
+  --color-pn-card: #111827;
+  --color-pn-border: #1E293B;
+  --color-pn-purple: #7C5CFF;
+  --color-pn-cyan: #00D4FF;
+  --color-pn-muted: #94A3B8;
+  --color-pn-secondary: #0F172A;
+  --color-pn-success: #22C55E;
   --animate-shimmer: shimmer 1.5s ease-in-out infinite;
   --animate-fade-in: fade-in 300ms ease-out;
   --animate-progress-bar: progress-bar 2s ease-in-out infinite;
@@ -203,7 +203,7 @@ input[type="range"]::-moz-range-thumb {
     @apply border-border outline-ring/50;
   }
   body {
-    @apply bg-grovix-bg text-foreground;
+    @apply bg-pn-bg text-foreground;
     font-family: var(--font-geist-sans), system-ui, -apple-system, sans-serif;
   }
 }

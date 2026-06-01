@@ -1,4 +1,4 @@
-// ── GROVIX Channel Page ────────────────────────────────────
+// ── Play Nexa Channel Page ────────────────────────────────────
 // Internal channel page — NO YouTube redirect
 // Zero API — filters local JSON by channel name
 // Instant results — no network needed
@@ -22,7 +22,7 @@ export default function ChannelPage(
   const videos = useMemo(() => getByChannel(channel), [channel])
 
   return (
-    <div className="min-h-screen bg-grovix-bg pb-24">
+    <div className="min-h-screen bg-pn-bg pb-24">
       {/* Channel Header */}
       <div className="relative">
         {/* Gradient banner */}
@@ -43,17 +43,17 @@ export default function ChannelPage(
           <ChevronLeft size={20} className="text-white" />
         </button>
 
-        {/* GROVIX badge */}
-        <div className="absolute top-4 right-4 bg-grovix-card/80 rounded-lg px-2.5 py-1">
-          <p className="text-grovix-purple text-[11px] font-bold tracking-wide">
-            GROVIX CHANNEL
+        {/* Play Nexa badge */}
+        <div className="absolute top-4 right-4 bg-pn-card/80 rounded-lg px-2.5 py-1">
+          <p className="text-pn-purple text-[11px] font-bold tracking-wide">
+            PLAY NEXA
           </p>
         </div>
 
         {/* Channel avatar */}
         <div className="absolute -bottom-8 left-4">
           <div
-            className="w-16 h-16 rounded-full border-4 border-grovix-bg flex items-center justify-center text-white font-bold text-2xl"
+            className="w-16 h-16 rounded-full border-4 border-pn-bg flex items-center justify-center text-white font-bold text-2xl"
             style={{
               background: 'linear-gradient(135deg, #7C5CFF, #00D4FF)',
             }}
@@ -66,26 +66,26 @@ export default function ChannelPage(
       {/* Channel info */}
       <div className="pt-12 px-4 pb-4">
         <h1 className="text-xl font-bold text-white">{channel}</h1>
-        <p className="text-grovix-muted text-sm mt-1">
-          YouTube Channel • Available on GROVIX
+        <p className="text-pn-muted text-sm mt-1">
+          YouTube Channel • Available on Play Nexa
         </p>
 
         {/* Stats */}
         <div className="flex gap-4 mt-3">
           <div className="flex items-center gap-1.5">
-            <Film size={14} className="text-grovix-purple" />
+            <Film size={14} className="text-pn-purple" />
             <span className="text-white text-sm font-semibold">{videos.length}</span>
-            <span className="text-grovix-muted text-xs">videos</span>
+            <span className="text-pn-muted text-xs">videos</span>
           </div>
           <div className="flex items-center gap-1.5">
-            <Play size={14} className="text-grovix-cyan" />
-            <span className="text-grovix-muted text-xs">Free to watch</span>
+            <Play size={14} className="text-pn-cyan" />
+            <span className="text-pn-muted text-xs">Free to watch</span>
           </div>
         </div>
       </div>
 
       {/* Divider */}
-      <div className="mx-4 border-t border-grovix-border mb-4" />
+      <div className="mx-4 border-t border-pn-border mb-4" />
 
       {/* Videos grid */}
       <div className="px-4">
@@ -97,7 +97,7 @@ export default function ChannelPage(
           <div className="flex flex-col items-center justify-center py-16 gap-3">
             <p className="text-4xl">🎬</p>
             <p className="text-white font-semibold">No videos found</p>
-            <p className="text-grovix-muted text-sm">Try searching directly</p>
+            <p className="text-pn-muted text-sm">Try searching directly</p>
           </div>
         ) : (
           <div className="grid grid-cols-2 gap-3">

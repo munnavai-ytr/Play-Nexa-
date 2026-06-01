@@ -52,15 +52,15 @@ export default function RecentDownloads({ items, onRedownload }: RecentDownloads
               onClick={() => onRedownload(item.url)}
               className="
                 w-full flex items-center gap-3
-                bg-grovix-card rounded-xl p-3
+                bg-pn-card rounded-xl p-3
                 transition-colors duration-200
-                hover:bg-grovix-secondary
+                hover:bg-pn-secondary
                 text-left
                 min-h-[56px]
               "
             >
               {/* File icon */}
-              <span className="text-grovix-purple shrink-0">
+              <span className="text-pn-purple shrink-0">
                 {audio ? (
                   <FileAudio className="w-5 h-5" />
                 ) : (
@@ -71,7 +71,7 @@ export default function RecentDownloads({ items, onRedownload }: RecentDownloads
               {/* Name + time */}
               <div className="flex-1 min-w-0">
                 <p className="text-white text-sm truncate">{item.name}</p>
-                <p className="text-grovix-muted text-xs">
+                <p className="text-pn-muted text-xs">
                   {timeAgo(item.timestamp)}
                   {item.size && ` · ${item.size}`}
                 </p>
@@ -79,10 +79,10 @@ export default function RecentDownloads({ items, onRedownload }: RecentDownloads
 
               {/* Platform badge + chevron */}
               <div className="flex items-center gap-2 shrink-0">
-                <span className="text-grovix-muted text-[10px] font-medium bg-grovix-secondary rounded-full px-2 py-0.5 uppercase tracking-wide">
+                <span className="text-pn-muted text-[10px] font-medium bg-pn-secondary rounded-full px-2 py-0.5 uppercase tracking-wide">
                   {item.platform}
                 </span>
-                <ChevronRight className="w-4 h-4 text-grovix-muted" />
+                <ChevronRight className="w-4 h-4 text-pn-muted" />
               </div>
             </button>
           );

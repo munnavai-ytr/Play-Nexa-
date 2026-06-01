@@ -22,7 +22,7 @@ export default function DownloadButton({
       disabled={disabled || loading}
       className={`
         w-full h-14
-        bg-grovix-purple
+        bg-pn-purple
         rounded-xl
         text-white font-semibold text-base
         flex items-center justify-center gap-2

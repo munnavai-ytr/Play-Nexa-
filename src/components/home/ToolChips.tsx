@@ -52,8 +52,8 @@ export default function ToolChips({ onToggle }: ToolChipsProps) {
               onClick={() => handleToggle(chip.id)}
               className={`flex-shrink-0 rounded-full border px-4 py-2 text-xs text-white transition-colors duration-150 active:scale-95 ${
                 isActive
-                  ? 'border-grovix-purple bg-grovix-purple'
-                  : 'border-grovix-border bg-grovix-secondary'
+                  ? 'border-pn-purple bg-pn-purple'
+                  : 'border-pn-border bg-pn-secondary'
               }`}
               type="button"
               aria-pressed={isActive}

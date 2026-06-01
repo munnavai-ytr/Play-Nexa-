@@ -11,7 +11,7 @@ interface ShimmerRowProps {
 
 export function LoadingShimmer({ className = '' }: LoadingShimmerProps) {
   return (
-    <div className={`bg-grovix-card rounded-2xl overflow-hidden relative ${className}`}>
+    <div className={`bg-pn-card rounded-2xl overflow-hidden relative ${className}`}>
       <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/[0.04] to-transparent animate-shimmer" />
     </div>
   );

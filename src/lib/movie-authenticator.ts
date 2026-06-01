@@ -1,10 +1,8 @@
-// ── GROVIX Bulletproof Full-Movie Authenticator ───────────────
+// ── Play Nexa Bulletproof Full-Movie Authenticator ───────────────
 // Server-side ISO 8601 duration parser with STRICT 70-min gate
 // NEVER trusts title or description — only raw contentDetails
 // Fake videos claiming 2-3 hours but actually 2-3 minutes are REJECTED
 // Used by API routes and cron jobs to verify before storing
-
-'use server'
 
 const YOUTUBE_API_KEY = process.env.NEXT_PUBLIC_YOUTUBE_API_KEY
 const YOUTUBE_BASE = 'https://www.googleapis.com/youtube/v3'

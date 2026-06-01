@@ -1,5 +1,5 @@
 -- ═══════════════════════════════════════════════════════════════
--- GROVIX Supabase Schema — Videos Table
+-- Play Nexa Supabase Schema — Videos Table
 -- ═══════════════════════════════════════════════════════════════
 -- Run this FIRST in Supabase SQL Editor to create the table.
 -- Then run the cleanup command below to flush out short clips.

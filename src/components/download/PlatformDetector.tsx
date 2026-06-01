@@ -17,8 +17,8 @@ export default function PlatformDetector({ platform }: PlatformDetectorProps) {
   return (
     <div
       className="
-        bg-grovix-card
-        border border-grovix-success
+        bg-pn-card
+        border border-pn-success
         rounded-2xl p-3
         animate-fade-in
       "
@@ -33,7 +33,7 @@ export default function PlatformDetector({ platform }: PlatformDetectorProps) {
           ✅ {platform.name} Detected
         </span>
       </div>
-      <p className="text-grovix-muted text-xs mt-1 ml-[18px]">
+      <p className="text-pn-muted text-xs mt-1 ml-[18px]">
         {platform.icon} {platform.name?.toLowerCase()}.com
       </p>
     </div>

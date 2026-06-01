@@ -1,4 +1,4 @@
-// ── GROVIX Lazy Movie Section ──────────────────────────────
+// ── Play Nexa Lazy Movie Section ──────────────────────────────
 // Sections only fetch when scrolled into view.
 // Saves API quota massively.
 // Uses IntersectionObserver — real, no library needed.
@@ -47,7 +47,7 @@ export default function LazyMovieSection({ label, category }: Props) {
         </h2>
         <button
           type="button"
-          className="text-xs text-grovix-purple font-medium min-h-[44px] min-w-[44px] flex items-center justify-center transition-opacity duration-150 hover:opacity-80 active:scale-95"
+          className="text-xs text-pn-purple font-medium min-h-[44px] min-w-[44px] flex items-center justify-center transition-opacity duration-150 hover:opacity-80 active:scale-95"
         >
           See All →
         </button>
@@ -70,7 +70,7 @@ function SectionContent({ category }: { category: string }) {
   if (movies.length === 0) {
     return (
       <div className="flex items-center justify-center w-full py-8">
-        <p className="text-grovix-muted text-xs">No movies found</p>
+        <p className="text-pn-muted text-xs">No movies found</p>
       </div>
     )
   }

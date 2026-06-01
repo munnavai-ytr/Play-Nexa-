@@ -28,7 +28,7 @@ export default function BottomNav() {
 
   return (
     <nav
-      className="fixed bottom-0 left-0 right-0 z-[9999] flex h-16 items-stretch border-t border-grovix-border bg-grovix-secondary"
+      className="fixed bottom-0 left-0 right-0 z-[9999] flex h-16 items-stretch border-t border-pn-border bg-pn-secondary"
       style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}
       role="navigation"
       aria-label="Main navigation"
@@ -42,7 +42,7 @@ export default function BottomNav() {
             key={tab.href}
             href={tab.href}
             className={`flex min-w-[20%] flex-col items-center justify-center active:scale-90 transition-transform duration-100 ${
-              active ? 'text-grovix-purple' : 'text-grovix-muted'
+              active ? 'text-pn-purple' : 'text-pn-muted'
             }`}
             aria-label={tab.label}
             aria-current={active ? 'page' : undefined}

@@ -1,4 +1,4 @@
-// ── GROVIX Movie Verification API ────────────────────────────
+// ── Play Nexa Movie Verification API ────────────────────────────
 // Server-side endpoint to verify if a YouTube video is a real full movie
 // Uses Bulletproof Movie Authenticator — ISO 8601 duration parsing
 // STRICT 70-minute minimum — rejects fake videos instantly

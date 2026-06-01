@@ -29,7 +29,7 @@ export default function DownloadButton({ videoId, type, title }: Props) {
         type="button"
         className="flex items-center gap-2 px-4 py-2.5
                    rounded-xl text-sm font-medium min-h-[44px]
-                   bg-grovix-card border border-grovix-border
+                   bg-pn-card border border-pn-border
                    text-white active:scale-95
                    transition-all duration-200"
       >
@@ -47,17 +47,17 @@ export default function DownloadButton({ videoId, type, title }: Props) {
           />
 
           {/* Sheet */}
-          <div className="relative w-full bg-grovix-card border-t border-grovix-border rounded-t-3xl p-5 z-10">
+          <div className="relative w-full bg-pn-card border-t border-pn-border rounded-t-3xl p-5 z-10">
             {/* Handle */}
-            <div className="w-10 h-1 bg-grovix-border rounded-full mx-auto mb-4" />
+            <div className="w-10 h-1 bg-pn-border rounded-full mx-auto mb-4" />
 
             {/* Warning */}
             <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-2xl p-4 mb-5">
               <p className="text-yellow-400 font-semibold text-sm mb-1">
-                Leaving GROVIX
+                Leaving Play Nexa
               </p>
-              <p className="text-grovix-muted text-xs leading-relaxed">
-                You will be redirected to an external download platform. GROVIX is
+              <p className="text-pn-muted text-xs leading-relaxed">
+                You will be redirected to an external download platform. Play Nexa is
                 not responsible for external content or services.
               </p>
             </div>
@@ -68,7 +68,7 @@ export default function DownloadButton({ videoId, type, title }: Props) {
             </p>
 
             {/* Source selector */}
-            <p className="text-grovix-muted text-xs font-medium uppercase tracking-wide mb-3">
+            <p className="text-pn-muted text-xs font-medium uppercase tracking-wide mb-3">
               Select Download Source
             </p>
 
@@ -80,29 +80,29 @@ export default function DownloadButton({ videoId, type, title }: Props) {
                   type="button"
                   className={`w-full flex items-center justify-between p-4 rounded-xl border transition-all duration-150 active:scale-95 ${
                     selectedSource === source.id
-                      ? 'bg-grovix-purple/10 border-grovix-purple'
-                      : 'bg-grovix-bg border-grovix-border'
+                      ? 'bg-pn-purple/10 border-pn-purple'
+                      : 'bg-pn-bg border-pn-border'
                   }`}
                 >
                   <div className="flex items-center gap-3">
                     <div
                       className={`w-3 h-3 rounded-full border-2 ${
                         selectedSource === source.id
-                          ? 'bg-grovix-purple border-grovix-purple'
-                          : 'border-grovix-muted'
+                          ? 'bg-pn-purple border-pn-purple'
+                          : 'border-pn-muted'
                       }`}
                     />
                     <p
                       className={`font-medium text-sm ${
                         selectedSource === source.id
                           ? 'text-white'
-                          : 'text-grovix-muted'
+                          : 'text-pn-muted'
                       }`}
                     >
                       {source.name}
                     </p>
                   </div>
-                  <ExternalLink size={14} className="text-grovix-muted" />
+                  <ExternalLink size={14} className="text-pn-muted" />
                 </button>
               ))}
             </div>
@@ -112,14 +112,14 @@ export default function DownloadButton({ videoId, type, title }: Props) {
               <button
                 onClick={() => setShowModal(false)}
                 type="button"
-                className="flex-1 h-12 rounded-xl border border-grovix-border text-grovix-muted text-sm font-medium"
+                className="flex-1 h-12 rounded-xl border border-pn-border text-pn-muted text-sm font-medium"
               >
                 Cancel
               </button>
               <button
                 onClick={handleDownload}
                 type="button"
-                className="flex-1 h-12 rounded-xl bg-grovix-purple text-white text-sm font-semibold flex items-center justify-center gap-2 active:scale-95 transition-transform duration-150"
+                className="flex-1 h-12 rounded-xl bg-pn-purple text-white text-sm font-semibold flex items-center justify-center gap-2 active:scale-95 transition-transform duration-150"
               >
                 <ExternalLink size={16} />
                 Open Downloader

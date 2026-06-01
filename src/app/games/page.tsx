@@ -17,7 +17,7 @@ export default function GamesPage() {
 
   // Load recently played from localStorage
   useEffect(() => {
-    const saved = localStorage.getItem('grovix_recent_games')
+    const saved = localStorage.getItem('pn_recent_games') || localStorage.getItem('grovix_recent_games')
     if (saved) setRecentIds(JSON.parse(saved))
   }, [])
 

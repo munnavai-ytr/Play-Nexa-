@@ -52,7 +52,7 @@ export default function PlatformsPage() {
   }, []);
 
   return (
-    <div className="min-h-screen bg-grovix-bg pb-24">
+    <div className="min-h-screen bg-pn-bg pb-24">
       <TopBar title="Streaming Platforms" showBack />
 
       <div className="px-4 pt-4 space-y-5">
@@ -97,7 +97,7 @@ export default function PlatformsPage() {
         </button>
 
         {/* ---- Description ---- */}
-        <p className="text-grovix-muted text-sm">
+        <p className="text-pn-muted text-sm">
           Browse your favorite streaming platforms. Tap any platform to open.
         </p>
 
@@ -135,11 +135,11 @@ export default function PlatformsPage() {
         isOpen={confirmOpen}
         onClose={handleClose}
         onConfirm={handleConfirm}
-        title="Leaving GROVIX"
+        title="Leaving Play Nexa"
         message={
           pendingName
-            ? `You are about to open ${pendingName}. GROVIX is not responsible for external content. Continue?`
-            : 'You are about to open an external streaming platform. GROVIX is not responsible for external content. Continue?'
+            ? `You are about to open ${pendingName}. Play Nexa is not responsible for external content. Continue?`
+            : 'You are about to open an external streaming platform. Play Nexa is not responsible for external content. Continue?'
         }
       />
     </div>

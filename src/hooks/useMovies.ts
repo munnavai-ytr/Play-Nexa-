@@ -1,4 +1,4 @@
-// ── GROVIX Movie Hooks ─────────────────────────────────────
+// ── Play Nexa Movie Hooks ─────────────────────────────────────
 // Fixed: no re-fetch loops, no duplicate calls
 // useRef guard prevents double useEffect
 // 500ms debounce on search

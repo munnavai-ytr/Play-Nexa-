@@ -95,3 +95,45 @@ Stage Summary:
 - SQL CLEANUP: DELETE FROM videos WHERE category = 'movie' AND duration_sec < 4200;
 - MIGRATION: ALTER TABLE videos ADD COLUMN region TEXT DEFAULT 'international'; ALTER TABLE videos ADD COLUMN dubbed_tags TEXT[] DEFAULT '{}';
 - Zero auth/profile/settings files modified — only Movie Core & Data Filtration logic
+---
+Task ID: 1
+Agent: Main Agent
+Task: Global Rebrand from GROVIX to Play Nexa
+
+Work Log:
+- Found 60+ files with GROVIX/grovix references across the entire codebase
+- Bulk replaced all Tailwind CSS class prefixes: grovix-* → pn-* (8 color tokens, 44+ component files)
+- Updated tailwind.config.ts and globals.css with new pn-* class definitions
+- Rebranded Root Layout metadata: title, description, keywords, OG tags, appleWebApp title
+- Rebranded manifest.json: name, short_name, description
+- Rebranded offline.html: title and logo text
+- Rebranded sw.js: cache names (grovix-static-v1 → pn-static-v2 with version bump to force cache refresh)
+- Rebranded TopBar.tsx: logo text from "GROVIX" → "Play Nexa"
+- Rebranded Profile page: rate text, share text, rating modal heading
+- Rebranded Settings page: version text, reset confirmation, localStorage key references with backward compat
+- Renamed TypeScript types: GrovixSettings → PlayNexaSettings, GrovixDB → PlayNexaDB (with backward-compat aliases)
+- Added localStorage migration logic: grovix_settings → pn_settings, grovix_profile → pn_profile, etc. (7 key migrations)
+- Updated IndexedDB name: grovix-v1 → playnexa-v1
+- Updated perf style element ID: grovix-perf → pn-perf
+- Updated useGameCache.ts cache names with v2 version bump
+- Updated all cache key prefixes in youtube.ts and db-cache.ts: grovix_cat_ → pn_cat_, etc.
+- Updated all user-facing text: "Rate GROVIX" → "Rate Play Nexa", "Leaving GROVIX" → "Leaving Play Nexa", etc.
+- Updated all badge text: "GROVIX" → "PLAY NEXA" in ChannelCard, MovieDetail, StealthPlayer, PlayerModal
+- Updated AI search Gemini prompt: "app called GROVIX" → "app called Play Nexa"
+- Updated global variable names: _grovixSearchTimestamps → _pnSearchTimestamps
+- Updated all console.log/console.warn messages referencing GROVIX
+- Updated supabase/schema.sql comment
+- Fixed movie-authenticator.ts: removed 'use server' directive (was preventing exports)
+- Fixed profile/page.tsx: syntax error in Rate text (extra parenthesis)
+- Build verified: `npx next build` passes successfully
+
+Stage Summary:
+- Complete global rebrand from GROVIX to Play Nexa across 60+ source files
+- All user-facing text, metadata, badges, comments updated
+- CSS class prefix system renamed: grovix-* → pn-* throughout
+- TypeScript types renamed with backward-compat aliases
+- localStorage key migration system implemented (7 keys migrated on first load)
+- IndexedDB name updated with migration path
+- Service Worker cache version bumped to v2 to force refresh
+- Zero remaining GROVIX references in source (only backward-compat type alias kept)
+- Build passes clean with no errors

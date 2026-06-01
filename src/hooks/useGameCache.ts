@@ -2,8 +2,8 @@
 // Manually cache game URLs for offline play
 // Uses Cache API directly — no SW needed for these ops
 
-const GAMES_CACHE = 'grovix-games-v1'
-const THUMBS_CACHE = 'grovix-thumbs-v1'
+const GAMES_CACHE = 'pn-games-v2'
+const THUMBS_CACHE = 'pn-thumbs-v2'
 
 interface CacheResult {
   success: boolean

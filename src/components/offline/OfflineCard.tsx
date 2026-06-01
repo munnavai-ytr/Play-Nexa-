@@ -34,7 +34,7 @@ export default function OfflineCard({ media, onDelete }: OfflineCardProps) {
   })
 
   return (
-    <div className="bg-grovix-card border border-grovix-border rounded-2xl overflow-hidden">
+    <div className="bg-pn-card border border-pn-border rounded-2xl overflow-hidden">
       {/* Thumbnail */}
       <div className="relative w-full aspect-video">
         <Image
@@ -48,7 +48,7 @@ export default function OfflineCard({ media, onDelete }: OfflineCardProps) {
         />
 
         {/* OFFLINE badge */}
-        <span className="absolute top-2 left-2 bg-grovix-success text-white text-[9px] font-bold rounded-full px-2 py-0.5">
+        <span className="absolute top-2 left-2 bg-pn-success text-white text-[9px] font-bold rounded-full px-2 py-0.5">
           OFFLINE
         </span>
 
@@ -61,7 +61,7 @@ export default function OfflineCard({ media, onDelete }: OfflineCardProps) {
         {media.watchPercent > 0 && (
           <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-black/50">
             <div
-              className="h-0.5 bg-grovix-purple"
+              className="h-0.5 bg-pn-purple"
               style={{ width: `${media.watchPercent}%` }}
             />
           </div>
@@ -74,7 +74,7 @@ export default function OfflineCard({ media, onDelete }: OfflineCardProps) {
           {media.title}
         </p>
 
-        <div className="flex items-center gap-1 text-grovix-muted text-[10px] mb-3">
+        <div className="flex items-center gap-1 text-pn-muted text-[10px] mb-3">
           <Clock size={9} />
           <span>Saved {savedDate}</span>
           <span className="mx-1">&bull;</span>
@@ -86,7 +86,7 @@ export default function OfflineCard({ media, onDelete }: OfflineCardProps) {
           <button
             onClick={() => router.push(`/movies/${media.videoId}`)}
             type="button"
-            className="flex-1 h-9 rounded-xl bg-grovix-purple text-white text-xs font-medium flex items-center justify-center gap-1 active:scale-95 transition-transform duration-150"
+            className="flex-1 h-9 rounded-xl bg-pn-purple text-white text-xs font-medium flex items-center justify-center gap-1 active:scale-95 transition-transform duration-150"
           >
             <Play size={12} />
             {media.watchPercent > 0 ? 'Continue' : 'Watch'}
@@ -94,7 +94,7 @@ export default function OfflineCard({ media, onDelete }: OfflineCardProps) {
           <button
             onClick={() => onDelete(media.id)}
             type="button"
-            className="h-9 w-9 rounded-xl bg-grovix-border flex items-center justify-center active:scale-95 transition-transform duration-150"
+            className="h-9 w-9 rounded-xl bg-pn-border flex items-center justify-center active:scale-95 transition-transform duration-150"
           >
             <Trash2 size={14} className="text-red-400" />
           </button>

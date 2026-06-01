@@ -1,4 +1,4 @@
-// ── GROVIX Cache System ──────────────────────────────────────
+// ── Play Nexa Cache System ──────────────────────────────────────
 // Real localStorage cache with 30-minute TTL
 // Prevents redundant YouTube API calls → saves quota
 // No fake timers. No demo. Real working.
@@ -37,9 +37,9 @@ export const cacheClear = (prefix?: string): void => {
   try {
     if (typeof window === 'undefined') return
     if (!prefix) {
-      // Only clear GROVIX-prefixed keys, not all localStorage
+      // Only clear Play Nexa prefixed keys, not all localStorage
       Object.keys(localStorage)
-        .filter(k => k.startsWith('grovix_'))
+        .filter(k => k.startsWith('pn_') || k.startsWith('grovix_'))
         .forEach(k => localStorage.removeItem(k))
       return
     }

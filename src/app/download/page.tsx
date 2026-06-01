@@ -38,7 +38,7 @@ export default function DownloadPage() {
 
   // Load recent from localStorage
   useEffect(() => {
-    const saved = localStorage.getItem('grovix_recent_dl')
+    const saved = localStorage.getItem('pn_recent_dl') || localStorage.getItem('grovix_recent_dl')
     if (saved) setRecentUrls(JSON.parse(saved))
   }, [])
 
@@ -77,7 +77,7 @@ export default function DownloadPage() {
     ].slice(0, 5)
     setRecentUrls(updated)
     localStorage.setItem(
-      'grovix_recent_dl',
+      'pn_recent_dl',
       JSON.stringify(updated)
     )
   }, [recentUrls])
@@ -483,7 +483,7 @@ export default function DownloadPage() {
                             rounded-2xl p-4 mb-5">
               <p className="text-yellow-400 font-semibold
                             text-sm mb-1">
-                ⚠️ Leaving GROVIX
+                ⚠️ Leaving Play Nexa
               </p>
               <p className="text-[#94A3B8] text-sm
                             leading-relaxed">

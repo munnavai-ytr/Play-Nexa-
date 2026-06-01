@@ -65,9 +65,9 @@ export const applyPerformanceMode = (
   liteAnimation: boolean,
   batterySaver: boolean
 ) => {
-  const style = document.getElementById('grovix-perf')
+  const style = document.getElementById('pn-perf')
     || document.createElement('style')
-  style.id = 'grovix-perf'
+  style.id = 'pn-perf'
 
   if (liteAnimation || batterySaver) {
     style.textContent = `
@@ -80,7 +80,7 @@ export const applyPerformanceMode = (
     style.textContent = ''
   }
 
-  if (!document.getElementById('grovix-perf')) {
+  if (!document.getElementById('pn-perf')) {
     document.head.appendChild(style)
   }
 }

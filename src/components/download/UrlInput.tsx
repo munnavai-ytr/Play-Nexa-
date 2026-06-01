@@ -21,14 +21,14 @@ export default function UrlInput({ value, onChange, mode, onModeChange }: UrlInp
           placeholder="🔗 Paste YouTube, TikTok, Instagram URL..."
           className="
             w-full h-14 px-4 pr-12
-            bg-grovix-card
-            border border-grovix-border
+            bg-pn-card
+            border border-pn-border
             rounded-2xl
             text-white text-sm
-            placeholder:text-grovix-muted
+            placeholder:text-pn-muted
             outline-none
             transition-colors duration-200
-            focus:border-grovix-purple
+            focus:border-pn-purple
           "
         />
         {value.length > 0 && (
@@ -39,7 +39,7 @@ export default function UrlInput({ value, onChange, mode, onModeChange }: UrlInp
               absolute right-1 top-1/2 -translate-y-1/2
               flex items-center justify-center
               w-10 h-10
-              text-grovix-muted hover:text-white
+              text-pn-muted hover:text-white
               transition-colors duration-200
               rounded-xl
             "
@@ -61,8 +61,8 @@ export default function UrlInput({ value, onChange, mode, onModeChange }: UrlInp
             min-h-[44px] inline-flex items-center gap-1.5
             ${
               mode === 'video'
-                ? 'bg-grovix-purple text-white'
-                : 'bg-grovix-card text-grovix-muted border border-grovix-border hover:text-white'
+                ? 'bg-pn-purple text-white'
+                : 'bg-pn-card text-pn-muted border border-pn-border hover:text-white'
             }
           `}
           aria-pressed={mode === 'video'}
@@ -78,8 +78,8 @@ export default function UrlInput({ value, onChange, mode, onModeChange }: UrlInp
             min-h-[44px] inline-flex items-center gap-1.5
             ${
               mode === 'audio'
-                ? 'bg-grovix-purple text-white'
-                : 'bg-grovix-card text-grovix-muted border border-grovix-border hover:text-white'
+                ? 'bg-pn-purple text-white'
+                : 'bg-pn-card text-pn-muted border border-pn-border hover:text-white'
             }
           `}
           aria-pressed={mode === 'audio'}

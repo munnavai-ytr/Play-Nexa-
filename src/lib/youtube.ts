@@ -1,4 +1,4 @@
-// ── GROVIX YouTube API Service ──────────────────────────────
+// ── Play Nexa YouTube API Service ──────────────────────────────
 // Fixed architecture: cache → API → fallback
 // Prevents quota exhaustion + never shows empty screen
 // Uses native fetch (no axios dependency)
@@ -245,7 +245,7 @@ export const fetchMoviesByCategory = async (
   category: string,
   maxResults = 12,
 ): Promise<YouTubeMovie[]> => {
-  const cacheKey = `grovix_cat_${category}`
+  const cacheKey = `pn_cat_${category}`
 
   // 1. Check localStorage cache first (30-min TTL)
   const cached = cacheGet<YouTubeMovie[]>(cacheKey)
@@ -342,7 +342,7 @@ export const fetchMoviesByCategory = async (
 
     } catch {
       // Quota exceeded or network error — silently use fallback
-      console.warn(`GROVIX: Using fallback for ${category}`)
+      console.warn(`Play Nexa: Using fallback for ${category}`)
       return getFallbackByCategory(category)
     } finally {
       pendingRequests.delete(cacheKey)
@@ -359,7 +359,7 @@ export const fetchMoviesByCategory = async (
 export const fetchTrending = async (
   maxResults = 16,
 ): Promise<YouTubeMovie[]> => {
-  const cacheKey = 'grovix_trending'
+  const cacheKey = 'pn_trending'
   const cached = cacheGet<YouTubeMovie[]>(cacheKey)
   if (cached && cached.length > 0) return cached
 
@@ -409,7 +409,7 @@ export const searchMovies = async (
 ): Promise<YouTubeMovie[]> => {
   if (!query.trim()) return []
 
-  const cacheKey = `grovix_search_${query.toLowerCase().trim()}`
+  const cacheKey = `pn_search_${query.toLowerCase().trim()}`
   const cached = cacheGet<YouTubeMovie[]>(cacheKey)
   if (cached && cached.length > 0) return cached
 
@@ -478,7 +478,7 @@ export const searchMovies = async (
 export const fetchVideoDetail = async (
   videoId: string,
 ): Promise<YouTubeMovie | null> => {
-  const cacheKey = `grovix_video_${videoId}`
+  const cacheKey = `pn_video_${videoId}`
   const cached = cacheGet<YouTubeMovie>(cacheKey)
   if (cached) return cached
 
@@ -541,7 +541,7 @@ export const fetchChannelVideos = async (
   channelTitle: string,
   max = 12,
 ): Promise<YouTubeMovie[]> => {
-  const cacheKey = `grovix_ch_${channelTitle}`
+  const cacheKey = `pn_ch_${channelTitle}`
   const cached = cacheGet<YouTubeMovie[]>(cacheKey)
   if (cached && cached.length > 0) return cached
 
@@ -615,7 +615,7 @@ export const fetchRecommended = async (
   excludeId: string,
   max = 10,
 ): Promise<YouTubeMovie[]> => {
-  const cacheKey = `grovix_rec_${genre}`
+  const cacheKey = `pn_rec_${genre}`
   const cached = cacheGet<YouTubeMovie[]>(cacheKey)
   if (cached && cached.length > 0) {
     return cached.filter(m => m.id !== excludeId).slice(0, max)

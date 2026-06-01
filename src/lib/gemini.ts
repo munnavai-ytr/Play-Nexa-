@@ -1,4 +1,4 @@
-// ── GROVIX Gemini AI Multi-Key Lottery Manager ────────────────
+// ── Play Nexa Gemini AI Multi-Key Lottery Manager ────────────────
 // 5-Key rotation system — maximizes free tier to ~7,500 daily requests
 // Lottery-style random key selection per request
 // Automatic 429/error fallback — switches to next key and retries
@@ -155,7 +155,7 @@ export const callGemini = async (
   options: GeminiRequestOptions = {},
 ): Promise<GeminiResponse> => {
   if (keyPool.length === 0) {
-    throw new Error('GROVIX: No Gemini API keys configured. Set GEMINI_KEY_1 through GEMINI_KEY_5 in .env')
+    throw new Error('Play Nexa: No Gemini API keys configured. Set GEMINI_KEY_1 through GEMINI_KEY_5 in .env')
   }
 
   const model = options.model || DEFAULT_MODEL
@@ -166,7 +166,7 @@ export const callGemini = async (
     const keyInfo = pickKey(excludedIndexes)
 
     if (!keyInfo) {
-      throw new Error(`GROVIX: All ${keyPool.length} Gemini keys exhausted after ${attempt} attempts. Last error: ${lastError?.message || 'unknown'}`)
+      throw new Error(`Play Nexa: All ${keyPool.length} Gemini keys exhausted after ${attempt} attempts. Last error: ${lastError?.message || 'unknown'}`)
     }
 
     keyInfo.totalRequests++
@@ -218,7 +218,7 @@ export const callGemini = async (
       if (res.status === 429) {
         markRateLimited(keyInfo.index)
         excludedIndexes.add(keyInfo.index)
-        console.warn(`GROVIX Gemini: Key ${keyInfo.index + 1} rate-limited (429). Switching to next key.`)
+        console.warn(`Play Nexa Gemini: Key ${keyInfo.index + 1} rate-limited (429). Switching to next key.`)
         lastError = new Error(`Key ${keyInfo.index + 1} rate-limited`)
         continue // Try next key
       }
@@ -229,7 +229,7 @@ export const callGemini = async (
         keyInfo.consecutiveErrors++
         keyInfo.totalErrors++
         excludedIndexes.add(keyInfo.index)
-        console.warn(`GROVIX Gemini: Key ${keyInfo.index + 1} error ${res.status}: ${errorText.slice(0, 200)}`)
+        console.warn(`Play Nexa Gemini: Key ${keyInfo.index + 1} error ${res.status}: ${errorText.slice(0, 200)}`)
         lastError = new Error(`Key ${keyInfo.index + 1} HTTP ${res.status}: ${errorText.slice(0, 100)}`)
         continue // Try next key
       }
@@ -242,9 +242,9 @@ export const callGemini = async (
         // Blocked by safety or empty response
         const blockReason = data?.candidates?.[0]?.finishReason
         if (blockReason === 'SAFETY') {
-          throw new Error('GROVIX Gemini: Response blocked by safety filters')
+          throw new Error('Play Nexa Gemini: Response blocked by safety filters')
         }
-        throw new Error('GROVIX Gemini: Empty response from model')
+        throw new Error('Play Nexa Gemini: Empty response from model')
       }
 
       // Mark key as healthy
@@ -273,7 +273,7 @@ export const callGemini = async (
       }
 
       // Non-retryable error (safety block, parsing error, etc.)
-      if (err instanceof Error && err.message.startsWith('GROVIX Gemini:')) {
+      if (err instanceof Error && err.message.startsWith('Play Nexa Gemini:')) {
         throw err
       }
 
@@ -285,7 +285,7 @@ export const callGemini = async (
     }
   }
 
-  throw new Error(`GROVIX Gemini: All keys failed after ${MAX_RETRIES} attempts. Last error: ${lastError?.message || 'unknown'}`)
+  throw new Error(`Play Nexa Gemini: All keys failed after ${MAX_RETRIES} attempts. Last error: ${lastError?.message || 'unknown'}`)
 }
 
 // ════════════════════════════════════════════════════════════
@@ -317,7 +317,7 @@ export const callGeminiJSON = async <T = unknown>(
     if (jsonMatch) {
       return JSON.parse(jsonMatch[1] || jsonMatch[0]) as T
     }
-    throw new Error('GROVIX Gemini: Failed to parse JSON from response')
+    throw new Error('Play Nexa Gemini: Failed to parse JSON from response')
   }
 }
 

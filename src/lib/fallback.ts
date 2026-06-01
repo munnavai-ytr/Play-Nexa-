@@ -1,4 +1,4 @@
-// ── GROVIX Fallback Movies ───────────────────────────────────
+// ── Play Nexa Fallback Movies ───────────────────────────────────
 // These show when YouTube API quota is exceeded or network fails.
 // Real movie data. Real YouTube IDs.
 // Users NEVER see an empty screen.

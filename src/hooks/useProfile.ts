@@ -13,12 +13,39 @@ export interface ProfileData {
   playedCount: number
 }
 
-const PROFILE_KEY = 'grovix_profile'
+const PROFILE_KEY      = 'pn_profile'
+const LEGACY_PROF_KEY  = 'grovix_profile'
+const DL_KEY           = 'pn_recent_dl'
+const LEGACY_DL_KEY    = 'grovix_recent_dl'
+const GAMES_KEY        = 'pn_recent_games'
+const LEGACY_GAMES_KEY = 'grovix_recent_games'
+
+/** One-time migration of old grovix_ keys → pn_ keys */
+function migrateKeys(): void {
+  try {
+    const pairs: [string, string][] = [
+      [LEGACY_PROF_KEY, PROFILE_KEY],
+      [LEGACY_DL_KEY, DL_KEY],
+      [LEGACY_GAMES_KEY, GAMES_KEY],
+    ]
+    for (const [oldK, newK] of pairs) {
+      if (!localStorage.getItem(newK)) {
+        const val = localStorage.getItem(oldK)
+        if (val) {
+          localStorage.setItem(newK, val)
+          localStorage.removeItem(oldK)
+        }
+      }
+    }
+  } catch {
+    // Silent — non-critical
+  }
+}
 
 export const useProfile = () => {
   const [profile, setProfile] = useState<ProfileData>({
-    username: 'Grovix User',
-    handle: '@grovix_user',
+    username: 'Play Nexa User',
+    handle: '@playnexa_user',
     avatarColor: '#7C5CFF',
     downloadCount: 0,
     savedCount: 0,
@@ -28,24 +55,26 @@ export const useProfile = () => {
 
   const loadProfile = useCallback(async () => {
     try {
+      migrateKeys()
+
       // Load saved profile info
       const saved = localStorage.getItem(PROFILE_KEY)
       const profileData = saved ? JSON.parse(saved) : {}
 
       // Real counts from actual data
       const downloads: string[] = JSON.parse(
-        localStorage.getItem('grovix_recent_dl') || '[]'
+        localStorage.getItem(DL_KEY) || '[]'
       )
       const games: string[] = JSON.parse(
-        localStorage.getItem('grovix_recent_games') || '[]'
+        localStorage.getItem(GAMES_KEY) || '[]'
       )
 
       // Real saved count from IndexedDB
       const savedMedia = await getAllSaved()
 
       setProfile({
-        username:      profileData.username || 'Grovix User',
-        handle:        profileData.handle   || '@grovix_user',
+        username:      profileData.username || 'Play Nexa User',
+        handle:        profileData.handle   || '@playnexa_user',
         avatarColor:   profileData.avatarColor || '#7C5CFF',
         downloadCount: downloads.length,
         savedCount:    savedMedia.length,

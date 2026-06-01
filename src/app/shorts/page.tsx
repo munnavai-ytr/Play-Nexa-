@@ -1,4 +1,4 @@
-// ── GROVIX Shorts Page ─────────────────────────────────────
+// ── Play Nexa Shorts Page ─────────────────────────────────────
 // Full-screen vertical snap scroll — TikTok / YouTube Shorts feel
 // Zero API — all data from local JSON
 // CRITICAL PERFORMANCE: Only render current + 1 above + 1 below
@@ -112,8 +112,8 @@ export default function ShortsPage() {
                 />
               ) : (
                 /* Placeholder to avoid layout shift */
-                <div className="w-full h-full bg-grovix-bg flex items-center justify-center">
-                  <span className="text-grovix-muted text-sm">Loading...</span>
+                <div className="w-full h-full bg-pn-bg flex items-center justify-center">
+                  <span className="text-pn-muted text-sm">Loading...</span>
                 </div>
               )}
 
@@ -134,10 +134,10 @@ export default function ShortsPage() {
                   {short.title}
                 </h2>
                 <div className="flex items-center gap-2 mt-2">
-                  <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium bg-grovix-purple/20 text-grovix-purple">
+                  <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium bg-pn-purple/20 text-pn-purple">
                     {short.category}
                   </span>
-                  <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium bg-grovix-cyan/20 text-grovix-cyan">
+                  <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium bg-pn-cyan/20 text-pn-cyan">
                     {short.language}
                   </span>
                 </div>

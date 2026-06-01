@@ -1,4 +1,4 @@
-// ── GROVIX Trending Row ────────────────────────────────────
+// ── Play Nexa Trending Row ────────────────────────────────────
 // Zero API — uses local JSON data
 // Instant load — no network for movie list
 
@@ -26,7 +26,7 @@ export default function TrendingRow({ title, items, type = 'movie' }: TrendingRo
           <Link
             key={item.id}
             href={type === 'movie' ? `/movies/${item.id}` : `/games/${item.id}`}
-            className="flex-shrink-0 w-[140px] rounded-2xl overflow-hidden bg-grovix-card active:scale-[0.97] transition-transform duration-150"
+            className="flex-shrink-0 w-[140px] rounded-2xl overflow-hidden bg-pn-card active:scale-[0.97] transition-transform duration-150"
           >
             <div className="relative">
               <Image
@@ -39,14 +39,14 @@ export default function TrendingRow({ title, items, type = 'movie' }: TrendingRo
                 unoptimized
               />
               {item.free && (
-                <span className="absolute top-1.5 left-1.5 rounded-md bg-grovix-purple px-1.5 py-0.5 text-[10px] font-bold text-white">
+                <span className="absolute top-1.5 left-1.5 rounded-md bg-pn-purple px-1.5 py-0.5 text-[10px] font-bold text-white">
                   FREE
                 </span>
               )}
             </div>
             <div className="p-2">
               <p className="text-sm font-medium text-white truncate">{item.title}</p>
-              <p className="text-xs text-grovix-muted truncate">
+              <p className="text-xs text-pn-muted truncate">
                 {item.language} &bull; {item.duration}
               </p>
             </div>

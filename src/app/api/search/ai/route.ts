@@ -1,4 +1,4 @@
-// ── GROVIX AI Smart Search — Natural Language Route ──────────
+// ── Play Nexa AI Smart Search — Natural Language Route ──────────
 // Users search with natural language (e.g. "Space movies with a sad ending")
 // Gemini interprets mood/intent → converts to DB query tags
 // Searches Supabase videos table with smart matching
@@ -56,7 +56,7 @@ interface VideoRow {
 // ════════════════════════════════════════════════════════════
 
 const parseUserIntent = async (query: string): Promise<ParsedIntent> => {
-  const prompt = `You are a smart search interpreter for a movie/music app called GROVIX. The user is searching with natural language. Convert their query into structured search parameters.
+  const prompt = `You are a smart search interpreter for a movie/music app called Play Nexa. The user is searching with natural language. Convert their query into structured search parameters.
 
 USER QUERY: "${query}"
 
@@ -88,7 +88,7 @@ Respond in JSON format:
     })
     return result
   } catch (err) {
-    console.warn('GROVIX AI Search: Gemini intent parsing failed, using fallback', err)
+    console.warn('Play Nexa AI Search: Gemini intent parsing failed, using fallback', err)
     // Fallback: simple keyword extraction
     const words = query.toLowerCase().split(/\s+/).filter(w => w.length > 2)
     return {
@@ -351,10 +351,10 @@ export const POST = async (req: NextRequest) => {
   // ── Rate limiting: simple in-memory (per-process) ──
   // Max 30 AI searches per minute globally (protects Gemini quota)
   const now = Date.now()
-  if (!globalThis._grovixSearchTimestamps) {
-    globalThis._grovixSearchTimestamps = []
+  if (!globalThis._pnSearchTimestamps) {
+    globalThis._pnSearchTimestamps = []
   }
-  const timestamps = globalThis._grovixSearchTimestamps as number[]
+  const timestamps = globalThis._pnSearchTimestamps as number[]
   const recentTimestamps = timestamps.filter(t => now - t < 60_000)
   if (recentTimestamps.length >= 30) {
     return NextResponse.json({
@@ -364,7 +364,7 @@ export const POST = async (req: NextRequest) => {
     }, { status: 429 })
   }
   recentTimestamps.push(now)
-  globalThis._grovixSearchTimestamps = recentTimestamps
+  globalThis._pnSearchTimestamps = recentTimestamps
 
   // ── Parse request ──
   let body: SearchRequest
@@ -387,7 +387,7 @@ export const POST = async (req: NextRequest) => {
   // ── Check Gemini availability ──
   if (!isGeminiReady()) {
     // Fallback: skip AI interpretation, search directly with YouTube API
-    console.warn('GROVIX AI Search: Gemini not configured, falling back to YouTube API')
+    console.warn('Play Nexa AI Search: Gemini not configured, falling back to YouTube API')
     try {
       const ytResults = await ytSearchMovies(query, limit)
       return NextResponse.json({
@@ -413,7 +413,7 @@ export const POST = async (req: NextRequest) => {
 
   // Step 1: Gemini parses the natural language query
   const intent = await parseUserIntent(query)
-  console.log(`GROVIX AI Search: Parsed intent for "${query}" → genres: [${intent.genres.join(', ')}], keywords: [${intent.searchKeywords.join(', ')}]`)
+  console.log(`Play Nexa AI Search: Parsed intent for "${query}" → genres: [${intent.genres.join(', ')}], keywords: [${intent.searchKeywords.join(', ')}]`)
 
   // Step 2: Search Supabase DB
   const dbResults = await searchSupabase(intent, limit, type)
@@ -472,7 +472,7 @@ export const POST = async (req: NextRequest) => {
 // GET endpoint for quick health check
 export const GET = async () => {
   return NextResponse.json({
-    service: 'GROVIX AI Smart Search',
+    service: 'Play Nexa AI Smart Search',
     status: isGeminiReady() ? 'ready' : 'not_configured',
     hint: 'Send POST with {"query": "Space movies with a sad ending"} to search',
     parameters: {
@@ -485,5 +485,5 @@ export const GET = async () => {
 
 // Type augmentation for globalThis rate limit tracker
 declare global {
-  var _grovixSearchTimestamps: number[] | undefined
+  var _pnSearchTimestamps: number[] | undefined
 }

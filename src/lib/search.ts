@@ -1,4 +1,4 @@
-// ── GROVIX Zero-API Search Engine ──────────────────────────
+// ── Play Nexa Zero-API Search Engine ──────────────────────────
 // Filters local JSON only — zero API calls
 // Instant results — no network needed
 // useMemo-friendly — pure functions, no side effects

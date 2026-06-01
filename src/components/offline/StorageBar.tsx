@@ -24,17 +24,17 @@ export default function StorageBar({
     pct > 80 ? '#EF4444' : pct > 60 ? '#F59E0B' : '#7C5CFF'
 
   return (
-    <div className="bg-grovix-card border border-grovix-border rounded-2xl p-4 mx-4 mb-4">
+    <div className="bg-pn-card border border-pn-border rounded-2xl p-4 mx-4 mb-4">
       <div className="flex items-center gap-2 mb-3">
-        <HardDrive size={16} className="text-grovix-purple" />
+        <HardDrive size={16} className="text-pn-purple" />
         <p className="text-white font-semibold text-sm">Storage</p>
-        <p className="text-grovix-muted text-xs ml-auto">
+        <p className="text-pn-muted text-xs ml-auto">
           {usedMB} MB / {totalMB} MB
         </p>
       </div>
 
       {/* Main bar */}
-      <div className="w-full h-2 bg-grovix-border rounded-full mb-3">
+      <div className="w-full h-2 bg-pn-border rounded-full mb-3">
         <div
           className="h-2 rounded-full transition-all duration-300"
           style={{ width: `${pct}%`, backgroundColor: barColor }}
@@ -50,7 +50,7 @@ export default function StorageBar({
         ].map((item) => (
           <div
             key={item.label}
-            className="bg-grovix-bg rounded-xl p-2 text-center"
+            className="bg-pn-bg rounded-xl p-2 text-center"
           >
             <div
               className="w-2 h-2 rounded-full mx-auto mb-1"
@@ -59,7 +59,7 @@ export default function StorageBar({
             <p className="text-white text-xs font-semibold">
               {item.value} MB
             </p>
-            <p className="text-grovix-muted text-[10px]">{item.label}</p>
+            <p className="text-pn-muted text-[10px]">{item.label}</p>
           </div>
         ))}
       </div>
@@ -68,7 +68,7 @@ export default function StorageBar({
       <button
         onClick={onClearCache}
         type="button"
-        className="w-full h-10 rounded-xl border border-grovix-border text-grovix-muted text-xs font-medium flex items-center justify-center gap-2 active:scale-95 transition-transform duration-150"
+        className="w-full h-10 rounded-xl border border-pn-border text-pn-muted text-xs font-medium flex items-center justify-center gap-2 active:scale-95 transition-transform duration-150"
       >
         <Trash2 size={13} />
         Clear Cache

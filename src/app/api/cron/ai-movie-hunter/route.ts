@@ -1,4 +1,4 @@
-// ── GROVIX AI Movie Hunter — Nightly Cron Route ──────────────
+// ── Play Nexa AI Movie Hunter — Nightly Cron Route ──────────────
 // Pipeline: Gemini suggests → YouTube fetches → Gemini verifies → Supabase saves
 // Called by cron job (e.g. Vercel Cron, Supabase pg_cron, or external scheduler)
 // Server-side ONLY — zero client overhead
@@ -86,7 +86,7 @@ Respond in JSON format:
     })
     return result.movies || []
   } catch (err) {
-    console.error('GROVIX AI Hunter: Step A failed (Gemini query generation)', err)
+    console.error('Play Nexa AI Hunter: Step A failed (Gemini query generation)', err)
     return []
   }
 }
@@ -184,7 +184,7 @@ const searchYouTubeForMovie = async (
       .slice(0, maxResults)
 
   } catch (err) {
-    console.warn('GROVIX AI Hunter: YouTube search failed for query:', query, err)
+    console.warn('Play Nexa AI Hunter: YouTube search failed for query:', query, err)
     return []
   }
 }
@@ -335,7 +335,7 @@ const saveToSupabase = async (
               // Unique constraint violation = duplicate
               result.duplicates++
             } else {
-              console.warn('GROVIX AI Hunter: Supabase save error:', error.message)
+              console.warn('Play Nexa AI Hunter: Supabase save error:', error.message)
               result.errors++
             }
           } else {
@@ -456,7 +456,7 @@ export const POST = async (req: NextRequest) => {
     missingProcessed: 0,
   }
 
-  console.log('GROVIX AI Hunter: Starting pipeline...')
+  console.log('Play Nexa AI Hunter: Starting pipeline...')
 
   // ══════════════════════════════════════════════════════════
   //  PHASE 1: Gemini-generated movie queries
@@ -464,7 +464,7 @@ export const POST = async (req: NextRequest) => {
 
   const suggestions = await generateMovieQueries()
   stats.queriesGenerated = suggestions.length
-  console.log(`GROVIX AI Hunter: Gemini suggested ${suggestions.length} movies`)
+  console.log(`Play Nexa AI Hunter: Gemini suggested ${suggestions.length} movies`)
 
   // ══════════════════════════════════════════════════════════
   //  PHASE 2: YouTube search for each suggestion
@@ -527,7 +527,7 @@ export const POST = async (req: NextRequest) => {
     await new Promise(r => setTimeout(r, 300))
   }
 
-  console.log(`GROVIX AI Hunter: Found ${allCandidates.length} YouTube candidates`)
+  console.log(`Play Nexa AI Hunter: Found ${allCandidates.length} YouTube candidates`)
 
   // ══════════════════════════════════════════════════════════
   //  PHASE 3: Gemini verification — strict judge
@@ -581,7 +581,7 @@ export const POST = async (req: NextRequest) => {
     await new Promise(r => setTimeout(r, 200))
   }
 
-  console.log(`GROVIX AI Hunter: Gemini verified ${verifiedMovies.length} movies (rejected ${stats.rejected})`)
+  console.log(`Play Nexa AI Hunter: Gemini verified ${verifiedMovies.length} movies (rejected ${stats.rejected})`)
 
   // ══════════════════════════════════════════════════════════
   //  PHASE 4: Save to Supabase
@@ -600,7 +600,7 @@ export const POST = async (req: NextRequest) => {
   const duration = Date.now() - startTime
   const keyPool = getKeyPoolStatus()
 
-  console.log(`GROVIX AI Hunter: Complete in ${duration}ms. Saved: ${stats.saved}, Duplicates: ${stats.duplicates}, Rejected: ${stats.rejected}`)
+  console.log(`Play Nexa AI Hunter: Complete in ${duration}ms. Saved: ${stats.saved}, Duplicates: ${stats.duplicates}, Rejected: ${stats.rejected}`)
 
   return NextResponse.json({
     success: true,
@@ -617,7 +617,7 @@ export const POST = async (req: NextRequest) => {
 // GET endpoint for health check / manual trigger via browser
 export const GET = async () => {
   return NextResponse.json({
-    service: 'GROVIX AI Movie Hunter',
+    service: 'Play Nexa AI Movie Hunter',
     status: isGeminiReady() ? 'ready' : 'not_configured',
     geminiKeys: getKeyPoolStatus().totalKeys,
     supabase: isSupabaseReady() ? 'connected' : 'not_configured',

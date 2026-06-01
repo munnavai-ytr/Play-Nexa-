@@ -1,11 +1,11 @@
-// /public/sw.js — GROVIX Service Worker
+// /public/sw.js — Play Nexa Service Worker
 // 4-cache strategy: static, thumbs, games, data
 // Max 50KB, no heavy libs, 2GB RAM safe
 
-const STATIC_CACHE = 'grovix-static-v1';
-const THUMBS_CACHE = 'grovix-thumbs-v1';
-const GAMES_CACHE  = 'grovix-games-v1';
-const DATA_CACHE   = 'grovix-data-v1';
+const STATIC_CACHE = 'pn-static-v2';
+const THUMBS_CACHE = 'pn-thumbs-v2';
+const GAMES_CACHE  = 'pn-games-v2';
+const DATA_CACHE   = 'pn-data-v2';
 const MAX_THUMBS   = 50;
 const MAX_CACHE_MB = 100;
 

@@ -24,7 +24,7 @@ export default function TopBar({
 
   return (
     <header
-      className="sticky top-0 z-[100] flex h-14 items-center justify-between border-b border-grovix-border bg-grovix-bg px-4"
+      className="sticky top-0 z-[100] flex h-14 items-center justify-between border-b border-pn-border bg-pn-bg px-4"
       role="banner"
     >
       {/* Left side */}
@@ -32,15 +32,15 @@ export default function TopBar({
         {showBack ? (
           <button
             onClick={() => router.back()}
-            className="flex h-10 w-10 items-center justify-center text-grovix-muted transition-colors duration-150 hover:text-white active:scale-90"
+            className="flex h-10 w-10 items-center justify-center text-pn-muted transition-colors duration-150 hover:text-white active:scale-90"
             aria-label="Go back"
             type="button"
           >
             <ArrowLeft className="h-5 w-5" />
           </button>
         ) : (
-          <span className="text-xl font-bold text-grovix-purple select-none">
-            GROVIX
+          <span className="text-xl font-bold text-pn-purple select-none">
+            Play Nexa
           </span>
         )}
       </div>
@@ -55,7 +55,7 @@ export default function TopBar({
         {showSearch && (
           <button
             onClick={onSearchClick}
-            className="flex h-10 w-10 items-center justify-center text-grovix-muted transition-colors duration-150 hover:text-white active:scale-90"
+            className="flex h-10 w-10 items-center justify-center text-pn-muted transition-colors duration-150 hover:text-white active:scale-90"
             aria-label="Search"
             type="button"
           >
@@ -65,7 +65,7 @@ export default function TopBar({
         {showSettings && (
           <button
             onClick={onSettingsClick}
-            className="flex h-10 w-10 items-center justify-center text-grovix-muted transition-colors duration-150 hover:text-white active:scale-90"
+            className="flex h-10 w-10 items-center justify-center text-pn-muted transition-colors duration-150 hover:text-white active:scale-90"
             aria-label="Settings"
             type="button"
           >

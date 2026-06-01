@@ -2,7 +2,7 @@ import { openDB, type IDBPDatabase } from 'idb'
 
 // ── Database Schema ──────────────────────────────────────────
 
-interface GrovixDB {
+interface PlayNexaDB {
   savedMedia: {
     key: string
     value: {
@@ -59,13 +59,14 @@ interface GrovixDB {
   }
 }
 
-const DB_NAME = 'grovix-v1'
+const DB_NAME = 'playnexa-v1'
+const LEGACY_DB_NAME = 'grovix-v1'
 const DB_VER = 1
-let db: IDBPDatabase<GrovixDB> | null = null
+let db: IDBPDatabase<PlayNexaDB> | null = null
 
 export const getDB = async () => {
   if (db) return db
-  db = await openDB<GrovixDB>(DB_NAME, DB_VER, {
+  db = await openDB<PlayNexaDB>(DB_NAME, DB_VER, {
     upgrade(database) {
       // savedMedia store
       if (!database.objectStoreNames.contains('savedMedia')) {
@@ -93,7 +94,7 @@ export const getDB = async () => {
 
 // ── Saved Media ──────────────────────────────────────────────
 
-export const saveItem = async (item: GrovixDB['savedMedia']['value']) => {
+export const saveItem = async (item: PlayNexaDB['savedMedia']['value']) => {
   const d = await getDB()
   await d.put('savedMedia', item)
 }
@@ -143,7 +144,7 @@ export const initDefaultPlaylists = async () => {
   const all = await d.getAll('playlists')
   if (all.length > 0) return
 
-  const defaults: GrovixDB['playlists']['value'][] = [
+  const defaults: PlayNexaDB['playlists']['value'][] = [
     {
       id: 'watch-later',
       name: 'Watch Later',
@@ -199,7 +200,7 @@ export const getPlaylist = async (id: string) => {
 
 export const createPlaylist = async (name: string, emoji = '📁') => {
   const d = await getDB()
-  const p: GrovixDB['playlists']['value'] = {
+  const p: PlayNexaDB['playlists']['value'] = {
     id: `pl_${Date.now()}`,
     name,
     emoji,
@@ -255,12 +256,12 @@ export const renamePlaylist = async (id: string, name: string, emoji: string) =>
 
 // ── Legacy Phase 1 functions (preserved for backward compat) ──
 
-export async function saveDownload(record: GrovixDB['downloads']['value']): Promise<void> {
+export async function saveDownload(record: PlayNexaDB['downloads']['value']): Promise<void> {
   const d = await getDB()
   await d.put('downloads', record)
 }
 
-export async function getRecentDownloads(limit = 10): Promise<GrovixDB['downloads']['value'][]> {
+export async function getRecentDownloads(limit = 10): Promise<PlayNexaDB['downloads']['value'][]> {
   const d = await getDB()
   const all = await d.getAll('downloads')
   all.sort((a, b) => b.timestamp - a.timestamp)

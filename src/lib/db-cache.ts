@@ -1,4 +1,4 @@
-// ── GROVIX Supabase Hybrid Cache ─────────────────────────────
+// ── Play Nexa Supabase Hybrid Cache ─────────────────────────────
 // Data flow: Supabase DB → LocalStorage → YouTube API → Fallback
 // STRICT 70-minute filter for movies — nothing under 70 min passes
 // Geo-Targeted: Bangladesh, India, International regions
@@ -91,7 +91,7 @@ export const fetchMoviesFromDB = async (
   category: string,
   limit = 15,
 ): Promise<YouTubeMovie[]> => {
-  const cacheKey = `grovix_db_cat_${category}`
+  const cacheKey = `pn_db_cat_${category}`
 
   // 1. Check local cache first (30-min TTL)
   const cached = cacheGet<YouTubeMovie[]>(cacheKey)
@@ -131,7 +131,7 @@ export const fetchMoviesFromDB = async (
       }
     } catch {
       // Supabase failed — fall through to YouTube API
-      console.warn('GROVIX: Supabase fetch failed, falling back to YouTube API')
+      console.warn('Play Nexa: Supabase fetch failed, falling back to YouTube API')
     }
   }
 
@@ -159,7 +159,7 @@ export const fetchMoviesByRegion = async (
   region: MovieRegion,
   limit = 15,
 ): Promise<YouTubeMovie[]> => {
-  const cacheKey = `grovix_db_region_${region}`
+  const cacheKey = `pn_db_region_${region}`
   const cached = cacheGet<YouTubeMovie[]>(cacheKey)
   if (cached && cached.length > 0) return cached
 
@@ -201,7 +201,7 @@ export const fetchMoviesByRegion = async (
         }
       }
     } catch {
-      console.warn('GROVIX: Supabase region fetch failed')
+      console.warn('Play Nexa: Supabase region fetch failed')
     }
   }
 
@@ -238,7 +238,7 @@ export const fetchMoviesByRegion = async (
 export const fetchTrendingFromDB = async (
   limit = 16,
 ): Promise<YouTubeMovie[]> => {
-  const cacheKey = 'grovix_db_trending'
+  const cacheKey = 'pn_db_trending'
 
   // 1. Local cache
   const cached = cacheGet<YouTubeMovie[]>(cacheKey)
@@ -270,7 +270,7 @@ export const fetchTrendingFromDB = async (
         }
       }
     } catch {
-      console.warn('GROVIX: Supabase trending fetch failed')
+      console.warn('Play Nexa: Supabase trending fetch failed')
     }
   }
 
@@ -301,7 +301,7 @@ export const searchMoviesFromDB = async (
 ): Promise<YouTubeMovie[]> => {
   if (!query.trim()) return []
 
-  const cacheKey = `grovix_db_search_${query.toLowerCase().trim()}`
+  const cacheKey = `pn_db_search_${query.toLowerCase().trim()}`
   const cached = cacheGet<YouTubeMovie[]>(cacheKey)
   if (cached && cached.length > 0) return cached
 
@@ -330,7 +330,7 @@ export const searchMoviesFromDB = async (
         }
       }
     } catch {
-      console.warn('GROVIX: Supabase search failed')
+      console.warn('Play Nexa: Supabase search failed')
     }
   }
 
@@ -362,7 +362,7 @@ export const searchMoviesFromDB = async (
 export const fetchDetailFromDB = async (
   videoId: string,
 ): Promise<YouTubeMovie | null> => {
-  const cacheKey = `grovix_db_video_${videoId}`
+  const cacheKey = `pn_db_video_${videoId}`
   const cached = cacheGet<YouTubeMovie>(cacheKey)
   if (cached) return cached
 
@@ -412,7 +412,7 @@ export const fetchRelatedFromDB = async (
   category: string,
   limit = 5,
 ): Promise<YouTubeMovie[]> => {
-  const cacheKey = `grovix_db_related_${videoId}`
+  const cacheKey = `pn_db_related_${videoId}`
   const cached = cacheGet<YouTubeMovie[]>(cacheKey)
   if (cached && cached.length > 0) return cached
 
@@ -450,7 +450,7 @@ export const fetchRelatedFromDB = async (
         }
       }
     } catch {
-      console.warn('GROVIX: Supabase related fetch failed')
+      console.warn('Play Nexa: Supabase related fetch failed')
     }
   }
 

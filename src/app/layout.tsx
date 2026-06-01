@@ -12,18 +12,18 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "GROVIX — Your Ultimate Media Universe",
+  title: "Play Nexa — Premium Media Ecosystem",
   description: "Download, watch, play and manage entertainment — all in one place. Premium futuristic media ecosystem.",
-  keywords: ["GROVIX", "Media", "Download", "Movies", "Games", "Music", "Streaming"],
-  authors: [{ name: "GROVIX" }],
+  keywords: ["Play Nexa", "Media", "Download", "Movies", "Games", "Music", "Streaming"],
+  authors: [{ name: "Play Nexa" }],
   manifest: "/manifest.json",
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
-    title: "GROVIX",
+    title: "Play Nexa",
   },
   openGraph: {
-    title: "GROVIX — Your Ultimate Media Universe",
+    title: "Play Nexa — Premium Media Ecosystem",
     description: "Download, watch, play and manage entertainment — all in one place.",
     type: "website",
   },
@@ -52,16 +52,19 @@ export default function RootLayout({
           dangerouslySetInnerHTML={{
             __html: `
               try {
-                const s = JSON.parse(
-                  localStorage.getItem('grovix_settings') || '{}'
-                );
-                const theme = s.theme || 'dark';
-                const themes = {
+                var _k = 'pn_settings';
+                if (!localStorage.getItem(_k)) {
+                  var _old = localStorage.getItem('grovix_settings');
+                  if (_old) { localStorage.setItem(_k, _old); localStorage.removeItem('grovix_settings'); }
+                }
+                var s = JSON.parse(localStorage.getItem(_k) || '{}');
+                var theme = s.theme || 'dark';
+                var themes = {
                   dark:   { bg: '#070B14', accent: '#7C5CFF' },
                   amoled: { bg: '#000000', accent: '#7C5CFF' },
                   neon:   { bg: '#070B14', accent: '#00FF88' }
                 };
-                const t = themes[theme] || themes.dark;
+                var t = themes[theme] || themes.dark;
                 document.documentElement.style
                   .setProperty('--accent', t.accent);
                 document.body.style.backgroundColor = t.bg;
@@ -71,7 +74,7 @@ export default function RootLayout({
         />
       </head>
       <body
-        className={`${inter.variable} antialiased bg-grovix-bg text-white min-h-screen`}
+        className={`${inter.variable} antialiased bg-pn-bg text-white min-h-screen`}
       >
         <OfflineIndicator />
         <ServiceWorkerRegistrar />

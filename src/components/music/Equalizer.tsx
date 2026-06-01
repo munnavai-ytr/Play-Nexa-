@@ -9,14 +9,14 @@ export default function Equalizer() {
         {barDelays.map((delay, index) => (
           <div
             key={index}
-            className="w-2 bg-grovix-purple rounded-full animate-eq-bar"
+            className="w-2 bg-pn-purple rounded-full animate-eq-bar"
             style={{ animationDelay: `${delay}s` }}
           />
         ))}
       </div>
       <div className="flex items-center gap-2 mt-2">
-        <span className="text-grovix-muted text-xs">🎚️ Equalizer</span>
-        <span className="inline-flex items-center bg-grovix-secondary border border-grovix-border text-grovix-muted text-[10px] font-semibold rounded-full px-2 py-0.5">
+        <span className="text-pn-muted text-xs">🎚️ Equalizer</span>
+        <span className="inline-flex items-center bg-pn-secondary border border-pn-border text-pn-muted text-[10px] font-semibold rounded-full px-2 py-0.5">
           Coming Soon
         </span>
       </div>

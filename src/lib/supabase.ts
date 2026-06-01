@@ -1,4 +1,4 @@
-// ── GROVIX Supabase Client ────────────────────────────────────
+// ── Play Nexa Supabase Client ────────────────────────────────────
 // Singleton pattern — one instance, reused everywhere
 // Lazy init — only created when first accessed
 // 3-second timeout — never blocks UI on slow network
@@ -20,7 +20,7 @@ export const getSupabase = (): SupabaseClient | null => {
   if (_client) return _client
 
   if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-    console.warn('GROVIX: Supabase env vars missing — skipping DB cache')
+    console.warn('Play Nexa: Supabase env vars missing — skipping DB cache')
     return null
   }
 

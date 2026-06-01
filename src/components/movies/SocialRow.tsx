@@ -1,4 +1,4 @@
-// ── GROVIX Social Row ──────────────────────────────────────
+// ── Play Nexa Social Row ──────────────────────────────────────
 // Like, Share, Save, Download — all real working
 // Like = localStorage toggle (real)
 // Share = navigator.share API (real)
@@ -24,7 +24,7 @@ export default function SocialRow({ movie }: Props) {
   useEffect(() => {
     try {
       const likes: string[] = JSON.parse(
-        localStorage.getItem('grovix_likes') || '[]',
+        localStorage.getItem('pn_likes') || '[]',
       )
       setLiked(likes.includes(movie.id))
     } catch {
@@ -35,12 +35,12 @@ export default function SocialRow({ movie }: Props) {
   const toggleLike = () => {
     try {
       const likes: string[] = JSON.parse(
-        localStorage.getItem('grovix_likes') || '[]',
+        localStorage.getItem('pn_likes') || '[]',
       )
       const updated = liked
         ? likes.filter(id => id !== movie.id)
         : [...likes, movie.id]
-      localStorage.setItem('grovix_likes', JSON.stringify(updated))
+      localStorage.setItem('pn_likes', JSON.stringify(updated))
       setLiked(!liked)
     } catch {
       // Silently fail
@@ -50,7 +50,7 @@ export default function SocialRow({ movie }: Props) {
   const handleShare = async () => {
     const shareData = {
       title: movie.title,
-      text: `Watch ${movie.title} on GROVIX`,
+      text: `Watch ${movie.title} on Play Nexa`,
       url: `${window.location.origin}/movies/${movie.id}`,
     }
     try {
@@ -79,7 +79,7 @@ export default function SocialRow({ movie }: Props) {
                       active:scale-95
                       ${liked
                         ? 'bg-red-500/10 border-red-500 text-red-500'
-                        : 'bg-grovix-card border-grovix-border text-white'
+                        : 'bg-pn-card border-pn-border text-white'
                       }`}
         >
           <Heart
@@ -95,8 +95,8 @@ export default function SocialRow({ movie }: Props) {
           type="button"
           className="flex items-center gap-2 px-4 py-2.5
                      rounded-xl text-sm font-medium
-                     min-h-[44px] border border-grovix-border
-                     bg-grovix-card text-white
+                     min-h-[44px] border border-pn-border
+                     bg-pn-card text-white
                      active:scale-95
                      transition-all duration-200"
         >

@@ -13,14 +13,14 @@ const config: Config = {
       colors: {
         background: 'hsl(var(--background))',
         foreground: 'hsl(var(--foreground))',
-        'grovix-bg': '#070B14',
-        'grovix-card': '#111827',
-        'grovix-border': '#1E293B',
-        'grovix-purple': '#7C5CFF',
-        'grovix-cyan': '#00D4FF',
-        'grovix-muted': '#94A3B8',
-        'grovix-secondary': '#0F172A',
-        'grovix-success': '#22C55E',
+        'pn-bg': '#070B14',
+        'pn-card': '#111827',
+        'pn-border': '#1E293B',
+        'pn-purple': '#7C5CFF',
+        'pn-cyan': '#00D4FF',
+        'pn-muted': '#94A3B8',
+        'pn-secondary': '#0F172A',
+        'pn-success': '#22C55E',
         card: {
           DEFAULT: 'hsl(var(--card))',
           foreground: 'hsl(var(--card-foreground))'

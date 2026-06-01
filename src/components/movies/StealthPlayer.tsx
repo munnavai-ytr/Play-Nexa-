@@ -1,4 +1,4 @@
-// ── GROVIX Stealth Video Player ──────────────────────────────
+// ── Play Nexa Stealth Video Player ──────────────────────────────
 // YouTube iframe with MAXIMUM branding removal
 // Parameters: controls=1&modestbranding=1&rel=0&showinfo=0
 //   &iv_load_policy=3&disablekb=1&playsinline=1
@@ -17,7 +17,7 @@ interface StealthPlayerProps {
   onClose?: () => void
   /** Show close button — default true for modal use */
   showClose?: boolean
-  /** Show the GROVIX NOW PLAYING badge */
+  /** Show the Play Nexa NOW PLAYING badge */
   showBadge?: boolean
   /** Auto-start playback — default true */
   autoplay?: boolean
@@ -78,10 +78,10 @@ export default function StealthPlayer({
           Only visible on hover to allow normal controls interaction */}
       <div className="absolute bottom-0 left-0 right-0 h-[28px] z-10 pointer-events-none bg-gradient-to-t from-black/50 via-black/20 to-transparent opacity-0 hover:opacity-100 transition-opacity duration-300" />
 
-      {/* ── GROVIX BADGE ── */}
+      {/* ── Play Nexa BADGE ── */}
       {showBadge && (
-        <div className="absolute top-2.5 right-2.5 z-20 bg-grovix-purple/90 rounded-lg px-2.5 py-1 pointer-events-none">
-          <p className="text-white text-[11px] font-bold tracking-wide">GROVIX</p>
+        <div className="absolute top-2.5 right-2.5 z-20 bg-pn-purple/90 rounded-lg px-2.5 py-1 pointer-events-none">
+          <p className="text-white text-[11px] font-bold tracking-wide">Play Nexa</p>
         </div>
       )}
 
@@ -102,14 +102,14 @@ export default function StealthPlayer({
 
       {/* ── LOADING SHIMMER ── */}
       {!isLoaded && (
-        <div className="absolute inset-0 z-5 flex items-center justify-center bg-grovix-card">
+        <div className="absolute inset-0 z-5 flex items-center justify-center bg-pn-card">
           <div className="flex flex-col items-center gap-3">
-            <div className="w-12 h-12 rounded-full bg-grovix-purple/20 flex items-center justify-center animate-pulse">
+            <div className="w-12 h-12 rounded-full bg-pn-purple/20 flex items-center justify-center animate-pulse">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="#7C5CFF">
                 <path d="M8 5v14l11-7z" />
               </svg>
             </div>
-            <p className="text-grovix-muted text-xs">Loading player...</p>
+            <p className="text-pn-muted text-xs">Loading player...</p>
           </div>
         </div>
       )}

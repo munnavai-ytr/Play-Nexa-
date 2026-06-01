@@ -9,10 +9,10 @@ interface BadgeProps {
 }
 
 const variantStyles: Record<NonNullable<BadgeProps['variant']>, string> = {
-  default: 'bg-grovix-secondary text-grovix-muted',
-  purple: 'bg-grovix-purple/20 text-grovix-purple',
-  cyan: 'bg-grovix-cyan/20 text-grovix-cyan',
-  success: 'bg-grovix-success/20 text-grovix-success',
+  default: 'bg-pn-secondary text-pn-muted',
+  purple: 'bg-pn-purple/20 text-pn-purple',
+  cyan: 'bg-pn-cyan/20 text-pn-cyan',
+  success: 'bg-pn-success/20 text-pn-success',
   warning: 'bg-yellow-500/20 text-yellow-400',
 };
 

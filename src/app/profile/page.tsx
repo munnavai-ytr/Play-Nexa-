@@ -32,7 +32,7 @@ export default function ProfilePage() {
     const s = getSettings()
     setDarkMode(s.theme !== 'amoled')
     // Check if already rated
-    const rated = localStorage.getItem('grovix_rated')
+    const rated = localStorage.getItem('pn_rated') || localStorage.getItem('pn_rated')
     if (rated) {
       setRatingValue(parseInt(rated))
       setRatingDone(true)
@@ -85,15 +85,15 @@ export default function ProfilePage() {
 
   const submitRating = () => {
     if (ratingValue === 0) return
-    localStorage.setItem('grovix_rated', String(ratingValue))
+    localStorage.setItem('pn_rated', String(ratingValue))
     setRatingDone(true)
     setShowRating(false)
   }
 
   const handleShare = async () => {
     const shareData = {
-      title: 'GROVIX App',
-      text: '🎬 Check out GROVIX — Premium entertainment platform! Watch movies, shorts, play games and more!',
+      title: 'Play Nexa App',
+      text: '🎬 Check out Play Nexa — Premium entertainment platform! Watch movies, shorts, play games and more!',
       url: window.location.origin
     }
 
@@ -376,7 +376,7 @@ export default function ProfilePage() {
             </span>
           </div>
 
-          {/* Rate GROVIX */}
+          {/* Rate Play Nexa */}
           <button
             onClick={handleRate}
             className="w-full flex items-center gap-4
@@ -394,7 +394,7 @@ export default function ProfilePage() {
                           font-medium flex-1 text-left">
               {ratingDone
                 ? `Rated ${'⭐'.repeat(ratingValue)}`
-                : 'Rate GROVIX'}
+                : 'Rate Play Nexa'}
             </p>
             <ChevronRight size={16}
                           className="text-[#94A3B8]" />
@@ -452,7 +452,7 @@ export default function ProfilePage() {
             <div className="text-center mb-5">
               <p className="text-4xl mb-3">⭐</p>
               <h3 className="text-white font-bold text-lg">
-                Rate GROVIX
+                Rate Play Nexa
               </h3>
               <p className="text-[#94A3B8] text-sm mt-1">
                 How do you like the app?

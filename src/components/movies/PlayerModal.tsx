@@ -1,4 +1,4 @@
-// ── GROVIX Cinematic Player Modal ────────────────────────────
+// ── Play Nexa Cinematic Player Modal ────────────────────────────
 // Dark Netflix/YouTube hybrid overlay
 // Uses StealthPlayer for maximum YouTube branding removal
 // GPU-only animations (opacity) — no backdrop-blur, no filters
@@ -62,8 +62,8 @@ export default function PlayerModal({ movie, onClose }: PlayerModalProps) {
         {/* ── HEADER BAR ── */}
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
-            <span className="bg-grovix-purple/90 rounded px-2.5 py-1">
-              <p className="text-white text-[11px] font-bold tracking-wider">GROVIX</p>
+            <span className="bg-pn-purple/90 rounded px-2.5 py-1">
+              <p className="text-white text-[11px] font-bold tracking-wider">Play Nexa</p>
             </span>
             <span className="text-white/50 text-xs">NOW PLAYING</span>
           </div>
@@ -96,18 +96,18 @@ export default function PlayerModal({ movie, onClose }: PlayerModalProps) {
           </h2>
 
           <div className="flex flex-wrap gap-2 mb-3">
-            <span className="bg-grovix-success text-white text-[10px] font-bold rounded-full px-2.5 py-1">
+            <span className="bg-pn-success text-white text-[10px] font-bold rounded-full px-2.5 py-1">
               FREE
             </span>
-            <span className="bg-grovix-card border border-grovix-border text-grovix-muted text-[10px] rounded-full px-2.5 py-1">
+            <span className="bg-pn-card border border-pn-border text-pn-muted text-[10px] rounded-full px-2.5 py-1">
               {movie.duration}
             </span>
             {isLocalMovie(movie) && (
-              <span className="bg-grovix-card border border-grovix-border text-grovix-muted text-[10px] rounded-full px-2.5 py-1">
+              <span className="bg-pn-card border border-pn-border text-pn-muted text-[10px] rounded-full px-2.5 py-1">
                 {movie.year}
               </span>
             )}
-            <span className="bg-grovix-card border border-grovix-border text-grovix-muted text-[10px] rounded-full px-2.5 py-1">
+            <span className="bg-pn-card border border-pn-border text-pn-muted text-[10px] rounded-full px-2.5 py-1">
               {movie.language}
             </span>
 
@@ -120,10 +120,10 @@ export default function PlayerModal({ movie, onClose }: PlayerModalProps) {
                   key={tag}
                   className={`text-[10px] font-medium rounded-full px-2.5 py-1 border ${
                     isDub
-                      ? 'bg-grovix-purple/15 text-grovix-purple border-grovix-purple/30'
+                      ? 'bg-pn-purple/15 text-pn-purple border-pn-purple/30'
                       : isSub
-                        ? 'bg-grovix-cyan/15 text-grovix-cyan border-grovix-cyan/30'
-                        : 'bg-grovix-card text-grovix-muted border-grovix-border'
+                        ? 'bg-pn-cyan/15 text-pn-cyan border-pn-cyan/30'
+                        : 'bg-pn-card text-pn-muted border-pn-border'
                   }`}
                 >
                   {tag}
@@ -132,7 +132,7 @@ export default function PlayerModal({ movie, onClose }: PlayerModalProps) {
             })}
 
             {isLocalMovie(movie) && (
-              <span className="text-grovix-cyan text-[11px] font-semibold flex items-center">
+              <span className="text-pn-cyan text-[11px] font-semibold flex items-center">
                 ★ {movie.rating}
               </span>
             )}
@@ -140,13 +140,13 @@ export default function PlayerModal({ movie, onClose }: PlayerModalProps) {
 
           {/* Description */}
           {movie.description && (
-            <p className="text-grovix-muted text-sm leading-relaxed line-clamp-3">
+            <p className="text-pn-muted text-sm leading-relaxed line-clamp-3">
               {movie.description}
             </p>
           )}
 
           {/* Channel */}
-          <div className="flex items-center gap-3 mt-3 bg-grovix-card border border-grovix-border rounded-xl p-3">
+          <div className="flex items-center gap-3 mt-3 bg-pn-card border border-pn-border rounded-xl p-3">
             <div
               className="w-9 h-9 rounded-full flex-shrink-0 flex items-center justify-center text-white text-sm font-bold"
               style={{ background: 'linear-gradient(135deg, #7C5CFF, #00D4FF)' }}
@@ -155,7 +155,7 @@ export default function PlayerModal({ movie, onClose }: PlayerModalProps) {
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-white text-sm font-medium truncate">{movie.channel}</p>
-              <p className="text-grovix-muted text-[11px]">YouTube Channel</p>
+              <p className="text-pn-muted text-[11px]">YouTube Channel</p>
             </div>
           </div>
         </div>

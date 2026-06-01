@@ -18,6 +18,9 @@ interface Settings {
   secureBrowser: boolean;
 }
 
+const SETTINGS_KEY = 'pn_settings';
+const LEGACY_KEY   = 'grovix_settings';
+
 const DEFAULT_SETTINGS: Settings = {
   theme: 'dark',
   smoothMode: true,
@@ -32,10 +35,25 @@ const DEFAULT_SETTINGS: Settings = {
   secureBrowser: false,
 };
 
+function migrateKey(): void {
+  try {
+    if (!localStorage.getItem(SETTINGS_KEY)) {
+      const legacy = localStorage.getItem(LEGACY_KEY);
+      if (legacy) {
+        localStorage.setItem(SETTINGS_KEY, legacy);
+        localStorage.removeItem(LEGACY_KEY);
+      }
+    }
+  } catch {
+    // Silent
+  }
+}
+
 function loadSettings(): Settings {
   if (typeof window === 'undefined') return DEFAULT_SETTINGS;
   try {
-    const saved = localStorage.getItem('grovix_settings');
+    migrateKey();
+    const saved = localStorage.getItem(SETTINGS_KEY);
     if (saved) {
       const parsed = JSON.parse(saved);
       return { ...DEFAULT_SETTINGS, ...parsed };
@@ -54,7 +72,7 @@ export function useSettings() {
     setSettings(prev => {
       const next = { ...prev, [key]: value };
       try {
-        localStorage.setItem('grovix_settings', JSON.stringify(next));
+        localStorage.setItem(SETTINGS_KEY, JSON.stringify(next));
       } catch {
         // localStorage full, ignore
       }
@@ -66,7 +84,7 @@ export function useSettings() {
     setSettings(prev => {
       const next = { ...prev, ...updates };
       try {
-        localStorage.setItem('grovix_settings', JSON.stringify(next));
+        localStorage.setItem(SETTINGS_KEY, JSON.stringify(next));
       } catch {
         // ignore
       }
@@ -77,7 +95,7 @@ export function useSettings() {
   const resetSettings = useCallback(() => {
     setSettings(DEFAULT_SETTINGS);
     try {
-      localStorage.setItem('grovix_settings', JSON.stringify(DEFAULT_SETTINGS));
+      localStorage.setItem(SETTINGS_KEY, JSON.stringify(DEFAULT_SETTINGS));
     } catch {
       // ignore
     }

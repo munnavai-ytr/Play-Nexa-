@@ -67,7 +67,7 @@ export default function PlatformDetailPage() {
   /* ---- Not found ---- */
   if (!platform) {
     return (
-      <div className="min-h-screen bg-grovix-bg pb-24">
+      <div className="min-h-screen bg-pn-bg pb-24">
         <TopBar title="Platform" showBack />
         <EmptyState
           icon={AlertCircle}
@@ -80,12 +80,12 @@ export default function PlatformDetailPage() {
   }
 
   return (
-    <div className="min-h-screen bg-grovix-bg pb-24">
+    <div className="min-h-screen bg-pn-bg pb-24">
       <TopBar title={platform.name} showBack />
 
       <div className="px-4 pt-4 space-y-5">
         {/* ---- Platform Header with color gradient ---- */}
-        <header className="rounded-2xl p-6 bg-gradient-to-br border border-grovix-border"
+        <header className="rounded-2xl p-6 bg-gradient-to-br border border-pn-border"
           style={{
             backgroundImage: `linear-gradient(to bottom right, ${platform.color}20, #111827)`,
           }}
@@ -105,14 +105,14 @@ export default function PlatformDetailPage() {
             </div>
             <div className="flex-1 min-w-0">
               <h1 className="text-white font-bold text-xl">{platform.name}</h1>
-              <p className="text-grovix-muted text-sm mt-0.5">{platform.tagline}</p>
+              <p className="text-pn-muted text-sm mt-0.5">{platform.tagline}</p>
             </div>
           </div>
 
           {/* Visit platform button */}
           <button
             onClick={handleOpenPlatform}
-            className="mt-5 w-full bg-grovix-purple text-white rounded-xl h-12 text-base font-semibold flex items-center justify-center gap-2 transition-colors duration-150 hover:bg-grovix-purple/90 active:scale-[0.97]"
+            className="mt-5 w-full bg-pn-purple text-white rounded-xl h-12 text-base font-semibold flex items-center justify-center gap-2 transition-colors duration-150 hover:bg-pn-purple/90 active:scale-[0.97]"
             type="button"
             aria-label={`Visit ${platform.name}`}
           >
@@ -136,7 +136,7 @@ export default function PlatformDetailPage() {
                   type="button"
                   aria-label={`Browse ${collection} on ${platform.name}`}
                 >
-                  <div className="bg-grovix-card border border-grovix-border rounded-xl p-4 flex flex-col gap-2 h-full">
+                  <div className="bg-pn-card border border-pn-border rounded-xl p-4 flex flex-col gap-2 h-full">
                     <div className="flex items-center gap-2">
                       <div
                         className="w-2.5 h-2.5 rounded-full flex-shrink-0"
@@ -147,7 +147,7 @@ export default function PlatformDetailPage() {
                         {collection}
                       </span>
                     </div>
-                    <span className="text-grovix-purple text-xs font-medium flex items-center gap-1">
+                    <span className="text-pn-purple text-xs font-medium flex items-center gap-1">
                       Browse
                       <ArrowRight className="w-3 h-3" />
                     </span>
@@ -164,8 +164,8 @@ export default function PlatformDetailPage() {
         isOpen={confirmOpen}
         onClose={handleClose}
         onConfirm={handleConfirm}
-        title="Leaving GROVIX"
-        message={`You are about to open ${platform.name}. GROVIX is not responsible for external content. Continue?`}
+        title="Leaving Play Nexa"
+        message={`You are about to open ${platform.name}. Play Nexa is not responsible for external content. Continue?`}
       />
     </div>
   );

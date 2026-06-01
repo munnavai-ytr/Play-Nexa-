@@ -1,5 +1,5 @@
 // /components/ServiceWorkerRegistrar.tsx
-// Registers GROVIX service worker in production only
+// Registers Play Nexa service worker in production only
 // Must be a client component — runs only in browser
 
 'use client'

@@ -1,6 +1,6 @@
-// ── GROVIX Channel Card ───────────────────────────────────
+// ── Play Nexa Channel Card ───────────────────────────────────
 // Tapping channel opens INTERNAL /channel/[id] page
-// NOT YouTube external — keeps users in GROVIX
+// NOT YouTube external — keeps users in Play Nexa
 
 'use client'
 
@@ -21,7 +21,7 @@ export default function ChannelCard({ channelTitle }: Props) {
       )}
       type="button"
       className="w-full flex items-center gap-3
-                 bg-grovix-card border border-grovix-border
+                 bg-pn-card border border-pn-border
                  rounded-2xl p-4 mx-4
                  active:scale-[0.97]
                  transition-transform duration-150"
@@ -44,17 +44,17 @@ export default function ChannelCard({ channelTitle }: Props) {
         <p className="text-white font-semibold text-sm">
           {channelTitle}
         </p>
-        <p className="text-grovix-muted text-xs mt-0.5">
+        <p className="text-pn-muted text-xs mt-0.5">
           YouTube Channel • Tap to explore
         </p>
       </div>
 
       {/* Arrow — indicates internal navigation */}
       <div className="flex items-center gap-1">
-        <span className="text-[10px] text-grovix-purple font-medium">
-          GROVIX
+        <span className="text-[10px] text-pn-purple font-medium">
+          PLAY NEXA
         </span>
-        <ChevronRight size={16} className="text-grovix-purple" />
+        <ChevronRight size={16} className="text-pn-purple" />
       </div>
     </button>
   )
