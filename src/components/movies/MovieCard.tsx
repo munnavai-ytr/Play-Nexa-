@@ -3,6 +3,7 @@
 // GPU-only animations: opacity + transform (no layout thrash)
 // 2GB RAM safe: no backdrop-blur, no complex filters
 // 44px touch targets, lazy-loaded thumbnails
+// Dubbed badges: "English [Bangla Dubbed]", "Hindi [Bangla Sub]"
 
 'use client'
 
@@ -10,6 +11,7 @@ import Image from 'next/image'
 import { useState, useCallback } from 'react'
 import type { Movie } from '@/lib/search'
 import type { YouTubeMovie } from '@/lib/youtube'
+import { detectDubbedTags } from '@/lib/movie-authenticator'
 
 /** Unified card type — works with both local JSON movies and YouTube API results */
 type MovieCardData = Movie | YouTubeMovie
@@ -30,10 +32,14 @@ export default function MovieCard({ movie, fullWidth = false, onPlay }: MovieCar
   const [favorited, setFavorited] = useState(false)
   const [imgReady, setImgReady] = useState(false)
 
+  // Detect dubbed tags — smart language badge rendering
+  const dubbedTags = ('dubbedTags' in movie && Array.isArray(movie.dubbedTags))
+    ? movie.dubbedTags as string[]
+    : detectDubbedTags(movie.title, movie.language)
+
   const handleSave = useCallback((e: React.MouseEvent) => {
     e.stopPropagation()
     setSaved(s => !s)
-    // Persist to localStorage Watch Later list
     try {
       const key = 'grovix_watch_later'
       const list: string[] = JSON.parse(localStorage.getItem(key) || '[]')
@@ -50,7 +56,6 @@ export default function MovieCard({ movie, fullWidth = false, onPlay }: MovieCar
   const handleFavorite = useCallback((e: React.MouseEvent) => {
     e.stopPropagation()
     setFavorited(f => !f)
-    // Persist to localStorage favorites
     try {
       const key = 'grovix_likes'
       const list: string[] = JSON.parse(localStorage.getItem(key) || '[]')
@@ -100,7 +105,7 @@ export default function MovieCard({ movie, fullWidth = false, onPlay }: MovieCar
           </div>
         )}
 
-        {/* Play icon overlay — appears on hover/tap */}
+        {/* Play icon overlay */}
         <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 group-active:opacity-100 transition-opacity duration-200 bg-black/30">
           <div className="w-12 h-12 rounded-full bg-grovix-purple/90 flex items-center justify-center">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="white">
@@ -117,20 +122,21 @@ export default function MovieCard({ movie, fullWidth = false, onPlay }: MovieCar
         )}
 
         {/* Dubbed badge — top-right */}
-        {isLocalMovie(movie) && movie.dubbed && (
+        {(isLocalMovie(movie) && movie.dubbed) || (dubbedTags && dubbedTags.length > 0) ? (
           <span className="absolute top-2 right-2 bg-grovix-purple text-white text-[9px] font-bold rounded px-1.5 py-0.5">
-            DUB
+            {dubbedTags && dubbedTags.length > 0
+              ? dubbedTags[0].replace('Dubbed', 'DUB').replace('Sub', 'SUB')
+              : 'DUB'}
           </span>
-        )}
+        ) : null}
 
         {/* Duration badge — bottom-right */}
         <span className="absolute bottom-2 right-2 bg-black/80 text-white text-[10px] font-medium rounded px-1.5 py-0.5">
           {movie.duration}
         </span>
 
-        {/* Action buttons — bottom-left, appear on hover */}
+        {/* Action buttons — bottom-left */}
         <div className="absolute bottom-2 left-2 flex gap-1 opacity-0 group-hover:opacity-100 group-active:opacity-100 transition-opacity duration-200">
-          {/* Watch Later */}
           <button
             onClick={handleSave}
             type="button"
@@ -147,7 +153,6 @@ export default function MovieCard({ movie, fullWidth = false, onPlay }: MovieCar
             </svg>
           </button>
 
-          {/* Favorite */}
           <button
             onClick={handleFavorite}
             type="button"
@@ -163,7 +168,7 @@ export default function MovieCard({ movie, fullWidth = false, onPlay }: MovieCar
         </div>
       </div>
 
-      {/* ── INFO SECTION — YouTube-style ── */}
+      {/* ── INFO SECTION — YouTube-style with dubbed badges ── */}
       <div className="pt-2.5 pb-1 px-0.5">
         {/* Title */}
         <h3 className="text-white text-[13px] font-medium leading-snug line-clamp-2 mb-1">
@@ -176,11 +181,35 @@ export default function MovieCard({ movie, fullWidth = false, onPlay }: MovieCar
         </p>
 
         {/* Meta row: year • language • rating */}
-        <div className="flex items-center gap-1 text-[11px] text-grovix-muted">
+        <div className="flex items-center gap-1 text-[11px] text-grovix-muted flex-wrap">
           {isLocalMovie(movie) && <><span>{movie.year}</span><span className="text-grovix-border">•</span></>}
           <span>{movie.language}</span>
           {isLocalMovie(movie) && <><span className="text-grovix-border">•</span><span className="text-grovix-cyan font-medium">★ {movie.rating}</span></>}
         </div>
+
+        {/* ── Dubbed / Language Tags — Premium lightweight badges ── */}
+        {dubbedTags && dubbedTags.length > 0 && (
+          <div className="flex gap-1 mt-1.5 flex-wrap">
+            {dubbedTags.map(tag => {
+              const isDub = tag.toLowerCase().includes('dub')
+              const isSub = tag.toLowerCase().includes('sub')
+              return (
+                <span
+                  key={tag}
+                  className={`text-[9px] font-medium rounded-full px-2 py-0.5 border ${
+                    isDub
+                      ? 'text-grovix-purple bg-grovix-purple/10 border-grovix-purple/30'
+                      : isSub
+                        ? 'text-grovix-cyan bg-grovix-cyan/10 border-grovix-cyan/30'
+                        : 'text-grovix-muted bg-grovix-card border-grovix-border'
+                  }`}
+                >
+                  {tag}
+                </span>
+              )
+            })}
+          </div>
+        )}
 
         {/* Genre tags — only in grid/fullWidth mode */}
         {fullWidth && movie.genre && movie.genre.length > 0 && (

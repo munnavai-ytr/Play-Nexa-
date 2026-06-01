@@ -63,13 +63,16 @@ const TITLE_BLACKLIST = [
 ]
 
 /**
- * STRICT movie filter: Only passes if the movie is 60+ minutes
+ * STRICT movie filter: Only passes if the movie is 70+ minutes
  * AND doesn't contain trailer/clip/song keywords in the title.
- * This is the GATE KEEPER — nothing under 60 min reaches the UI.
+ * This is the GATE KEEPER — nothing under 70 min reaches the UI.
+ * Prevents fake videos that claim long durations but are actually short.
  */
+const MOVIE_MIN_DURATION_MIN = 70 // 70 minutes — strict, no exceptions
+
 const isVerifiedFullMovie = (m: Movie): boolean => {
   const durationMin = parseDurationToMin(m.duration)
-  if (durationMin < 60) return false
+  if (durationMin < MOVIE_MIN_DURATION_MIN) return false
   const t = m.title.toLowerCase()
   return !TITLE_BLACKLIST.some(w => t.includes(w))
 }

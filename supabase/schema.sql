@@ -6,7 +6,7 @@
 
 -- ── VIDEOS TABLE ─────────────────────────────────────────────
 -- Stores cached YouTube video data from the Edge Function.
--- duration_sec is CRITICAL — used for the 60-minute movie filter.
+-- duration_sec is CRITICAL — used for the 70-minute movie filter.
 
 CREATE TABLE IF NOT EXISTS videos (
   id            BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -18,6 +18,8 @@ CREATE TABLE IF NOT EXISTS videos (
   duration_sec  INTEGER NOT NULL DEFAULT 0,        -- Duration in SECONDS — used for filtering
   channel       TEXT    DEFAULT '',
   language      TEXT    DEFAULT 'English',
+  region        TEXT    DEFAULT 'international',   -- 'bangladesh' | 'india' | 'international'
+  dubbed_tags   TEXT[]  DEFAULT '{}',              -- e.g. '{"Bangla Dubbed","Hindi Sub"}'
   views         BIGINT  DEFAULT 0,
   created_at    TIMESTAMPTZ DEFAULT now()
 );
@@ -28,6 +30,9 @@ CREATE TABLE IF NOT EXISTS videos (
 CREATE INDEX IF NOT EXISTS idx_videos_category ON videos (category);
 CREATE INDEX IF NOT EXISTS idx_videos_duration ON videos (duration_sec);
 CREATE INDEX IF NOT EXISTS idx_videos_cat_duration ON videos (category, duration_sec);
+CREATE INDEX IF NOT EXISTS idx_videos_region ON videos (region);
+CREATE INDEX IF NOT EXISTS idx_videos_language ON videos (language);
+CREATE INDEX IF NOT EXISTS idx_videos_cat_region ON videos (category, region);
 
 -- ── RLS (Row Level Security) ─────────────────────────────────
 -- Public read, no write from client (Edge Function writes)
@@ -119,13 +124,21 @@ CREATE POLICY "Allow update on missing_requests"
 --  CLEANUP COMMAND — Run this in Supabase SQL Editor NOW
 -- ══════════════════════════════════════════════════════════════════════════════
 -- This instantly DELETEs all short clips from the videos table
--- where category is 'movie' but duration is under 60 minutes.
+-- where category is 'movie' but duration is under 70 minutes.
 -- These are trailers, clips, songs, reviews — NOT full movies.
+-- Fake videos claiming 2-3 hours in the title but actually 2-3 minutes
+-- long are caught by the Bulletproof Movie Authenticator's ISO 8601
+-- duration parser, which reads the ACTUAL duration from YouTube's
+-- contentDetails.duration field (not the title).
 --
--- 3600 seconds = 60 minutes = the minimum for a "full movie"
+-- 4200 seconds = 70 minutes = the minimum for a "verified full movie"
 --
--- Run:  DELETE FROM videos WHERE category = 'movie' AND duration_sec < 3600;
+-- Run:  DELETE FROM videos WHERE category = 'movie' AND duration_sec < 4200;
 --
 -- To preview what will be deleted first (safe, read-only):
--- Run:  SELECT id, yt_video_id, title, duration_sec FROM videos WHERE category = 'movie' AND duration_sec < 3600;
+-- Run:  SELECT id, yt_video_id, title, duration_sec FROM videos WHERE category = 'movie' AND duration_sec < 4200;
+--
+-- To add region & dubbed_tags columns to existing table (if not new):
+-- ALTER TABLE videos ADD COLUMN IF NOT EXISTS region TEXT DEFAULT 'international';
+-- ALTER TABLE videos ADD COLUMN IF NOT EXISTS dubbed_tags TEXT[] DEFAULT '{}';
 -- ══════════════════════════════════════════════════════════════════════════════

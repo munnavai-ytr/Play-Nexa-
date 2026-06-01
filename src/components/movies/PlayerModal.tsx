@@ -1,15 +1,18 @@
 // ── GROVIX Cinematic Player Modal ────────────────────────────
 // Dark Netflix/YouTube hybrid overlay
-// YouTube embed with: modestbranding=1&rel=0&showinfo=0&iv_load_policy=3
+// Uses StealthPlayer for maximum YouTube branding removal
 // GPU-only animations (opacity) — no backdrop-blur, no filters
 // 2GB RAM safe — iframe loads on mount, unloads on close
 // ESC key to close, click-outside to close
+// Dubbed badges & language info in the info bar
 
 'use client'
 
 import { useEffect, useCallback, useRef } from 'react'
+import StealthPlayer from './StealthPlayer'
 import type { Movie } from '@/lib/search'
 import type { YouTubeMovie } from '@/lib/youtube'
+import { detectDubbedTags } from '@/lib/movie-authenticator'
 
 type PlayerModalData = Movie | YouTubeMovie
 
@@ -22,6 +25,9 @@ interface PlayerModalProps {
 
 export default function PlayerModal({ movie, onClose }: PlayerModalProps) {
   const overlayRef = useRef<HTMLDivElement>(null)
+  const dubbedTags = ('dubbedTags' in movie && Array.isArray(movie.dubbedTags))
+    ? movie.dubbedTags as string[]
+    : detectDubbedTags(movie.title, movie.language)
 
   // ESC key handler
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
@@ -30,10 +36,10 @@ export default function PlayerModal({ movie, onClose }: PlayerModalProps) {
 
   useEffect(() => {
     document.addEventListener('keydown', handleKeyDown)
-    document.body.style.overflow = 'hidden' // Lock scroll
+    document.body.style.overflow = 'hidden'
     return () => {
       document.removeEventListener('keydown', handleKeyDown)
-      document.body.style.overflow = '' // Restore scroll
+      document.body.style.overflow = ''
     }
   }, [handleKeyDown])
 
@@ -53,7 +59,7 @@ export default function PlayerModal({ movie, onClose }: PlayerModalProps) {
     >
       <div className="w-full max-w-5xl animate-[fade-in_300ms_ease-out]">
 
-        {/* ── CLOSE BUTTON ── */}
+        {/* ── HEADER BAR ── */}
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
             <span className="bg-grovix-purple/90 rounded px-2.5 py-1">
@@ -74,22 +80,14 @@ export default function PlayerModal({ movie, onClose }: PlayerModalProps) {
           </button>
         </div>
 
-        {/* ── PLAYER FRAME ── */}
-        <div className="relative rounded-xl overflow-hidden bg-black aspect-video shadow-2xl shadow-black/50">
-          <iframe
-            src={
-              `https://www.youtube.com/embed/${movie.videoId}` +
-              `?autoplay=1&rel=0&modestbranding=1&showinfo=0` +
-              `&playsinline=1&iv_load_policy=3&fs=1` +
-              `&color=white&controls=1`
-            }
-            className="absolute inset-0 w-full h-full"
-            allowFullScreen
-            allow="autoplay; fullscreen; encrypted-media"
-            style={{ border: 'none' }}
-            title={movie.title}
-          />
-        </div>
+        {/* ── STEALTH PLAYER ── */}
+        <StealthPlayer
+          videoId={movie.videoId}
+          title={movie.title}
+          showClose={false}
+          showBadge={false}
+          className="rounded-xl shadow-2xl shadow-black/50"
+        />
 
         {/* ── MOVIE INFO BAR ── */}
         <div className="mt-4 px-1">
@@ -112,11 +110,27 @@ export default function PlayerModal({ movie, onClose }: PlayerModalProps) {
             <span className="bg-grovix-card border border-grovix-border text-grovix-muted text-[10px] rounded-full px-2.5 py-1">
               {movie.language}
             </span>
-            {isLocalMovie(movie) && movie.dubbed && (
-              <span className="bg-grovix-purple/20 text-grovix-purple border border-grovix-purple/30 text-[10px] font-medium rounded-full px-2.5 py-1">
-                DUBBED
-              </span>
-            )}
+
+            {/* Dubbed language badges — premium lightweight */}
+            {dubbedTags.map(tag => {
+              const isDub = tag.toLowerCase().includes('dub')
+              const isSub = tag.toLowerCase().includes('sub')
+              return (
+                <span
+                  key={tag}
+                  className={`text-[10px] font-medium rounded-full px-2.5 py-1 border ${
+                    isDub
+                      ? 'bg-grovix-purple/15 text-grovix-purple border-grovix-purple/30'
+                      : isSub
+                        ? 'bg-grovix-cyan/15 text-grovix-cyan border-grovix-cyan/30'
+                        : 'bg-grovix-card text-grovix-muted border-grovix-border'
+                  }`}
+                >
+                  {tag}
+                </span>
+              )
+            })}
+
             {isLocalMovie(movie) && (
               <span className="text-grovix-cyan text-[11px] font-semibold flex items-center">
                 ★ {movie.rating}

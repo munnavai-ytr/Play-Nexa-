@@ -65,3 +65,33 @@ Stage Summary:
 - Action buttons: Watch Later (grovix_watch_later) + Favorite (grovix_likes) persisted to localStorage
 - Feed/Grid toggle: horizontal scroll sections (feed) or full grid view
 - Zero backdrop-blur, zero heavy CSS filters — 2GB RAM safe
+
+---
+Task ID: 4
+Agent: Main Agent
+Task: Anti-Fake Filter, Country Categories, Dubbed Badges, Related Content & Stealth Player
+
+Work Log:
+- Created /src/lib/movie-authenticator.ts — Bulletproof Full-Movie Authenticator with ISO 8601 duration parser, 70-min (4200s) strict gate, title blacklist, bulk verification, region detection (Bangladesh/India/International), dubbed tag detection (Bangla Dubbed, Hindi Sub, etc.)
+- Created /src/app/api/movies/verify/route.ts — Server-side verification API endpoint (GET for single, POST for bulk, max 50 IDs per batch)
+- Updated /src/lib/youtube.ts — Added region & dubbedTags fields to YouTubeMovie type, changed MOVIE_MIN_DURATION_SEC from 3600 to 4200 (70 min), added detectRegion() and detectDubbedTags() functions, added Bangladesh/India/International search queries
+- Updated /src/lib/search.ts — Changed MOVIE_MIN_DURATION_MIN from 60 to 70 minutes in isVerifiedFullMovie()
+- Updated /src/lib/db-cache.ts — Changed MOVIE_MIN_DURATION_SEC from 3600 to 4200, added fetchMoviesByRegion() for geo-targeted content, added fetchRelatedFromDB() for related movies, region & dubbedTags enrichment in rowToMovie()
+- Updated /src/lib/fallback.ts — Added getFallbackByRegion() for Bangladesh/India/International fallback data
+- Updated /src/data/movies.json — Added 7 Bangladeshi movies (Aynabaji, Debi, Poramon, Guerrilla) and dubbed/subbed variants (Interstellar Bangla Dubbed, Parasite Bangla Sub, Train to Busan Hindi Dubbed Bangla Sub)
+- Updated /supabase/schema.sql — Added region and dubbed_tags columns to videos table, added region/language indexes, updated cleanup SQL from 3600 to 4200 seconds, added ALTER TABLE migration commands
+- Rebuilt /src/app/movies/page.tsx — Geo-targeted tabs (All/Bangladesh/India/International) with flag icons, genre chips, skeleton loaders, region-aware filtering in MovieSection and MovieGrid
+- Rebuilt /src/components/movies/MovieCard.tsx — Added dubbed tag badges (purple for Dubbed, cyan for Sub), detectDubbedTags integration, lightweight premium badge rendering
+- Created /src/components/movies/StealthPlayer.tsx — YouTube iframe with maximum branding removal (controls=1&modestbranding=1&rel=0&showinfo=0&iv_load_policy=3&disablekb=1), gradient overlays to crop YouTube watermarks, loading shimmer, configurable badge/close button
+- Rebuilt /src/components/movies/PlayerModal.tsx — Uses StealthPlayer, added dubbed tag badges in info bar
+- Rebuilt /src/app/movies/[id]/page.tsx — YouTube-style layout with StealthPlayer, Related Movies sidebar (desktop)/bottom (mobile), region display with flag, dubbed badges, RelatedMovieItem component, max-w-6xl responsive layout
+
+Stage Summary:
+- BULLETPROOF AUTHENTICATOR: Server-side ISO 8601 duration parser reads ACTUAL video duration from YouTube contentDetails — cannot be faked by title. 70-minute strict gate (4200s).
+- GEO-TARGETED CONTENT: Bangladesh/India/International tabs with region detection from language/title/channel metadata
+- DUBBED BADGES: Smart detection of "Bangla Dubbed", "Hindi Sub", "English Dubbed" etc. — purple for dubbed, cyan for subbed, lightweight text badges
+- STEALTH PLAYER: YouTube embed with controls=1&modestbranding=1&rel=0&showinfo=0&iv_load_policy=3&disablekb=1 + gradient overlays to crop watermarks
+- VIDEO DETAIL PAGE: YouTube-style layout with player → info → related sidebar/bottom, 5 related movies from same genre/category
+- SQL CLEANUP: DELETE FROM videos WHERE category = 'movie' AND duration_sec < 4200;
+- MIGRATION: ALTER TABLE videos ADD COLUMN region TEXT DEFAULT 'international'; ALTER TABLE videos ADD COLUMN dubbed_tags TEXT[] DEFAULT '{}';
+- Zero auth/profile/settings files modified — only Movie Core & Data Filtration logic

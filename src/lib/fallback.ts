@@ -320,3 +320,16 @@ export const getFallbackByCategory = (category: string): YouTubeMovie[] => {
     return FALLBACK_MOVIES.filter(m => m.genre?.includes('Romance'))
   return FALLBACK_MOVIES.slice(0, 8)
 }
+
+// ── Region filter helpers ──
+// Return fallback movies filtered by geo-region
+
+export const getFallbackByRegion = (region: string): YouTubeMovie[] => {
+  if (region === 'bangladesh')
+    return FALLBACK_MOVIES.filter(m => m.language === 'Bangla' || m.language === 'Bengali')
+  if (region === 'india')
+    return FALLBACK_MOVIES.filter(m => m.language === 'Hindi' || m.language === 'Tamil' || m.language === 'Telugu')
+  if (region === 'international')
+    return FALLBACK_MOVIES.filter(m => m.language === 'English' || m.language === 'Korean' || m.language === 'Japanese')
+  return FALLBACK_MOVIES.slice(0, 8)
+}

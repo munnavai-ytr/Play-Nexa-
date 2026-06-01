@@ -35,6 +35,8 @@ export interface YouTubeMovie {
   trending?: boolean
   viral?: boolean
   tags?: string[]
+  region?: 'bangladesh' | 'india' | 'international'
+  dubbedTags?: string[]
 }
 
 // ── In-memory dedup guard ──
@@ -81,7 +83,7 @@ export const formatLikes = (count: string): string => {
 
 const detectLanguage = (title: string): string => {
   const t = title.toLowerCase()
-  if (t.includes('hindi') || t.includes('hindi')) return 'Hindi'
+  if (t.includes('hindi')) return 'Hindi'
   if (t.includes('bangla') || t.includes('bengali')) return 'Bangla'
   if (t.includes('tamil')) return 'Tamil'
   if (t.includes('telugu')) return 'Telugu'
@@ -89,6 +91,39 @@ const detectLanguage = (title: string): string => {
   if (t.includes('japanese') || t.includes('anime')) return 'Japanese'
   if (t.includes('dubbed')) return 'Dubbed'
   return 'English'
+}
+
+// ── Detect region from metadata ──
+
+type Region = 'bangladesh' | 'india' | 'international'
+
+const detectRegion = (language: string, title: string, channel: string): Region => {
+  const l = language.toLowerCase()
+  const t = title.toLowerCase()
+  const c = channel.toLowerCase()
+  if (l === 'bangla' || l === 'bengali' || t.includes('bangla') || c.includes('bangla')) return 'bangladesh'
+  if (l === 'hindi' || l === 'tamil' || l === 'telugu' || t.includes('hindi') || t.includes('bollywood') || c.includes('bollywood')) return 'india'
+  return 'international'
+}
+
+// ── Detect dubbed tags from title ──
+
+const detectDubbedTags = (title: string, language: string): string[] => {
+  const tags: string[] = []
+  const t = title.toLowerCase()
+  if (t.includes('bangla dubbed') || t.includes('bengali dubbed')) tags.push('Bangla Dubbed')
+  else if (t.includes('bangla sub') || t.includes('bengali sub')) tags.push('Bangla Sub')
+  if (t.includes('hindi dubbed')) tags.push('Hindi Dubbed')
+  else if (t.includes('hindi sub')) tags.push('Hindi Sub')
+  if (t.includes('english dubbed') || t.includes('eng dub')) tags.push('English Dubbed')
+  else if (t.includes('english sub') || t.includes('eng sub')) tags.push('English Sub')
+  if (t.includes('tamil dubbed')) tags.push('Tamil Dubbed')
+  if (t.includes('telugu dubbed')) tags.push('Telugu Dubbed')
+  if (tags.length === 0 && language !== 'English') {
+    if (language === 'Hindi' && !t.includes('hindi')) tags.push('Hindi')
+    if (language === 'Bangla' && !t.includes('bangla')) tags.push('Bangla')
+  }
+  return tags
 }
 
 // ── Movie blacklist filter ──
@@ -111,9 +146,18 @@ const BLACKLIST = [
   'opening', 'ending', 'credits',
 ]
 
+/**
+ * STRICT 70-minute movie filter.
+ * Videos under 70 minutes (4200 seconds) are REJECTED.
+ * This prevents fake videos that claim long durations but are actually short.
+ * The actual duration comes from YouTube's contentDetails.duration (ISO 8601),
+ * which cannot be faked by the uploader.
+ */
+const MOVIE_MIN_DURATION_SEC = 4200 // 70 minutes — strict, no exceptions
+
 const isMovie = (title: string, sec: number): boolean => {
   const t = title.toLowerCase()
-  return !BLACKLIST.some(w => t.includes(w)) && sec >= 3600
+  return !BLACKLIST.some(w => t.includes(w)) && sec >= MOVIE_MIN_DURATION_SEC
 }
 
 // Alias for backward compatibility
@@ -128,10 +172,14 @@ const formatVideo = (video: Record<string, unknown>): YouTubeMovie => {
   const sec = parseDuration(contentDetails?.duration || '')
   const thumbnails = snippet?.thumbnails as Record<string, Record<string, string>>
 
+  const lang = detectLanguage((snippet?.title as string) || '')
+  const ch = (snippet?.channelTitle as string) || ''
+  const ttl = (snippet?.title as string) || ''
+
   return {
     id: video.id as string,
     videoId: video.id as string,
-    title: (snippet?.title as string) || '',
+    title: ttl,
     thumbnail:
       thumbnails?.maxres?.url ||
       thumbnails?.high?.url ||
@@ -139,7 +187,7 @@ const formatVideo = (video: Record<string, unknown>): YouTubeMovie => {
       '',
     duration: formatDuration(sec),
     durationSec: sec,
-    channel: (snippet?.channelTitle as string) || '',
+    channel: ch,
     channelId: snippet?.channelId as string || '',
     description: ((snippet?.description as string) || '').slice(0, 300),
     publishedAt: snippet?.publishedAt as string || '',
@@ -148,13 +196,15 @@ const formatVideo = (video: Record<string, unknown>): YouTubeMovie => {
     comments: formatLikes(statistics?.commentCount || '0'),
     rawViews: parseInt(statistics?.viewCount || '0'),
     rawLikes: parseInt(statistics?.likeCount || '0'),
-    language: detectLanguage((snippet?.title as string) || ''),
+    language: lang,
     genre: [],
     free: true,
     source: 'YouTube',
     trending: false,
     viral: false,
     tags: (snippet?.tags as string[]) || [],
+    region: detectRegion(lang, ttl, ch),
+    dubbedTags: detectDubbedTags(ttl, lang),
   }
 }
 
@@ -217,7 +267,10 @@ export const fetchMoviesByCategory = async (
     'Horror': 'horror full movie free english',
     'Comedy': 'comedy full movie free english',
     'Hindi Dubbed': 'hindi dubbed full movie free',
-    'Bangla': 'bangla full movie free',
+    'Bangla': 'bangla full movie free bengali',
+    'Bangladesh': 'bangla full movie free bengali 2024',
+    'India': 'bollywood full movie hindi dubbed free',
+    'International': 'hollywood full movie english free 2024',
     'Adventure': 'adventure full movie free english',
     'Drama': 'drama full movie free english',
     'Thriller': 'thriller full movie free english',
