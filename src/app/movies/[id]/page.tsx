@@ -103,13 +103,12 @@ export default function MovieDetailPage(
         <iframe
           src={
             `https://www.youtube.com/embed/${movie.videoId}` +
-            `?autoplay=1&rel=0&modestbranding=1` +
-            `&playsinline=1&iv_load_policy=3`
+            `?autoplay=1&rel=0&modestbranding=1&showinfo=0` +
+            `&playsinline=1&iv_load_policy=3&color=white&controls=1`
           }
           className="w-full aspect-video"
           allowFullScreen
-          loading="lazy"
-          allow="autoplay; fullscreen"
+          allow="autoplay; fullscreen; encrypted-media"
           style={{ border: 'none', display: 'block' }}
           title={movie.title}
         />

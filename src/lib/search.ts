@@ -38,9 +38,45 @@ export interface Short {
   language: string
 }
 
-// ── Cast data ──────────────────────────────────────────────
+// ── Duration parser — extracts minutes from "2h 49m" format ──
 
-export const allMovies: Movie[] = movies as Movie[]
+const parseDurationToMin = (d: string): number => {
+  const h = d.match(/(\d+)h/)
+  const m = d.match(/(\d+)m/)
+  return (h ? parseInt(h[1]) * 60 : 0) + (m ? parseInt(m[1]) : 0)
+}
+
+// ── Title blacklist — these are NEVER full movies ──
+
+const TITLE_BLACKLIST = [
+  'trailer', 'teaser', 'clip', 'song', 'music',
+  'interview', 'reaction', 'review', 'behind',
+  'shorts', 'bts', 'promo', 'deleted', 'bloopers',
+  'scene', 'highlight', 'recap', 'preview',
+  'episode', 'season', 'ep ', 'e0',
+  'part 1', 'part 2', 'part 3',
+  'ost', 'soundtrack', 'lyric', 'cover',
+  'explained', 'breakdown', 'analysis',
+  'top 10', 'top 5', 'list', 'comparison',
+  'fan made', 'fan edit', 'amv', 'edit',
+  'opening', 'ending', 'credits',
+]
+
+/**
+ * STRICT movie filter: Only passes if the movie is 60+ minutes
+ * AND doesn't contain trailer/clip/song keywords in the title.
+ * This is the GATE KEEPER — nothing under 60 min reaches the UI.
+ */
+const isVerifiedFullMovie = (m: Movie): boolean => {
+  const durationMin = parseDurationToMin(m.duration)
+  if (durationMin < 60) return false
+  const t = m.title.toLowerCase()
+  return !TITLE_BLACKLIST.some(w => t.includes(w))
+}
+
+// ── Cast data — FILTERED: only verified full-length movies ──
+
+export const allMovies: Movie[] = (movies as Movie[]).filter(isVerifiedFullMovie)
 export const allShorts: Short[] = shorts as Short[]
 
 // ── Search filters interface ───────────────────────────────

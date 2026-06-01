@@ -41,3 +41,27 @@ Stage Summary:
 - Rate limiting: 30 requests/minute global for AI search, CRON_SECRET auth for hunter
 - All processing server-side only — zero client-side overhead
 - Data flow: User NL query → Gemini parses intent → Supabase genre/language/text search → YouTube API fallback → merged results
+
+---
+Task ID: 3
+Agent: Main Agent
+Task: Complete Movie Hub Refactor — YouTube Layout & Data Cleanup
+
+Work Log:
+- Updated /src/lib/search.ts — Added isVerifiedFullMovie() filter with 60-min duration gate + 35+ title blacklist. allMovies is now pre-filtered at import time.
+- Rebuilt /src/components/movies/MovieCard.tsx — YouTube-style card with: responsive fullWidth/grid mode, play overlay on hover, Watch Later + Favorite action buttons (persisted to localStorage), image loading shimmer, genre tags in grid mode
+- Created /src/components/movies/PlayerModal.tsx — Cinematic modal overlay: YouTube embed with modestbranding=1&rel=0&showinfo=0&iv_load_policy=3, ESC/click-outside close, scroll lock, movie info bar
+- Rebuilt /src/app/movies/page.tsx — YouTube-style layout: responsive grid (1→2→3→4 cols), skeleton shimmer loaders, feed/grid toggle, PlayerModal integration, category chips with active state
+- Updated /src/app/movies/[id]/page.tsx — Added showinfo=0&color=white to YouTube embed params
+- Fixed TypeScript: MovieCard and PlayerModal accept both Movie and YouTubeMovie types via union type
+- TypeScript compile check: ZERO errors in all modified/new files
+- Verified NO auth/profile/settings files were modified
+
+Stage Summary:
+- Data cleanup: search.ts now filters allMovies at import — any movie under 60 min OR with blacklist title keywords is EXCLUDED
+- YouTube-style grid: responsive grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-5
+- Skeleton loaders: shimmer animation on initial load (800ms), per-card image loading shimmer
+- Player modal: dark overlay, YouTube embed with branding hidden, ESC/click-outside close
+- Action buttons: Watch Later (grovix_watch_later) + Favorite (grovix_likes) persisted to localStorage
+- Feed/Grid toggle: horizontal scroll sections (feed) or full grid view
+- Zero backdrop-blur, zero heavy CSS filters — 2GB RAM safe
