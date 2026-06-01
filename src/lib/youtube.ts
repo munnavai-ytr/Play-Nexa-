@@ -92,7 +92,10 @@ const detectLanguage = (title: string): string => {
 }
 
 // ── Movie blacklist filter ──
-// Only keeps content over 40 minutes (2400 seconds) — real movies
+// STRICT 60-minute minimum (3600 seconds) for movies.
+// Anything under 60 min is a trailer/clip/song/review — NOT a movie.
+// videoDuration:'long' is sent to YouTube API as a pre-filter,
+// but this is the FINAL gate that actually enforces the rule.
 
 const BLACKLIST = [
   'trailer', 'teaser', 'clip', 'song', 'music',
@@ -101,11 +104,16 @@ const BLACKLIST = [
   'scene', 'highlight', 'recap', 'preview',
   'episode', 'season', 'ep ', 'e0',
   'part 1', 'part 2', 'part 3',
+  'ost', 'soundtrack', 'lyric', 'cover',
+  'explained', 'breakdown', 'analysis',
+  'top 10', 'top 5', 'list', 'comparison',
+  'fan made', 'fan edit', 'amv', 'edit',
+  'opening', 'ending', 'credits',
 ]
 
 const isMovie = (title: string, sec: number): boolean => {
   const t = title.toLowerCase()
-  return !BLACKLIST.some(w => t.includes(w)) && sec > 2400
+  return !BLACKLIST.some(w => t.includes(w)) && sec >= 3600
 }
 
 // Alias for backward compatibility
