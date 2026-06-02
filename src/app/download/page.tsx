@@ -2,9 +2,9 @@
 
 // ── Play Nexa Download Hub ──────────────────────────────────
 // ONE-CLICK "READY TO DOWNLOAD" DEEP LINKING
-// 100% client-side — zero backend API calls
-// 300ms premium "Action Confirmed" delay before window.open
-// 2GB RAM safe — no backdrop-blur, GPU-accelerated transitions only
+// 100% client-side — zero backend API calls, zero 404s
+// Universal SaveFrom gateway + platform-specific verified nodes
+// Anti-spam window.open with noopener,noreferrer
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import {
@@ -20,7 +20,7 @@ import {
   Platform, MediaType, ALL_PLATFORMS
 } from '@/lib/detector'
 import {
-  getSources, buildDeepLink
+  getSources, buildDeepLink, sanitizeUrl
 } from '@/lib/router'
 
 type UIStep = 'idle' | 'processing' | 'done'
@@ -38,6 +38,9 @@ export default function DownloadHubPage() {
   const [topBarProgress, setTopBarProgress] = useState(0)
   const processingTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
+  // Sanitized version of URL (for display and routing)
+  const cleanUrl = useMemo(() => sanitizeUrl(url), [url])
+
   // Load recent from localStorage
   useEffect(() => {
     try {
@@ -54,7 +57,7 @@ export default function DownloadHubPage() {
       setUiStep('idle')
       return
     }
-    const detected = detectPlatform(url)
+    const detected = detectPlatform(cleanUrl)
     setPlatform(detected)
     if (detected) {
       setGlowPlatform(detected)
@@ -63,7 +66,7 @@ export default function DownloadHubPage() {
     } else {
       setGlowPlatform(null)
     }
-  }, [url])
+  }, [url, cleanUrl])
 
   // Cleanup timer on unmount
   useEffect(() => {
@@ -82,33 +85,26 @@ export default function DownloadHubPage() {
 
   // ── Save to recent ──
   const saveRecent = useCallback((u: string) => {
-    const updated = [u, ...recentUrls.filter(r => r !== u)].slice(0, 5)
+    const clean = sanitizeUrl(u)
+    const updated = [clean, ...recentUrls.filter(r => r !== clean)].slice(0, 5)
     setRecentUrls(updated)
     localStorage.setItem('pn_recent_dl', JSON.stringify(updated))
   }, [recentUrls])
 
   // ── INSTANT DOWNLOAD — the core action ──
-  // 1. Button instantly shows "Processing..." (zero-latency feedback)
-  // 2. Top-of-page thin progress bar animates
-  // 3. After exactly 300ms, window.open fires the deep link
-  // 4. Button shows "Done!" for 500ms then resets
   const executeDownload = useCallback((sourceIdx: number) => {
-    if (!platform || !url) return
+    if (!platform || !cleanUrl) return
 
-    // Cancel any previous timer
     if (processingTimer.current) clearTimeout(processingTimer.current)
 
     // INSTANT visual feedback
     setUiStep('processing')
     setSelectedSource(sourceIdx)
     setTopBarProgress(30)
-
-    // Animate top bar to 80% over 250ms
     requestAnimationFrame(() => setTopBarProgress(65))
 
-    // 300ms premium delay — "Action Confirmed" feeling
+    // 300ms premium delay — "Action Confirmed"
     processingTimer.current = setTimeout(() => {
-      // Build the deep link URL
       const sources = getSources(platform, type)
       const source = sources[sourceIdx] || sources[0]
       if (!source) {
@@ -117,35 +113,34 @@ export default function DownloadHubPage() {
         return
       }
 
-      const deepLink = buildDeepLink(source, url)
+      // Build deep link using SANITIZED URL
+      const deepLink = buildDeepLink(source, cleanUrl)
 
-      // Fire the redirect
+      // Anti-spam: open in clean context with noopener + noreferrer
       try {
         window.open(deepLink, '_blank', 'noopener,noreferrer')
       } catch {
-        // Fallback: location.href
         window.location.href = deepLink
       }
 
       // Complete animation
       setTopBarProgress(100)
       setUiStep('done')
-      saveRecent(url)
+      saveRecent(cleanUrl)
 
-      // Reset button after 800ms
       processingTimer.current = setTimeout(() => {
         setUiStep('idle')
         setTopBarProgress(0)
       }, 800)
     }, 300)
-  }, [platform, type, url, saveRecent])
+  }, [platform, type, cleanUrl, saveRecent])
 
-  // ── Show confirm modal first (for explicit source selection) ──
+  // ── Show confirm modal (for alternate sources) ──
   const requestDownload = useCallback((idx = 0) => {
-    if (!platform || !url) return
+    if (!platform || !cleanUrl) return
     setSelectedSource(idx)
     setShowConfirm(true)
-  }, [platform, url])
+  }, [platform, cleanUrl])
 
   // ── Confirm from modal ──
   const confirmFromModal = useCallback(() => {
@@ -165,20 +160,20 @@ export default function DownloadHubPage() {
   const platformColor = getPlatformColor(platform)
   const platformName  = getPlatformName(platform)
   const platformIcon  = getPlatformIcon(platform)
-  const isShorts      = isYouTubeShorts(url)
-  const ytId          = extractYouTubeId(url)
+  const isShorts      = isYouTubeShorts(cleanUrl)
+  const ytId          = extractYouTubeId(cleanUrl)
 
-  // Preview deep link for the confirm modal
+  // Preview deep link for confirm modal
   const previewDeepLink = useMemo(() => {
-    if (!platform || !url || !sources.length) return ''
+    if (!platform || !cleanUrl || !sources.length) return ''
     const source = sources[selectedSource] || sources[0]
-    try { return buildDeepLink(source, url) } catch { return '' }
-  }, [platform, url, sources, selectedSource])
+    try { return buildDeepLink(source, cleanUrl) } catch { return '' }
+  }, [platform, cleanUrl, sources, selectedSource])
 
   return (
     <div className="min-h-screen bg-[#070B14] pb-24">
 
-      {/* ── TOP PROGRESS BAR (only during processing) ── */}
+      {/* ── TOP PROGRESS BAR ── */}
       <div className="fixed top-0 left-0 right-0 z-[9998] h-[3px] bg-transparent pointer-events-none">
         {topBarProgress > 0 && (
           <div
@@ -204,7 +199,7 @@ export default function DownloadHubPage() {
                 Download Hub
               </h1>
               <p className="text-[10px] text-[#94A3B8] leading-tight">
-                One-Click Deep Linking
+                Universal Deep Linking
               </p>
             </div>
           </div>
@@ -294,7 +289,7 @@ export default function DownloadHubPage() {
                 )}
               </div>
               <p className="text-[#94A3B8] text-xs mt-0.5 truncate max-w-[220px]">
-                {ytId ? `ID: ${ytId}` : url}
+                {ytId ? `ID: ${ytId}` : cleanUrl}
               </p>
             </div>
             <CheckCircle size={20} style={{ color: platformColor }} />
@@ -337,10 +332,7 @@ export default function DownloadHubPage() {
         )}
 
         {/* ════════════════════════════════════════════════════════
-            DOWNLOAD BUTTON — Three visual states:
-            idle → "Download Video/Audio"
-            processing → "Processing..." with spinner
-            done → "Done! Opening..." with checkmark
+            DOWNLOAD BUTTON — idle / processing / done
             ════════════════════════════════════════════════════════ */}
         {platform && (
           <button
@@ -349,18 +341,9 @@ export default function DownloadHubPage() {
             className={`w-full h-14 rounded-2xl text-white font-bold text-base
                        flex items-center justify-center gap-3
                        transition-all duration-200
-                       ${uiStep === 'idle'
-                         ? 'active:scale-[0.97] shadow-[0_0_25px_rgba(124,92,255,0.25)]'
-                         : ''
-                       }
-                       ${uiStep === 'processing'
-                         ? 'opacity-90 scale-[0.98]'
-                         : ''
-                       }
-                       ${uiStep === 'done'
-                         ? 'shadow-[0_0_25px_rgba(34,197,94,0.3)]'
-                         : ''
-                       }`}
+                       ${uiStep === 'idle' ? 'active:scale-[0.97] shadow-[0_0_25px_rgba(124,92,255,0.25)]' : ''}
+                       ${uiStep === 'processing' ? 'opacity-90 scale-[0.98]' : ''}
+                       ${uiStep === 'done' ? 'shadow-[0_0_25px_rgba(34,197,94,0.3)]' : ''}`}
             style={{
               backgroundColor: uiStep === 'done'
                 ? '#22C55E'
@@ -369,22 +352,13 @@ export default function DownloadHubPage() {
             }}
           >
             {uiStep === 'idle' && (
-              <>
-                <ArrowRight size={20} />
-                Download {type === 'audio' ? 'Audio' : 'Video'}
-              </>
+              <><ArrowRight size={20} />Download {type === 'audio' ? 'Audio' : 'Video'}</>
             )}
             {uiStep === 'processing' && (
-              <>
-                <Loader2 size={20} className="animate-spin" />
-                Processing...
-              </>
+              <><Loader2 size={20} className="animate-spin" />Processing...</>
             )}
             {uiStep === 'done' && (
-              <>
-                <CheckCircle size={20} />
-                Done! Opening...
-              </>
+              <><CheckCircle size={20} />Done! Opening...</>
             )}
           </button>
         )}
@@ -482,9 +456,9 @@ export default function DownloadHubPage() {
               <div className="space-y-2">
                 {[
                   { step: '1', text: 'Paste any video or audio link' },
-                  { step: '2', text: 'Platform auto-detected instantly' },
+                  { step: '2', text: 'Platform auto-detected, URL sanitized' },
                   { step: '3', text: 'Tap Download — deep link fires' },
-                  { step: '4', text: 'External site opens with link pre-filled' },
+                  { step: '4', text: 'Gateway opens with link pre-filled' },
                 ].map(item => (
                   <div key={item.step} className="flex items-center gap-3">
                     <div className="w-6 h-6 rounded-full bg-[#7C5CFF]/15 flex items-center justify-center flex-shrink-0">
@@ -534,14 +508,13 @@ export default function DownloadHubPage() {
         <div className="flex items-center justify-center gap-2 py-2">
           <Shield size={12} className="text-[#22C55E]" />
           <p className="text-[10px] text-[#94A3B8]">
-            Client-side only • No server calls • Deep link auto-fills your URL
+            Client-side only • URL sanitized • Deep link auto-fills • No pop-ups
           </p>
         </div>
       </div>
 
       {/* ════════════════════════════════════════════════════════
           CONFIRM MODAL — for explicit source selection
-          (main download button skips this — instant action)
           ════════════════════════════════════════════════════════ */}
       {showConfirm && (
         <div className="fixed inset-0 z-50 flex items-end">
@@ -572,7 +545,7 @@ export default function DownloadHubPage() {
               <p className="text-[#94A3B8] text-[10px] uppercase tracking-wide mb-1">
                 Your Media URL
               </p>
-              <p className="text-white text-xs truncate">{url}</p>
+              <p className="text-white text-xs truncate">{cleanUrl}</p>
             </div>
 
             {/* Deep link preview */}

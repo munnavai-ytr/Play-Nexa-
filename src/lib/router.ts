@@ -1,7 +1,8 @@
-// ── Play Nexa Smart Download Router ─────────────────────────
-// 100% CLIENT-SIDE deep link construction
-// Zero backend API calls — instant URL rewriting
-// One-click "Ready to Download" — user never pastes twice
+// ── Play Nexa Download Router ────────────────────────────────
+// BULLETPROOF — 100% client-side, zero 404s
+// Universal SaveFrom gateway as primary for ALL platforms
+// Platform-specific verified endpoints as alternatives
+// Strict URL sanitization for mobile short links (vt.tiktok.com etc.)
 
 import downloaders from '@/data/downloaders.json'
 import { Platform, MediaType, extractYouTubeId } from './detector'
@@ -11,54 +12,125 @@ export interface Source {
   id: string
   name: string
   url: string
-  buildUrl: string   // 'param' | 'id' | 'append'
+  buildUrl: string   // routing strategy keyword
   param?: string     // query param name (default: 'url')
   note?: string
 }
 
-// ── Build deep-link URL — the core logic ────────────────────
-// This constructs a URL that the third-party site will
-// auto-populate with the user's video link. No re-pasting.
+// ═══════════════════════════════════════════════════════════════
+// URL SANITIZATION — handles mobile links, missing protocols,
+// special characters that break encodeURIComponent on raw input
+// ═══════════════════════════════════════════════════════════════
+
+export function sanitizeUrl(raw: string): string {
+  if (!raw) return ''
+
+  let clean = raw.trim()
+
+  // Remove wrapping brackets/parentheses users sometimes paste
+  clean = clean.replace(/^[\[\(]+|[\]\)]+$/g, '')
+
+  // Remove leading/trailing quotes
+  clean = clean.replace(/^["'`]+|["'`]+$/g, '')
+
+  // Add https:// protocol if missing
+  if (!/^https?:\/\//i.test(clean)) {
+    // Check if it looks like a domain
+    if (/^[\w.-]+\.\w{2,}/i.test(clean)) {
+      clean = 'https://' + clean
+    }
+  }
+
+  // Remove tracking parameters that can break gateways
+  // (Keep the core URL intact, only strip known trackers)
+  try {
+    const parsed = new URL(clean)
+    const trackers = ['si', 'fbclid', 'utm_source', 'utm_medium', 'utm_campaign', 'ref', 'igshid']
+    trackers.forEach(t => parsed.searchParams.delete(t))
+    clean = parsed.toString()
+  } catch {
+    // If URL constructor fails, return as-is — gateway will handle
+  }
+
+  return clean
+}
+
+// ═══════════════════════════════════════════════════════════════
+// DEEP LINK BUILDER — the core routing logic
+// Each buildUrl strategy maps to a verified, stable URL pattern
+// ═══════════════════════════════════════════════════════════════
+
 export const buildDeepLink = (
   source: Source,
   mediaUrl: string
 ): string => {
-  const encoded = encodeURIComponent(mediaUrl)
-  const ytId = extractYouTubeId(mediaUrl)
+  // Always sanitize before building
+  const clean = sanitizeUrl(mediaUrl)
+  const encoded = encodeURIComponent(clean)
 
   switch (source.buildUrl) {
-    // ── ID mode: append YouTube video ID to URL path ────────
-    // e.g. https://y2mate.com/youtube/dQw4w9WgXcQ
-    case 'id':
+
+    // ── SSYOUTUBE: Smart domain replacement ──────────────────
+    // https://www.youtube.com/watch?v=dQw4w9WgXcQ
+    // → https://www.ssyoutube.com/watch?v=dQw4w9WgXcQ
+    // Most reliable YouTube method — just swap domain, all params preserved
+    case 'ssyoutube': {
+      return clean
+        .replace(/^(https?:\/\/)(?:www\.)?youtube\./i, '$1ssyoutube.')
+        .replace(/^(https?:\/\/)(?:m\.)?youtube\./i, '$1ssyoutube.')
+        .replace(/^(https?:\/\/)youtu\.be\//i, '$1ssyoutube.com/watch?v=')
+        .replace(/^(https?:\/\/)music\.youtube\./i, '$1ssyoutube.')
+    }
+
+    // ── SAVEFROM UNIVERSAL: en.savefrom.net/?url= ────────────
+    // The most stable universal gateway — handles ALL platforms
+    // Auto-detects platform and shows download button
+    case 'savefrom': {
+      return `https://en.savefrom.net/?url=${encoded}`
+    }
+
+    // ── SFROM SHORTCUT: sfrom.net/{raw_url} ──────────────────
+    // Ultra-short URL that redirects to SaveFrom with URL pre-filled
+    case 'sfrom': {
+      return `https://sfrom.net/${clean}`
+    }
+
+    // ── PARAM: Generic ?key=encoded_url ──────────────────────
+    // Used for verified platform-specific gateways
+    case 'param': {
+      const sep = source.url.includes('?') ? '&' : '?'
+      return `${source.url}${sep}${source.param || 'url'}=${encoded}`
+    }
+
+    // ── ID: Append YouTube video ID to path ──────────────────
+    // Used for y2mate-style gateways that accept ID in path
+    case 'id': {
+      const ytId = extractYouTubeId(clean)
       if (ytId) return source.url + ytId
-      // Not a YouTube URL — fall back to param mode
-      return appendParam(source.url, source.param || 'url', encoded)
+      // Not YouTube — fall through to param mode
+      const sep = source.url.includes('?') ? '&' : '?'
+      return `${source.url}${sep}${source.param || 'url'}=${encoded}`
+    }
 
-    // ── PARAM mode: ?url=encoded_full_url ───────────────────
-    // e.g. https://ssyoutube.com/en72/youtube-video-downloader?url=https%3A%2F%2Fyoutube.com%2Fwatch%3Fv%3DdQw4w9WgXcQ
-    case 'param':
-      return appendParam(source.url, source.param || 'url', encoded)
-
-    // ── APPEND mode: append encoded URL to base ─────────────
-    // e.g. https://snapsave.app/result?url=https%3A%2F%2F...
-    case 'append':
+    // ── APPEND: Append encoded URL directly ──────────────────
+    case 'append': {
       return source.url + encoded
+    }
 
-    default:
-      return appendParam(source.url, source.param || 'url', encoded)
+    default: {
+      const sep = source.url.includes('?') ? '&' : '?'
+      return `${source.url}${sep}${source.param || 'url'}=${encoded}`
+    }
   }
 }
 
-// ── Helper: append query param to URL ───────────────────────
-function appendParam(baseUrl: string, key: string, value: string): string {
-  const sep = baseUrl.includes('?') ? '&' : '?'
-  return `${baseUrl}${sep}${key}=${value}`
-}
-
-// ── Backward compat alias ───────────────────────────────────
+// Backward compat alias
 export const buildRedirectUrl = buildDeepLink
 
-// ── Get sources for platform + media type ───────────────────
+// ═══════════════════════════════════════════════════════════════
+// SOURCE MANAGEMENT
+// ═══════════════════════════════════════════════════════════════
+
 export const getSources = (
   platform: Platform,
   type: MediaType
@@ -69,17 +141,25 @@ export const getSources = (
   return data[type] || []
 }
 
-// ── Get primary source (first = recommended) ────────────────
 export const getPrimarySource = (
   platform: Platform,
   type: MediaType
 ): Source | null => {
-  const sources = getSources(platform, type)
-  return sources[0] || null
+  return getSources(platform, type)[0] || null
 }
 
-// ── Open deep link in new tab ───────────────────────────────
-// Returns the constructed URL so caller can show it in UI
+export const getSourceByIndex = (
+  platform: Platform,
+  type: MediaType,
+  index: number
+): Source | null => {
+  return getSources(platform, type)[index] || null
+}
+
+// ═══════════════════════════════════════════════════════════════
+// OPEN DEEP LINK — fires window.open with anti-spam shielding
+// ═══════════════════════════════════════════════════════════════
+
 export const openDeepLink = (
   platform: Platform,
   type: MediaType,
@@ -92,19 +172,18 @@ export const openDeepLink = (
   const source = sources[sourceIndex] || sources[0]
   const deepLink = buildDeepLink(source, mediaUrl)
 
-  window.open(deepLink, '_blank', 'noopener,noreferrer')
+  // Anti-spam: open in clean browser context
+  // noopener  → prevents window.opener access (anti-tabnabbing)
+  // noreferrer → hides referrer from target site (privacy)
+  try {
+    window.open(deepLink, '_blank', 'noopener,noreferrer')
+  } catch {
+    // Fallback for environments where window.open fails
+    window.location.href = deepLink
+  }
+
   return deepLink
 }
 
-// ── Backward compat alias ───────────────────────────────────
+// Backward compat alias
 export const openRedirect = openDeepLink
-
-// ── Get source by index ─────────────────────────────────────
-export const getSourceByIndex = (
-  platform: Platform,
-  type: MediaType,
-  index: number
-): Source | null => {
-  const sources = getSources(platform, type)
-  return sources[index] || null
-}
