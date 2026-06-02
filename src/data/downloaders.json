@@ -2,6 +2,13 @@
   "youtube": {
     "video": [
       {
+        "id": "ssyoutube",
+        "name": "SSYouTube",
+        "url": "https://ssyoutube.com/watch?v=",
+        "buildUrl": "id",
+        "note": "ssyoutube gateway — append videoId"
+      },
+      {
         "id": "y2mate",
         "name": "Y2Mate",
         "url": "https://www.y2mate.com/youtube/",
@@ -9,19 +16,19 @@
         "note": "append videoId"
       },
       {
-        "id": "ytmate",
-        "name": "YT5s",
-        "url": "https://yt5s.io/en66/",
-        "buildUrl": "param",
-        "param": "url",
-        "note": "?url=full_youtube_url"
-      },
-      {
         "id": "savefrom",
         "name": "SaveFrom",
         "url": "https://en.savefrom.net/#url=",
         "buildUrl": "append",
         "note": "append encoded full url"
+      },
+      {
+        "id": "yt5s",
+        "name": "YT5s",
+        "url": "https://yt5s.io/en66/",
+        "buildUrl": "param",
+        "param": "url",
+        "note": "?url=full_youtube_url"
       },
       {
         "id": "9xbuddy",
@@ -184,7 +191,7 @@
     "video": [
       {
         "id": "savevideo",
-        "name": "SaveVideo",
+        "name": "SaveVideo.me",
         "url": "https://savevideo.me/",
         "buildUrl": "param",
         "param": "url"
