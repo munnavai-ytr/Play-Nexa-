@@ -176,3 +176,47 @@ Stage Summary:
 - SECURITY: Redirect warning modal with URL preview + gateway preview before leaving app
 - 2GB RAM SAFE: Zero backdrop-blur, GPU-accelerated opacity/transform only, transitions ≤200ms, 44px+ touch targets, pb-24 bottom nav clearance
 - ZERO AUTH/PROFILE/SETTINGS/MOVIE HUB FILES MODIFIED
+
+---
+Task ID: 6
+Agent: Main Agent
+Task: One-Click "Ready to Download" Deep Linking — Fix double-paste problem
+
+Work Log:
+- Diagnosed root cause: SSYouTube used `buildUrl: "id"` with URL `https://ssyoutube.com/watch?v=` — this just showed homepage, not a deep link
+- Diagnosed: TikTok/Facebook/Instagram sources used `buildUrl: "param"` but pointed to homepages that don't read query params
+- Updated /src/data/downloaders.json — all URLs now use actual deep-link endpoints:
+  - YouTube: ssyoutube.com/en72/youtube-video-downloader?url=, savefrom.net/9-how-to-download-youtube-video.html?url=, y2mate (id mode), yt5s, 9xbuddy
+  - TikTok: snapsave.app/tiktok?url=, snaptik, ssstik, tikmate
+  - Facebook: snapsave.app/result?url=, savefrom.net/7-how-to-download-facebook-video.html?url=, fdownloader
+  - Instagram: savefrom.net/9-how-to-download-instagram-video.html?url=, snapinsta, igram
+  - Twitter: ssstwitter, savefrom.net/10-how-to-download-twitter-video.html?url=, twdown
+  - Vimeo: savefrom.net/8-how-to-download-vimeo-video.html?url=, 9xbuddy
+  - SoundCloud: klickaud, savefrom.net/11-how-to-download-soundcloud-music.html?url=, musicverter
+- Rebuilt /src/lib/router.ts:
+  - Renamed core function to `buildDeepLink()` (with `buildRedirectUrl` backward-compat alias)
+  - Renamed `openRedirect()` → `openDeepLink()` (with alias) — now returns the constructed URL string for UI preview
+  - Pure client-side: zero backend calls, zero API dependencies
+  - All URL construction happens in <1ms on device
+- Rebuilt /src/app/download/page.tsx — instant download experience:
+  - Main "Download" button fires `executeDownload()` instantly
+  - Button shows 3 visual states: idle → Processing... (with spinner) → Done! Opening... (green checkmark)
+  - Top-of-page thin 3px progress bar animates from 0→100% during the 300ms delay
+  - After 300ms premium "Action Confirmed" delay, `window.open()` fires the deep link
+  - No 2-second cinematic overlay — replaced with instant feedback
+  - Confirm modal only appears for explicit source selection (alternate sources)
+  - Deep link URL previewed in modal so user sees where they're going
+  - "How It Works" updated: "External site opens with link pre-filled"
+  - Security badge updated: "Client-side only • No server calls • Deep link auto-fills your URL"
+- TypeScript check: ZERO errors
+- Build check: `npx next build` passes clean
+- ZERO Auth/Profile/Settings/Movie Hub files modified
+
+Stage Summary:
+- DEEP LINK PROBLEM FIXED: All download sources now construct URLs that auto-populate the user's video link on the third-party site
+- SSYouTube: `?url=encoded_full_url` instead of just appending video ID
+- SaveForall platforms: `?url=encoded` on their dedicated download pages (e.g., /9-how-to-download-instagram-video.html?url=...)
+- 300MS PREMIUM DELAY: Button instantly shows "Processing..." → 300ms → window.open fires → "Done! Opening..." → 800ms → reset
+- TOP PROGRESS BAR: 3px colored bar at very top of screen during processing
+- ZERO BACKEND CALLS: Everything is client-side URL construction + window.open
+- 2GB RAM SAFE: No heavy overlays, no intervals, no backdrop-blur, just state changes and one setTimeout

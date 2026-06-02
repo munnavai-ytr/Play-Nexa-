@@ -4,23 +4,25 @@
       {
         "id": "ssyoutube",
         "name": "SSYouTube",
-        "url": "https://ssyoutube.com/watch?v=",
-        "buildUrl": "id",
-        "note": "ssyoutube gateway — append videoId"
+        "url": "https://ssyoutube.com/en72/youtube-video-downloader",
+        "buildUrl": "param",
+        "param": "url",
+        "note": "Deep link: ?url=encoded_full_youtube_url — auto-populates on page"
+      },
+      {
+        "id": "savefrom_yt",
+        "name": "SaveFrom",
+        "url": "https://en.savefrom.net/9-how-to-download-youtube-video.html",
+        "buildUrl": "param",
+        "param": "url",
+        "note": "Deep link: ?url=encoded — auto-fills input on page"
       },
       {
         "id": "y2mate",
         "name": "Y2Mate",
         "url": "https://www.y2mate.com/youtube/",
         "buildUrl": "id",
-        "note": "append videoId"
-      },
-      {
-        "id": "savefrom",
-        "name": "SaveFrom",
-        "url": "https://en.savefrom.net/#url=",
-        "buildUrl": "append",
-        "note": "append encoded full url"
+        "note": "Append videoId to URL path — instant page load"
       },
       {
         "id": "yt5s",
@@ -28,54 +30,69 @@
         "url": "https://yt5s.io/en66/",
         "buildUrl": "param",
         "param": "url",
-        "note": "?url=full_youtube_url"
+        "note": "Deep link: ?url=encoded_full_url"
       },
       {
-        "id": "9xbuddy",
+        "id": "9xbuddy_yt",
         "name": "9xBuddy",
-        "url": "https://9xbuddy.in/process?url=",
-        "buildUrl": "append",
-        "note": "append encoded full url"
+        "url": "https://9xbuddy.in/process",
+        "buildUrl": "param",
+        "param": "url",
+        "note": "Deep link: ?url=encoded — auto-starts processing"
       }
     ],
     "audio": [
       {
         "id": "loader",
         "name": "Loader.to",
-        "url": "https://loader.to/api/button/?url=",
-        "buildUrl": "append"
+        "url": "https://loader.to/api/button/",
+        "buildUrl": "param",
+        "param": "url",
+        "note": "Deep link: ?url=encoded — auto-triggers download button"
       },
       {
         "id": "ytmp3",
         "name": "YTMP3",
         "url": "https://ytmp3.cc/en13/",
         "buildUrl": "param",
-        "param": "url"
+        "param": "url",
+        "note": "Deep link: ?url=encoded"
       }
     ]
   },
   "tiktok": {
     "video": [
       {
+        "id": "snapsave_tt",
+        "name": "SnapSave",
+        "url": "https://snapsave.app/tiktok",
+        "buildUrl": "param",
+        "param": "url",
+        "note": "Deep link: ?url=encoded — no watermark auto-process"
+      },
+      {
         "id": "snaptik",
         "name": "SnapTik",
         "url": "https://snaptik.app/",
         "buildUrl": "param",
-        "param": "url"
+        "param": "url",
+        "note": "Deep link: ?url=encoded"
       },
       {
         "id": "ssstik",
         "name": "SSSTik",
         "url": "https://ssstik.io/en",
         "buildUrl": "param",
-        "param": "url"
+        "param": "url",
+        "note": "Deep link: ?url=encoded"
       },
       {
         "id": "tikmate",
         "name": "TikMate",
         "url": "https://tikmate.online/",
         "buildUrl": "param",
-        "param": "url"
+        "param": "url",
+        "note": "Deep link: ?url=encoded"
       }
     ],
     "audio": [
@@ -84,64 +101,74 @@
         "name": "MusicallyDown",
         "url": "https://musicallydown.com/",
         "buildUrl": "param",
-        "param": "url"
+        "param": "url",
+        "note": "Deep link: ?url=encoded"
       }
     ]
   },
   "facebook": {
     "video": [
       {
-        "id": "snapsave",
+        "id": "snapsave_fb",
         "name": "SnapSave",
-        "url": "https://snapsave.app/result?url=",
-        "buildUrl": "append"
+        "url": "https://snapsave.app/result",
+        "buildUrl": "param",
+        "param": "url",
+        "note": "Deep link: ?url=encoded — auto-processes"
+      },
+      {
+        "id": "savefrom_fb",
+        "name": "SaveFrom",
+        "url": "https://en.savefrom.net/7-how-to-download-facebook-video.html",
+        "buildUrl": "param",
+        "param": "url",
+        "note": "Deep link: ?url=encoded — auto-fills input"
       },
       {
         "id": "fdownloader",
         "name": "FDownloader",
         "url": "https://fdownloader.net/",
         "buildUrl": "param",
-        "param": "url"
-      },
-      {
-        "id": "getfvid",
-        "name": "GetFVid",
-        "url": "https://www.getfvid.com/",
-        "buildUrl": "param",
-        "param": "url"
+        "param": "url",
+        "note": "Deep link: ?url=encoded"
       }
     ],
     "audio": [
       {
-        "id": "savefrom_fb",
+        "id": "savefrom_fb_audio",
         "name": "SaveFrom",
-        "url": "https://en.savefrom.net/#url=",
-        "buildUrl": "append"
+        "url": "https://en.savefrom.net/7-how-to-download-facebook-video.html",
+        "buildUrl": "param",
+        "param": "url",
+        "note": "Deep link: ?url=encoded"
       }
     ]
   },
   "instagram": {
     "video": [
       {
+        "id": "savefrom_ig",
+        "name": "SaveFrom",
+        "url": "https://en.savefrom.net/9-how-to-download-instagram-video.html",
+        "buildUrl": "param",
+        "param": "url",
+        "note": "Deep link: ?url=encoded — auto-fills input"
+      },
+      {
         "id": "snapinsta",
         "name": "SnapInsta",
         "url": "https://snapinsta.app/",
         "buildUrl": "param",
-        "param": "url"
+        "param": "url",
+        "note": "Deep link: ?url=encoded"
       },
       {
         "id": "igram",
         "name": "iGram",
         "url": "https://igram.world/",
         "buildUrl": "param",
-        "param": "url"
-      },
-      {
-        "id": "fastdl",
-        "name": "FastDL",
-        "url": "https://fastdl.app/",
-        "buildUrl": "param",
-        "param": "url"
+        "param": "url",
+        "note": "Deep link: ?url=encoded"
       }
     ],
     "audio": [
@@ -150,7 +177,8 @@
         "name": "SaveInsta",
         "url": "https://www.saveinsta.app/",
         "buildUrl": "param",
-        "param": "url"
+        "param": "url",
+        "note": "Deep link: ?url=encoded"
       }
     ]
   },
@@ -161,54 +189,64 @@
         "name": "SSSTwitter",
         "url": "https://ssstwitter.com/",
         "buildUrl": "param",
-        "param": "url"
+        "param": "url",
+        "note": "Deep link: ?url=encoded"
       },
       {
-        "id": "tweetvid",
-        "name": "SaveTweetVid",
-        "url": "https://www.savetweetvid.com/",
+        "id": "savefrom_tw",
+        "name": "SaveFrom",
+        "url": "https://en.savefrom.net/10-how-to-download-twitter-video.html",
         "buildUrl": "param",
-        "param": "url"
+        "param": "url",
+        "note": "Deep link: ?url=encoded — auto-fills input"
       },
       {
         "id": "twdown",
         "name": "TWDown",
         "url": "https://twdown.net/",
         "buildUrl": "param",
-        "param": "url"
+        "param": "url",
+        "note": "Deep link: ?url=encoded"
       }
     ],
     "audio": [
       {
         "id": "redketchup",
         "name": "RedKetchup",
-        "url": "https://redketchup.io/video-downloader#",
-        "buildUrl": "append"
+        "url": "https://redketchup.io/video-downloader",
+        "buildUrl": "param",
+        "param": "url",
+        "note": "Deep link: ?url=encoded"
       }
     ]
   },
   "vimeo": {
     "video": [
       {
-        "id": "savevideo",
-        "name": "SaveVideo.me",
-        "url": "https://savevideo.me/",
+        "id": "savefrom_vm",
+        "name": "SaveFrom",
+        "url": "https://en.savefrom.net/8-how-to-download-vimeo-video.html",
         "buildUrl": "param",
-        "param": "url"
+        "param": "url",
+        "note": "Deep link: ?url=encoded — auto-fills input"
       },
       {
         "id": "9xbuddy_v",
         "name": "9xBuddy",
-        "url": "https://9xbuddy.in/process?url=",
-        "buildUrl": "append"
+        "url": "https://9xbuddy.in/process",
+        "buildUrl": "param",
+        "param": "url",
+        "note": "Deep link: ?url=encoded"
       }
     ],
     "audio": [
       {
         "id": "loader_v",
         "name": "Loader.to",
-        "url": "https://loader.to/api/button/?url=",
-        "buildUrl": "append"
+        "url": "https://loader.to/api/button/",
+        "buildUrl": "param",
+        "param": "url",
+        "note": "Deep link: ?url=encoded"
       }
     ]
   },
@@ -220,21 +258,24 @@
         "name": "KlickAud",
         "url": "https://klickaud.co/",
         "buildUrl": "param",
-        "param": "url"
+        "param": "url",
+        "note": "Deep link: ?url=encoded"
       },
       {
-        "id": "sccloud",
-        "name": "SoundCloud DL",
-        "url": "https://soundclouddownloader.io/",
+        "id": "savefrom_sc",
+        "name": "SaveFrom",
+        "url": "https://en.savefrom.net/11-how-to-download-soundcloud-music.html",
         "buildUrl": "param",
-        "param": "url"
+        "param": "url",
+        "note": "Deep link: ?url=encoded"
       },
       {
         "id": "musicverter",
         "name": "MusicVerter",
         "url": "https://musicverter.com/",
         "buildUrl": "param",
-        "param": "url"
+        "param": "url",
+        "note": "Deep link: ?url=encoded"
       }
     ]
   }

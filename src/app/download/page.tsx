@@ -1,44 +1,42 @@
 "use client"
 
-import { useState, useEffect, useCallback, useMemo } from 'react'
+// ── Play Nexa Download Hub ──────────────────────────────────
+// ONE-CLICK "READY TO DOWNLOAD" DEEP LINKING
+// 100% client-side — zero backend API calls
+// 300ms premium "Action Confirmed" delay before window.open
+// 2GB RAM safe — no backdrop-blur, GPU-accelerated transitions only
+
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import {
   Link2, X, ChevronRight, Video, Music,
   CheckCircle, AlertCircle, RefreshCw,
   Shield, Zap, ArrowRight, ClipboardPaste,
-  ExternalLink, Sparkles, Globe
+  ExternalLink, Sparkles, Globe, Loader2
 } from 'lucide-react'
 import {
   detectPlatform, getPlatformIcon, getPlatformColor,
-  getPlatformName, getPlatformGradient, isAudioOnly,
-  isYouTubeShorts, extractYouTubeId, isValidUrl,
+  getPlatformName, isAudioOnly,
+  isYouTubeShorts, extractYouTubeId,
   Platform, MediaType, ALL_PLATFORMS
 } from '@/lib/detector'
 import {
-  getSources, openRedirect, buildRedirectUrl
+  getSources, buildDeepLink
 } from '@/lib/router'
 
-type Step = 'input' | 'detected' | 'redirecting'
-
-const ROUTING_MESSAGES = [
-  "Scanning media source...",
-  "Preparing secure gateway...",
-  "Optimizing download route...",
-  "Connecting to server...",
-  "Finalizing redirect...",
-]
+type UIStep = 'idle' | 'processing' | 'done'
 
 // ── Main Download Hub Page ──────────────────────────────────
 export default function DownloadHubPage() {
-  const [url, setUrl]                 = useState('')
-  const [platform, setPlatform]       = useState<Platform>(null)
-  const [type, setType]               = useState<MediaType>('video')
-  const [step, setStep]               = useState<Step>('input')
-  const [sourceIndex, setSourceIndex] = useState(0)
-  const [loadMsg, setLoadMsg]         = useState(0)
-  const [progress, setProgress]       = useState(0)
-  const [showWarning, setShowWarning] = useState(false)
-  const [recentUrls, setRecentUrls]   = useState<string[]>([])
+  const [url, setUrl]                   = useState('')
+  const [platform, setPlatform]         = useState<Platform>(null)
+  const [type, setType]                 = useState<MediaType>('video')
+  const [uiStep, setUiStep]             = useState<UIStep>('idle')
+  const [selectedSource, setSelectedSource] = useState(0)
+  const [showConfirm, setShowConfirm]   = useState(false)
+  const [recentUrls, setRecentUrls]     = useState<string[]>([])
   const [glowPlatform, setGlowPlatform] = useState<Platform>(null)
+  const [topBarProgress, setTopBarProgress] = useState(0)
+  const processingTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Load recent from localStorage
   useEffect(() => {
@@ -53,23 +51,28 @@ export default function DownloadHubPage() {
     if (!url.trim()) {
       setPlatform(null)
       setGlowPlatform(null)
-      setStep('input')
+      setUiStep('idle')
       return
     }
     const detected = detectPlatform(url)
     setPlatform(detected)
-
     if (detected) {
-      setStep('detected')
       setGlowPlatform(detected)
+      setUiStep('idle')
       if (isAudioOnly(detected)) setType('audio')
     } else {
-      setStep('input')
       setGlowPlatform(null)
     }
   }, [url])
 
-  // Paste from clipboard
+  // Cleanup timer on unmount
+  useEffect(() => {
+    return () => {
+      if (processingTimer.current) clearTimeout(processingTimer.current)
+    }
+  }, [])
+
+  // ── Paste from clipboard ──
   const handlePaste = useCallback(async () => {
     try {
       const text = await navigator.clipboard.readText()
@@ -77,70 +80,86 @@ export default function DownloadHubPage() {
     } catch {}
   }, [])
 
-  // Save to recent
+  // ── Save to recent ──
   const saveRecent = useCallback((u: string) => {
     const updated = [u, ...recentUrls.filter(r => r !== u)].slice(0, 5)
     setRecentUrls(updated)
     localStorage.setItem('pn_recent_dl', JSON.stringify(updated))
   }, [recentUrls])
 
-  // Handle download
-  const handleDownload = useCallback((idx = 0) => {
+  // ── INSTANT DOWNLOAD — the core action ──
+  // 1. Button instantly shows "Processing..." (zero-latency feedback)
+  // 2. Top-of-page thin progress bar animates
+  // 3. After exactly 300ms, window.open fires the deep link
+  // 4. Button shows "Done!" for 500ms then resets
+  const executeDownload = useCallback((sourceIdx: number) => {
     if (!platform || !url) return
-    setSourceIndex(idx)
-    setShowWarning(true)
+
+    // Cancel any previous timer
+    if (processingTimer.current) clearTimeout(processingTimer.current)
+
+    // INSTANT visual feedback
+    setUiStep('processing')
+    setSelectedSource(sourceIdx)
+    setTopBarProgress(30)
+
+    // Animate top bar to 80% over 250ms
+    requestAnimationFrame(() => setTopBarProgress(65))
+
+    // 300ms premium delay — "Action Confirmed" feeling
+    processingTimer.current = setTimeout(() => {
+      // Build the deep link URL
+      const sources = getSources(platform, type)
+      const source = sources[sourceIdx] || sources[0]
+      if (!source) {
+        setUiStep('idle')
+        setTopBarProgress(0)
+        return
+      }
+
+      const deepLink = buildDeepLink(source, url)
+
+      // Fire the redirect
+      try {
+        window.open(deepLink, '_blank', 'noopener,noreferrer')
+      } catch {
+        // Fallback: location.href
+        window.location.href = deepLink
+      }
+
+      // Complete animation
+      setTopBarProgress(100)
+      setUiStep('done')
+      saveRecent(url)
+
+      // Reset button after 800ms
+      processingTimer.current = setTimeout(() => {
+        setUiStep('idle')
+        setTopBarProgress(0)
+      }, 800)
+    }, 300)
+  }, [platform, type, url, saveRecent])
+
+  // ── Show confirm modal first (for explicit source selection) ──
+  const requestDownload = useCallback((idx = 0) => {
+    if (!platform || !url) return
+    setSelectedSource(idx)
+    setShowConfirm(true)
   }, [platform, url])
 
-  // Confirm redirect with cinematic loading
-  const confirmRedirect = useCallback(() => {
-    setShowWarning(false)
-    setStep('redirecting')
-    setProgress(0)
-    setLoadMsg(0)
+  // ── Confirm from modal ──
+  const confirmFromModal = useCallback(() => {
+    setShowConfirm(false)
+    executeDownload(selectedSource)
+  }, [selectedSource, executeDownload])
 
-    // Progress animation
-    const progressInterval = setInterval(() => {
-      setProgress(prev => {
-        if (prev >= 90) {
-          clearInterval(progressInterval)
-          return 90
-        }
-        return prev + 6
-      })
-    }, 120)
-
-    // Message cycling
-    let msgIdx = 0
-    const msgInterval = setInterval(() => {
-      msgIdx++
-      if (msgIdx < ROUTING_MESSAGES.length) {
-        setLoadMsg(msgIdx)
-      } else {
-        clearInterval(msgInterval)
-      }
-    }, 400)
-
-    // Final redirect after 2s
-    setTimeout(() => {
-      clearInterval(progressInterval)
-      clearInterval(msgInterval)
-      setProgress(100)
-
-      setTimeout(() => {
-        const success = openRedirect(platform, type, url, sourceIndex)
-        if (success) saveRecent(url)
-        setStep('detected')
-        setProgress(0)
-      }, 300)
-    }, 2000)
-  }, [platform, type, url, sourceIndex, saveRecent])
-
-  // Try next source
+  // ── Try next source ──
   const tryNextSource = useCallback(() => {
     const sources = getSources(platform, type)
-    const next = (sourceIndex + 1) % sources.length
-    handleDownload(next)
-  }, [platform, type, sourceIndex, handleDownload])
+    const next = (selectedSource + 1) % sources.length
+    setShowConfirm(false)
+    executeDownload(next)
+  }, [platform, type, selectedSource, executeDownload])
 
   const sources = useMemo(() => getSources(platform, type), [platform, type])
   const platformColor = getPlatformColor(platform)
@@ -149,8 +168,29 @@ export default function DownloadHubPage() {
   const isShorts      = isYouTubeShorts(url)
   const ytId          = extractYouTubeId(url)
 
+  // Preview deep link for the confirm modal
+  const previewDeepLink = useMemo(() => {
+    if (!platform || !url || !sources.length) return ''
+    const source = sources[selectedSource] || sources[0]
+    try { return buildDeepLink(source, url) } catch { return '' }
+  }, [platform, url, sources, selectedSource])
+
   return (
     <div className="min-h-screen bg-[#070B14] pb-24">
+
+      {/* ── TOP PROGRESS BAR (only during processing) ── */}
+      <div className="fixed top-0 left-0 right-0 z-[9998] h-[3px] bg-transparent pointer-events-none">
+        {topBarProgress > 0 && (
+          <div
+            className="h-full transition-all duration-200 ease-out rounded-r-full"
+            style={{
+              width: `${topBarProgress}%`,
+              backgroundColor: platformColor || '#7C5CFF',
+              boxShadow: `0 0 8px ${platformColor || '#7C5CFF'}80`
+            }}
+          />
+        )}
+      </div>
 
       {/* ── HEADER ── */}
       <div className="sticky top-0 z-50 bg-[#070B14]/95 border-b border-[#1E293B]">
@@ -164,7 +204,7 @@ export default function DownloadHubPage() {
                 Download Hub
               </h1>
               <p className="text-[10px] text-[#94A3B8] leading-tight">
-                Multi-Source Smart Routing
+                One-Click Deep Linking
               </p>
             </div>
           </div>
@@ -183,7 +223,6 @@ export default function DownloadHubPage() {
 
         {/* ── FUTURISTIC INPUT BAR ── */}
         <div className="relative">
-          {/* Glow effect behind input */}
           {platform && (
             <div
               className="absolute -inset-1 rounded-2xl opacity-20 blur-xl transition-opacity duration-500"
@@ -204,11 +243,13 @@ export default function DownloadHubPage() {
               onChange={e => setUrl(e.target.value)}
               placeholder="Paste YouTube, TikTok, Instagram URL..."
               className="flex-1 bg-transparent text-white text-sm outline-none placeholder-[#94A3B8] min-w-0"
+              readOnly={uiStep === 'processing'}
             />
             {url ? (
               <button
-                onClick={() => { setUrl(''); setStep('input') }}
+                onClick={() => { setUrl(''); setUiStep('idle') }}
                 className="p-1.5 active:scale-90 transition-transform duration-150"
+                disabled={uiStep === 'processing'}
               >
                 <X size={16} className="text-[#94A3B8]" />
               </button>
@@ -227,7 +268,7 @@ export default function DownloadHubPage() {
         </div>
 
         {/* ── PLATFORM DETECTED CARD ── */}
-        {platform && step !== 'input' && (
+        {platform && (
           <div
             className="flex items-center gap-3 rounded-2xl p-4 border animate-[fade-in_300ms_ease-out]"
             style={{
@@ -260,7 +301,7 @@ export default function DownloadHubPage() {
           </div>
         )}
 
-        {/* ── UNRECOGNIZED URL WARNING ── */}
+        {/* ── UNRECOGNIZED URL ── */}
         {url && !platform && (
           <div className="flex items-center gap-3 bg-yellow-500/10 border border-yellow-500/25 rounded-2xl p-4 animate-[fade-in_300ms_ease-out]">
             <AlertCircle size={18} className="text-yellow-400 flex-shrink-0" />
@@ -273,13 +314,14 @@ export default function DownloadHubPage() {
           </div>
         )}
 
-        {/* ── TYPE SELECTOR (Video/Audio) ── */}
+        {/* ── TYPE SELECTOR ── */}
         {platform && !isAudioOnly(platform) && (
           <div className="flex gap-3">
             {(['video', 'audio'] as MediaType[]).map(t => (
               <button
                 key={t}
                 onClick={() => setType(t)}
+                disabled={uiStep === 'processing'}
                 className={`flex-1 h-12 rounded-xl flex items-center justify-center gap-2
                            text-sm font-medium border transition-all duration-200 active:scale-95
                            ${type === t
@@ -294,37 +336,75 @@ export default function DownloadHubPage() {
           </div>
         )}
 
-        {/* ── DOWNLOAD BUTTON ── */}
+        {/* ════════════════════════════════════════════════════════
+            DOWNLOAD BUTTON — Three visual states:
+            idle → "Download Video/Audio"
+            processing → "Processing..." with spinner
+            done → "Done! Opening..." with checkmark
+            ════════════════════════════════════════════════════════ */}
         {platform && (
           <button
-            onClick={() => handleDownload(0)}
-            className="w-full h-14 rounded-2xl text-white font-bold text-base
+            onClick={() => executeDownload(0)}
+            disabled={uiStep === 'processing'}
+            className={`w-full h-14 rounded-2xl text-white font-bold text-base
                        flex items-center justify-center gap-3
-                       active:scale-[0.97] transition-all duration-200
-                       shadow-[0_0_25px_rgba(124,92,255,0.25)]"
-            style={{ backgroundColor: platformColor || '#7C5CFF' }}
+                       transition-all duration-200
+                       ${uiStep === 'idle'
+                         ? 'active:scale-[0.97] shadow-[0_0_25px_rgba(124,92,255,0.25)]'
+                         : ''
+                       }
+                       ${uiStep === 'processing'
+                         ? 'opacity-90 scale-[0.98]'
+                         : ''
+                       }
+                       ${uiStep === 'done'
+                         ? 'shadow-[0_0_25px_rgba(34,197,94,0.3)]'
+                         : ''
+                       }`}
+            style={{
+              backgroundColor: uiStep === 'done'
+                ? '#22C55E'
+                : (platformColor || '#7C5CFF'),
+              cursor: uiStep === 'processing' ? 'wait' : 'pointer'
+            }}
           >
-            <ArrowRight size={20} />
-            Download {type === 'audio' ? 'Audio' : 'Video'}
+            {uiStep === 'idle' && (
+              <>
+                <ArrowRight size={20} />
+                Download {type === 'audio' ? 'Audio' : 'Video'}
+              </>
+            )}
+            {uiStep === 'processing' && (
+              <>
+                <Loader2 size={20} className="animate-spin" />
+                Processing...
+              </>
+            )}
+            {uiStep === 'done' && (
+              <>
+                <CheckCircle size={20} />
+                Done! Opening...
+              </>
+            )}
           </button>
         )}
 
         {/* ── SOURCE SELECTOR ── */}
-        {platform && sources.length > 1 && (
+        {platform && sources.length > 1 && uiStep !== 'processing' && (
           <div>
             <div className="flex items-center justify-between mb-3">
               <p className="text-[#94A3B8] text-xs font-medium uppercase tracking-wide">
                 Download Sources
               </p>
               <span className="text-[10px] text-[#7C5CFF] bg-[#7C5CFF]/10 px-2 py-0.5 rounded-full font-medium">
-                {sources.length} available
+                {sources.length} gateways
               </span>
             </div>
             <div className="space-y-2">
               {sources.map((source, idx) => (
                 <button
                   key={source.id}
-                  onClick={() => handleDownload(idx)}
+                  onClick={() => requestDownload(idx)}
                   className={`w-full flex items-center justify-between p-3.5
                              rounded-xl border transition-all duration-150 active:scale-[0.98]
                              ${idx === 0
@@ -348,7 +428,7 @@ export default function DownloadHubPage() {
           </div>
         )}
 
-        {/* ── SUPPORTED PLATFORMS GRID ── */}
+        {/* ── SUPPORTED PLATFORMS GRID (empty state) ── */}
         {!platform && (
           <div>
             <div className="flex items-center gap-2 mb-3">
@@ -371,7 +451,6 @@ export default function DownloadHubPage() {
                                  : 'border-[#1E293B]'
                                }`}
                   >
-                    {/* Glow ring for active platform */}
                     {isGlowing && (
                       <div
                         className="absolute inset-0 rounded-2xl opacity-20 blur-md animate-pulse"
@@ -383,7 +462,6 @@ export default function DownloadHubPage() {
                                   ${isGlowing ? 'text-white font-semibold' : 'text-[#94A3B8]'}`}>
                       {p.label}
                     </p>
-                    {/* Active dot indicator */}
                     {isGlowing && (
                       <div
                         className="absolute top-2 right-2 w-2 h-2 rounded-full animate-pulse"
@@ -395,18 +473,18 @@ export default function DownloadHubPage() {
               })}
             </div>
 
-            {/* Quick tips */}
+            {/* How It Works */}
             <div className="mt-5 bg-[#111827] border border-[#1E293B] rounded-2xl p-4">
               <div className="flex items-center gap-2 mb-3">
                 <Sparkles size={14} className="text-[#7C5CFF]" />
-                <p className="text-white text-xs font-semibold">How It Works</p>
+                <p className="text-white text-xs font-semibold">One-Click Download</p>
               </div>
               <div className="space-y-2">
                 {[
                   { step: '1', text: 'Paste any video or audio link' },
                   { step: '2', text: 'Platform auto-detected instantly' },
-                  { step: '3', text: 'Choose video or audio format' },
-                  { step: '4', text: 'Redirected to free download gateway' },
+                  { step: '3', text: 'Tap Download — deep link fires' },
+                  { step: '4', text: 'External site opens with link pre-filled' },
                 ].map(item => (
                   <div key={item.step} className="flex items-center gap-3">
                     <div className="w-6 h-6 rounded-full bg-[#7C5CFF]/15 flex items-center justify-center flex-shrink-0">
@@ -418,18 +496,15 @@ export default function DownloadHubPage() {
               </div>
             </div>
 
-            {/* ── RECENT URLS ── */}
+            {/* Recent URLs */}
             {recentUrls.length > 0 && (
               <div className="mt-5">
                 <div className="flex items-center justify-between mb-3">
                   <p className="text-[#94A3B8] text-xs font-medium uppercase tracking-wide">
-                    Recent Downloads
+                    Recent
                   </p>
                   <button
-                    onClick={() => {
-                      setRecentUrls([])
-                      localStorage.removeItem('pn_recent_dl')
-                    }}
+                    onClick={() => { setRecentUrls([]); localStorage.removeItem('pn_recent_dl') }}
                     className="text-[10px] text-red-400 font-medium"
                   >
                     Clear All
@@ -445,9 +520,7 @@ export default function DownloadHubPage() {
                                  active:scale-[0.98] transition-transform duration-150"
                     >
                       <span className="text-sm">{getPlatformIcon(detectPlatform(u))}</span>
-                      <p className="text-[#94A3B8] text-xs truncate flex-1 text-left">
-                        {u}
-                      </p>
+                      <p className="text-[#94A3B8] text-xs truncate flex-1 text-left">{u}</p>
                       <RefreshCw size={12} className="text-[#7C5CFF] flex-shrink-0" />
                     </button>
                   ))}
@@ -461,149 +534,80 @@ export default function DownloadHubPage() {
         <div className="flex items-center justify-center gap-2 py-2">
           <Shield size={12} className="text-[#22C55E]" />
           <p className="text-[10px] text-[#94A3B8]">
-            Secure redirect • No data stored on servers • 100% free gateways
+            Client-side only • No server calls • Deep link auto-fills your URL
           </p>
         </div>
       </div>
 
       {/* ════════════════════════════════════════════════════════
-          REDIRECTING OVERLAY — Cinematic loading experience
+          CONFIRM MODAL — for explicit source selection
+          (main download button skips this — instant action)
           ════════════════════════════════════════════════════════ */}
-      {step === 'redirecting' && (
-        <div className="fixed inset-0 z-50 bg-[#070B14]/97 flex flex-col items-center justify-center gap-6 px-8">
-
-          {/* Animated ring with platform icon */}
-          <div className="relative w-24 h-24">
-            {/* Outer glow ring */}
-            <div
-              className="absolute inset-[-8px] rounded-full opacity-20 blur-lg"
-              style={{ backgroundColor: platformColor }}
-            />
-            {/* Background ring */}
-            <div className="absolute inset-0 rounded-full border-2 border-[#1E293B]" />
-            {/* Spinning ring */}
-            <div
-              className="absolute inset-0 rounded-full border-t-2 animate-spin"
-              style={{ borderColor: 'transparent', borderTopColor: platformColor }}
-            />
-            {/* Inner icon */}
-            <div className="absolute inset-0 flex items-center justify-center text-3xl">
-              {platformIcon}
-            </div>
-          </div>
-
-          <div className="text-center">
-            <p className="text-white font-semibold text-base mb-1">
-              {ROUTING_MESSAGES[loadMsg]}
-            </p>
-            <p className="text-[#94A3B8] text-sm">
-              Routing via {sources[sourceIndex]?.name || 'gateway'}
-            </p>
-          </div>
-
-          {/* Progress bar */}
-          <div className="w-48 h-1.5 bg-[#1E293B] rounded-full overflow-hidden">
-            <div
-              className="h-full rounded-full transition-all duration-150 ease-out"
-              style={{
-                width: `${progress}%`,
-                backgroundColor: platformColor
-              }}
-            />
-          </div>
-
-          {/* Progress dots */}
-          <div className="flex gap-2">
-            {ROUTING_MESSAGES.map((_, i) => (
-              <div
-                key={i}
-                className={`w-1.5 h-1.5 rounded-full transition-all duration-300
-                           ${i <= loadMsg ? '' : 'bg-[#1E293B]'}`}
-                style={i <= loadMsg ? { backgroundColor: platformColor } : {}}
-              />
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* ════════════════════════════════════════════════════════
-          WARNING / REDIRECT CONFIRMATION MODAL
-          ════════════════════════════════════════════════════════ */}
-      {showWarning && (
+      {showConfirm && (
         <div className="fixed inset-0 z-50 flex items-end">
           <div
             className="absolute inset-0 bg-black/80"
-            onClick={() => setShowWarning(false)}
+            onClick={() => setShowConfirm(false)}
           />
           <div className="relative w-full bg-[#111827] border-t border-[#1E293B] rounded-t-3xl p-5 z-10 animate-[slide-up_300ms_ease-out]">
 
-            {/* Drag handle */}
             <div className="w-10 h-1 bg-[#1E293B] rounded-full mx-auto mb-5" />
 
-            {/* Warning badge */}
-            <div className="bg-yellow-500/10 border border-yellow-500/25 rounded-2xl p-4 mb-5">
+            {/* Info */}
+            <div className="bg-[#7C5CFF]/10 border border-[#7C5CFF]/25 rounded-2xl p-4 mb-5">
               <div className="flex items-center gap-2 mb-1.5">
-                <ExternalLink size={14} className="text-yellow-400" />
-                <p className="text-yellow-400 font-semibold text-sm">
-                  Leaving Play Nexa
+                <ExternalLink size={14} className="text-[#7C5CFF]" />
+                <p className="text-[#7C5CFF] font-semibold text-sm">
+                  Deep Link Preview
                 </p>
               </div>
               <p className="text-[#94A3B8] text-sm leading-relaxed">
-                You will be redirected to{' '}
-                <span className="text-white font-medium">
-                  {sources[sourceIndex]?.name}
-                </span>
-                . Your URL is already prepared — no need to paste again.
+                Opens <span className="text-white font-medium">{sources[selectedSource]?.name}</span> with your link
+                already filled in — no need to paste again.
               </p>
             </div>
 
             {/* URL preview */}
-            <div className="bg-[#0F172A] rounded-xl p-3 mb-5 border border-[#1E293B]">
+            <div className="bg-[#0F172A] rounded-xl p-3 mb-3 border border-[#1E293B]">
               <p className="text-[#94A3B8] text-[10px] uppercase tracking-wide mb-1">
-                Media URL
+                Your Media URL
               </p>
               <p className="text-white text-xs truncate">{url}</p>
             </div>
 
-            {/* Destination preview */}
+            {/* Deep link preview */}
             <div className="bg-[#0F172A] rounded-xl p-3 mb-5 border border-[#1E293B]">
               <p className="text-[#94A3B8] text-[10px] uppercase tracking-wide mb-1">
-                Redirect Gateway
+                Gateway Deep Link
               </p>
-              <p className="text-[#7C5CFF] text-xs truncate">
-                {(() => {
-                  try {
-                    const src = sources[sourceIndex]
-                    return src ? buildRedirectUrl(src, url) : 'Preparing...'
-                  } catch { return 'Preparing...' }
-                })()}
+              <p className="text-[#7C5CFF] text-[11px] truncate break-all leading-relaxed">
+                {previewDeepLink || 'Preparing...'}
               </p>
             </div>
 
-            {/* Action buttons */}
+            {/* Buttons */}
             <div className="flex gap-3">
               <button
-                onClick={() => setShowWarning(false)}
+                onClick={() => setShowConfirm(false)}
                 className="flex-1 h-12 rounded-xl border border-[#1E293B] text-[#94A3B8]
                            text-sm font-medium active:scale-95 transition-transform duration-150"
               >
                 Cancel
               </button>
               <button
-                onClick={confirmRedirect}
+                onClick={confirmFromModal}
                 className="flex-1 h-12 rounded-xl bg-[#7C5CFF] text-white
                            text-sm font-semibold active:scale-95
                            transition-transform duration-150
                            shadow-[0_0_15px_rgba(124,92,255,0.3)]"
               >
-                Continue <ArrowRight size={14} className="inline ml-1" />
+                Open Gateway <ArrowRight size={14} className="inline ml-1" />
               </button>
             </div>
 
-            {/* Try another source */}
             {sources.length > 1 && (
               <button
-                onClick={() => { setShowWarning(false); tryNextSource() }}
+                onClick={tryNextSource}
                 className="w-full mt-3 text-[#94A3B8] text-xs text-center py-2
                            active:text-[#7C5CFF] transition-colors duration-150"
               >
