@@ -1,11 +1,12 @@
 'use client'
 
 // ── Play Nexa PIN Dial Pad ──────────────────────────────────
-// Premium 4-digit PIN entry with zero-delay feedback
-// 2GB RAM safe: pure CSS animations, no backdrop-blur
+// AMOLED dark premium 4-digit PIN entry
+// Zero-delay haptic-style visual feedback · Shake on error
+// Hidden <input type="tel"> for native keyboard support
 
 import { useState, useCallback, useRef, useEffect } from 'react'
-import { Lock, Delete, ShieldCheck } from 'lucide-react'
+import { Lock, Delete, ShieldAlert } from 'lucide-react'
 
 interface PinDialProps {
   title: string
@@ -20,12 +21,8 @@ export default function PinDial({ title, subtitle, onComplete, error, onBack }: 
   const [shake, setShake] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
 
-  // Auto-focus hidden input
-  useEffect(() => {
-    inputRef.current?.focus()
-  }, [])
+  useEffect(() => { inputRef.current?.focus() }, [])
 
-  // Shake animation on error
   useEffect(() => {
     if (error) {
       setShake(true)
@@ -40,8 +37,7 @@ export default function PinDial({ title, subtitle, onComplete, error, onBack }: 
     const next = pin + d
     setPin(next)
     if (next.length === 4) {
-      // Small delay for visual feedback
-      setTimeout(() => onComplete(next), 150)
+      setTimeout(() => onComplete(next), 120)
     }
   }, [pin, onComplete])
 
@@ -49,19 +45,18 @@ export default function PinDial({ title, subtitle, onComplete, error, onBack }: 
     setPin(p => p.slice(0, -1))
   }, [])
 
-  // Hidden input for keyboard entry
   const handleKeyInput = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value.replace(/\D/g, '').slice(0, 4)
     setPin(val)
     if (val.length === 4) {
-      setTimeout(() => onComplete(val), 150)
+      setTimeout(() => onComplete(val), 120)
     }
   }, [onComplete])
 
   const digits = ['1','2','3','4','5','6','7','8','9','','0','del']
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-[70vh] px-6">
+    <div className="flex flex-col items-center justify-center min-h-[65vh] px-6 bg-black">
       {/* Hidden input for keyboard PIN entry */}
       <input
         ref={inputRef}
@@ -74,24 +69,24 @@ export default function PinDial({ title, subtitle, onComplete, error, onBack }: 
         autoComplete="off"
       />
 
-      {/* Icon */}
-      <div className="w-16 h-16 rounded-2xl bg-[#7C5CFF]/15 flex items-center justify-center mb-4">
+      {/* Lock icon */}
+      <div className="w-16 h-16 rounded-2xl bg-[#7C5CFF]/10 flex items-center justify-center mb-4">
         <Lock size={28} className="text-[#7C5CFF]" />
       </div>
 
       {/* Title */}
       <h2 className="text-white text-lg font-bold mb-1">{title}</h2>
-      <p className="text-[#94A3B8] text-xs mb-6 text-center">{subtitle}</p>
+      <p className="text-neutral-500 text-xs mb-8 text-center">{subtitle}</p>
 
       {/* PIN Dots */}
-      <div className={`flex gap-4 mb-8 ${shake ? 'animate-shake' : ''}`}>
+      <div className={`flex gap-5 mb-6 ${shake ? 'animate-shake' : ''}`}>
         {[0, 1, 2, 3].map(i => (
           <div
             key={i}
-            className={`w-4 h-4 rounded-full transition-all duration-150
+            className={`w-3.5 h-3.5 rounded-full transition-all duration-120
                        ${i < pin.length
-                         ? 'bg-[#7C5CFF] scale-110'
-                         : 'bg-[#1E293B] border-2 border-[#334155]'
+                         ? 'bg-[#7C5CFF] scale-125'
+                         : 'bg-neutral-800 border border-neutral-700'
                        }`}
           />
         ))}
@@ -99,8 +94,8 @@ export default function PinDial({ title, subtitle, onComplete, error, onBack }: 
 
       {/* Error message */}
       {error && (
-        <div className="flex items-center gap-2 mb-4 animate-[fade-in_300ms_ease-out]">
-          <ShieldCheck size={14} className="text-red-400" />
+        <div className="flex items-center gap-2 mb-5 animate-[fade-in_200ms_ease-out]">
+          <ShieldAlert size={14} className="text-red-400" />
           <p className="text-red-400 text-xs font-medium">{error}</p>
         </div>
       )}
@@ -116,9 +111,9 @@ export default function PinDial({ title, subtitle, onComplete, error, onBack }: 
                 onClick={handleDelete}
                 className="h-14 rounded-2xl flex items-center justify-center
                            active:scale-90 transition-transform duration-100
-                           bg-[#111827] border border-[#1E293B]"
+                           bg-neutral-900 border border-neutral-800"
               >
-                <Delete size={18} className="text-[#94A3B8]" />
+                <Delete size={18} className="text-neutral-500" />
               </button>
             )
           }
@@ -128,8 +123,8 @@ export default function PinDial({ title, subtitle, onComplete, error, onBack }: 
               onClick={() => handleDigit(d)}
               className="h-14 rounded-2xl flex items-center justify-center
                          text-white text-lg font-semibold
-                         bg-[#111827] border border-[#1E293B]
-                         active:scale-90 active:bg-[#1E293B]
+                         bg-neutral-900 border border-neutral-800
+                         active:scale-90 active:bg-neutral-800
                          transition-all duration-100"
             >
               {d}
@@ -142,14 +137,12 @@ export default function PinDial({ title, subtitle, onComplete, error, onBack }: 
       {onBack && (
         <button
           onClick={onBack}
-          className="mt-6 text-[#94A3B8] text-xs active:text-white
+          className="mt-8 text-neutral-600 text-xs active:text-neutral-400
                      transition-colors duration-150"
         >
           Cancel
         </button>
       )}
-
-
     </div>
   )
 }

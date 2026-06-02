@@ -1,50 +1,57 @@
 'use client'
 
-// ── Play Nexa Local Player Hub ──────────────────────────────
-// PLAYit-inspired local media management with 4 tabs
-// Videos · Music · MP3 Extractor · Safe Folder
-// 2GB RAM safe: URL.createObjectURL, GPU-accelerated transforms only
-// No backdrop-blur, transitions ≤200ms, 44px+ touch targets
+// ── Play Nexa Local Hub ─────────────────────────────────────
+// PLAYit-inspired unified local media dashboard
+// Pill toggle [📹 Videos] [🎵 Music] · Local search · Mini-player
+// Gesture video overlay · MP3 extractor modal · Safe folder modal
+// 2GB RAM: URL.createObjectURL · content-visibility: auto · no backdrop-blur
 
 import { useState, useCallback, useRef, useEffect } from 'react'
 import {
-  Video, Music, FileAudio, Shield,
-  Zap, ChevronRight, Play, Pause,
-  SkipForward, SkipBack, X, Volume2
+  Video, Music, Search, Shield, X,
+  Zap, HardDrive
 } from 'lucide-react'
-import VideoGrid from '@/components/local/VideoGrid'
-import type { LocalVideo } from '@/components/local/VideoGrid'
-import MusicList from '@/components/local/MusicList'
-import type { LocalTrack } from '@/components/local/MusicList'
-import MP3Extractor from '@/components/local/MP3Extractor'
-import SafeFolder from '@/components/local/SafeFolder'
+import VideoGridView from '@/components/local/VideoGridView'
+import type { LocalVideo } from '@/components/local/VideoGridView'
+import MusicListView from '@/components/local/MusicListView'
+import type { LocalTrack } from '@/components/local/MusicListView'
+import MiniPlayer from '@/components/local/MiniPlayer'
 import VideoPlayer from '@/components/local/VideoPlayer'
+import SafeFolderModal from '@/components/local/SafeFolderModal'
+import MP3ExtractorModal from '@/components/local/MP3ExtractorModal'
 
-type Tab = 'videos' | 'music' | 'extractor' | 'safe'
-
-interface TabMeta {
-  key: Tab
-  label: string
-  icon: React.ComponentType<React.SVGProps<SVGSVGElement>>
-  color: string
-}
-
-const TABS: TabMeta[] = [
-  { key: 'videos',    label: 'Videos',    icon: Video,     color: '#FF0000' },
-  { key: 'music',     label: 'Music',     icon: Music,     color: '#00D4FF' },
-  { key: 'extractor', label: 'MP3 Extract', icon: FileAudio, color: '#7C5CFF' },
-  { key: 'safe',      label: 'Safe',       icon: Shield,    color: '#22C55E' },
-]
+type View = 'videos' | 'music'
 
 export default function LocalHubPage() {
-  const [activeTab, setActiveTab]   = useState<Tab>('videos')
+  const [activeView, setActiveView]   = useState<View>('videos')
+  const [searchQuery, setSearchQuery] = useState('')
+
+  // ── Video player overlay ──
   const [activeVideo, setActiveVideo] = useState<LocalVideo | null>(null)
+
+  // ── Audio mini-player ──
   const [currentTrack, setCurrentTrack] = useState<LocalTrack | null>(null)
-  const [isPlaying, setIsPlaying]   = useState(false)
-  const audioRef = useRef<HTMLAudioElement>(null)
+  const [isPlaying, setIsPlaying]       = useState(false)
+  const [miniPlayerProgress, setMiniPlayerProgress] = useState(0)
+
+  // ── Modals ──
+  const [showSafeFolder, setShowSafeFolder] = useState(false)
+  const [safeFolderItem, setSafeFolderItem] = useState<{
+    name: string; type: 'video' | 'audio' | 'image' | 'document'; size?: number
+  } | null>(null)
+
+  const [showExtractor, setShowExtractor]     = useState(false)
+  const [extractorSource, setExtractorSource] = useState<{
+    name: string; file: File | null
+  }>({ name: '', file: null })
+
+  // Store video files for extractor access
+  const videoFileMap = useRef<Map<string, File>>(new Map())
+  const trackFileMap = useRef<Map<string, File>>(new Map())
 
   // ── Video playback ──
   const handlePlayVideo = useCallback((video: LocalVideo) => {
+    if (video.file) videoFileMap.current.set(video.id, video.file)
     setActiveVideo(video)
   }, [])
 
@@ -54,77 +61,204 @@ export default function LocalHubPage() {
 
   // ── Audio playback ──
   const handlePlayTrack = useCallback((track: LocalTrack) => {
+    if (track.file) trackFileMap.current.set(track.id, track.file)
     setCurrentTrack(track)
     setIsPlaying(true)
   }, [])
 
   const handlePauseTrack = useCallback(() => {
     setIsPlaying(false)
-    if (audioRef.current) audioRef.current.pause()
   }, [])
 
-  // Sync audio element with track
-  useEffect(() => {
-    if (currentTrack?.url && audioRef.current) {
-      audioRef.current.src = currentTrack.url
-      if (isPlaying) {
-        audioRef.current.play().catch(() => {})
-      }
-    }
-  }, [currentTrack, isPlaying])
+  const handleToggleAudio = useCallback(() => {
+    setIsPlaying(p => !p)
+  }, [])
 
-  // Toggle play/pause for mini player
-  const toggleAudio = useCallback(() => {
-    if (!audioRef.current) return
-    if (isPlaying) {
-      audioRef.current.pause()
-      setIsPlaying(false)
-    } else {
-      audioRef.current.play().catch(() => {})
-      setIsPlaying(true)
-    }
-  }, [isPlaying])
+  const handleNextTrack = useCallback(() => {
+    // For now, just stop. In future, advance to next track in list.
+    setIsPlaying(false)
+    setCurrentTrack(null)
+  }, [])
 
-  // Close mini player
-  const closeMiniPlayer = useCallback(() => {
-    if (audioRef.current) {
-      audioRef.current.pause()
-      audioRef.current.src = ''
-    }
+  const handleCloseMiniPlayer = useCallback(() => {
     setCurrentTrack(null)
     setIsPlaying(false)
+    setMiniPlayerProgress(0)
   }, [])
 
-  // Active tab meta
-  const activeMeta = TABS.find(t => t.key === activeTab)!
+  // ── Convert to MP3 ──
+  const handleConvertToMp3Video = useCallback((video: LocalVideo) => {
+    setExtractorSource({ name: video.name, file: video.file ?? null })
+    setShowExtractor(true)
+  }, [])
+
+  const handleConvertToMp3Track = useCallback((track: LocalTrack) => {
+    setExtractorSource({ name: track.name, file: track.file ?? null })
+    setShowExtractor(true)
+  }, [])
+
+  // ── Move to Safe Folder ──
+  const handleMoveToSafeVideo = useCallback((video: LocalVideo) => {
+    setSafeFolderItem({
+      name: video.name,
+      type: 'video',
+      size: video.size,
+    })
+    setShowSafeFolder(true)
+  }, [])
+
+  const handleMoveToSafeTrack = useCallback((track: LocalTrack) => {
+    setSafeFolderItem({
+      name: track.name,
+      type: 'audio',
+      size: track.size,
+    })
+    setShowSafeFolder(true)
+  }, [])
 
   return (
-    <div className="min-h-screen bg-[#070B14] pb-24">
-      {/* ── HEADER ── */}
-      <div className="sticky top-0 z-50 bg-[#070B14]/95 border-b border-[#1E293B]">
-        <div className="px-4 h-14 flex items-center justify-between">
+    <div className="min-h-screen bg-black pb-24">
+      {/* ════════════════════════════════════════════════════════
+          STICKY HEADER
+          ════════════════════════════════════════════════════════ */}
+      <div className="sticky top-0 z-50 bg-black border-b border-neutral-800">
+        {/* Top bar */}
+        <div className="px-4 h-12 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-[#7C5CFF]/20 flex items-center justify-center">
-              <Zap size={16} className="text-[#7C5CFF]" />
+            <div className="w-7 h-7 rounded-lg bg-[#7C5CFF]/15 flex items-center justify-center">
+              <HardDrive size={14} className="text-[#7C5CFF]" />
             </div>
-            <div>
-              <h1 className="text-base font-bold text-white leading-tight">
-                Local Hub
-              </h1>
-              <p className="text-[10px] text-[#94A3B8] leading-tight">
-                Your Media, Your Device
-              </p>
-            </div>
+            <h1 className="text-white text-sm font-bold">Local Hub</h1>
           </div>
-          <div className="flex items-center gap-1">
-            <div className="px-2 py-1 rounded-full bg-[#00D4FF]/10 border border-[#00D4FF]/30">
-              <span className="text-[10px] text-[#00D4FF] font-semibold">OFFLINE</span>
-            </div>
+
+          {/* Safe Folder button */}
+          <button
+            onClick={() => {
+              setSafeFolderItem(null)
+              setShowSafeFolder(true)
+            }}
+            className="w-9 h-9 rounded-full bg-neutral-900 border border-neutral-800
+                       flex items-center justify-center
+                       active:scale-90 transition-transform duration-100"
+          >
+            <Shield size={15} className="text-[#22C55E]" />
+          </button>
+        </div>
+
+        {/* ── PILL TOGGLE ── */}
+        <div className="px-4 pb-2">
+          <div className="flex bg-neutral-900 rounded-xl p-1 border border-neutral-800">
+            {([
+              { key: 'videos' as View, label: 'Videos', icon: Video, emoji: '📹' },
+              { key: 'music' as View, label: 'Music', icon: Music, emoji: '🎵' },
+            ]).map(tab => {
+              const isActive = activeView === tab.key
+              return (
+                <button
+                  key={tab.key}
+                  onClick={() => setActiveView(tab.key)}
+                  className={`relative flex-1 h-9 rounded-lg flex items-center justify-center gap-1.5
+                             text-xs font-semibold transition-all duration-200
+                             ${isActive
+                               ? 'bg-[#7C5CFF] text-white shadow-[0_0_12px_rgba(124,92,255,0.3)]'
+                               : 'text-neutral-500 active:text-neutral-300'
+                             }`}
+                >
+                  <span className="text-sm">{tab.emoji}</span>
+                  {tab.label}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+
+        {/* ── SEARCH BAR ── */}
+        <div className="px-4 pb-3">
+          <div className="flex items-center gap-2 bg-neutral-900 border border-neutral-800
+                          rounded-xl px-3 h-10">
+            <Search size={14} className="text-neutral-600 flex-shrink-0" />
+            <input
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              placeholder={`Search ${activeView}...`}
+              className="flex-1 bg-transparent text-white text-xs outline-none
+                         placeholder-neutral-600 min-w-0"
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery('')}
+                className="p-1 active:scale-90 transition-transform duration-100"
+              >
+                <X size={12} className="text-neutral-500" />
+              </button>
+            )}
           </div>
         </div>
       </div>
 
-      {/* ── VIDEO PLAYER FULLSCREEN OVERLAY ── */}
+      {/* ════════════════════════════════════════════════════════
+          CONTENT AREA
+          ════════════════════════════════════════════════════════ */}
+      <div className="px-4 pt-4">
+        {activeView === 'videos' && (
+          <VideoGridView
+            searchQuery={searchQuery}
+            onPlay={handlePlayVideo}
+            onConvertToMp3={handleConvertToMp3Video}
+            onMoveToSafe={handleMoveToSafeVideo}
+          />
+        )}
+
+        {activeView === 'music' && (
+          <MusicListView
+            searchQuery={searchQuery}
+            currentTrackId={currentTrack?.id ?? null}
+            isPlaying={isPlaying}
+            onPlay={handlePlayTrack}
+            onPause={handlePauseTrack}
+            onConvertToMp3={handleConvertToMp3Track}
+            onMoveToSafe={handleMoveToSafeTrack}
+          />
+        )}
+      </div>
+
+      {/* ════════════════════════════════════════════════════════
+          GESTURE HINT CARD (videos view only)
+          ════════════════════════════════════════════════════════ */}
+      {activeView === 'videos' && !activeVideo && (
+        <div className="px-4 pt-4">
+          <div className="bg-neutral-900 border border-neutral-800 rounded-2xl p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <Zap size={12} className="text-[#7C5CFF]" />
+              <p className="text-white text-[10px] font-semibold uppercase tracking-wider">
+                Gesture Controls
+              </p>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="bg-black rounded-xl p-3">
+                <p className="text-neutral-500 text-[9px] uppercase tracking-wider mb-1">
+                  Left half
+                </p>
+                <p className="text-yellow-400 text-xs font-semibold">
+                  ↕ Brightness
+                </p>
+              </div>
+              <div className="bg-black rounded-xl p-3">
+                <p className="text-neutral-500 text-[9px] uppercase tracking-wider mb-1">
+                  Right half
+                </p>
+                <p className="text-[#00D4FF] text-xs font-semibold">
+                  ↕ Volume
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ════════════════════════════════════════════════════════
+          FULLSCREEN VIDEO PLAYER OVERLAY
+          ════════════════════════════════════════════════════════ */}
       {activeVideo && activeVideo.url && (
         <div className="fixed inset-0 z-[9999] bg-black animate-[fade-in_200ms_ease-out]">
           <VideoPlayer
@@ -135,151 +269,40 @@ export default function LocalHubPage() {
         </div>
       )}
 
-      {/* ── SUB-NAVIGATION TABS ── */}
-      <div className="sticky top-14 z-40 bg-[#070B14] border-b border-[#1E293B]">
-        <div className="flex">
-          {TABS.map(tab => {
-            const Icon = tab.icon
-            const isActive = activeTab === tab.key
-            return (
-              <button
-                key={tab.key}
-                onClick={() => setActiveTab(tab.key)}
-                className={`relative flex-1 flex flex-col items-center justify-center
-                           h-12 gap-1 transition-colors duration-150
-                           ${isActive
-                             ? 'text-white'
-                             : 'text-[#94A3B8] active:text-white'
-                           }`}
-              >
-                <Icon size={18} />
-                <span className={`text-[10px] leading-tight
-                                 ${isActive ? 'font-semibold' : 'font-normal'}`}>
-                  {tab.label}
-                </span>
-                {/* Active indicator */}
-                {isActive && (
-                  <div
-                    className="absolute bottom-0 h-[2px] rounded-full"
-                    style={{
-                      width: '40%',
-                      backgroundColor: tab.color,
-                      boxShadow: `0 0 8px ${tab.color}60`
-                    }}
-                  />
-                )}
-              </button>
-            )
-          })}
-        </div>
-      </div>
-
-      {/* ── TAB CONTENT ── */}
-      <div className="px-4 pt-4">
-        {/* Videos Tab */}
-        {activeTab === 'videos' && (
-          <VideoGrid onPlay={handlePlayVideo} />
-        )}
-
-        {/* Music Tab */}
-        {activeTab === 'music' && (
-          <MusicList
-            currentTrackId={currentTrack?.id ?? null}
-            isPlaying={isPlaying}
-            onPlay={handlePlayTrack}
-            onPause={handlePauseTrack}
-          />
-        )}
-
-        {/* MP3 Extractor Tab */}
-        {activeTab === 'extractor' && (
-          <MP3Extractor />
-        )}
-
-        {/* Safe Folder Tab */}
-        {activeTab === 'safe' && (
-          <SafeFolder />
-        )}
-      </div>
-
-      {/* ── MINI AUDIO PLAYER ── */}
+      {/* ════════════════════════════════════════════════════════
+          PERSISTENT MINI PLAYER
+          Stays alive even when switching to Videos tab
+          ════════════════════════════════════════════════════════ */}
       {currentTrack && !activeVideo && (
-        <div
-          className="fixed bottom-16 left-2 right-2 z-[9998]
-                     bg-[#111827] border border-[#1E293B] rounded-2xl
-                     shadow-[0_-4px_20px_rgba(0,0,0,0.5)]
-                     animate-[slide-up_300ms_ease-out]"
-        >
-          {/* Progress bar */}
-          <div className="h-[2px] bg-[#1E293B] rounded-t-2xl overflow-hidden">
-            <div className="h-full bg-[#00D4FF] w-1/3 transition-all duration-300" />
-          </div>
-
-          <div className="flex items-center gap-3 p-3">
-            {/* Track icon */}
-            <div className="w-10 h-10 rounded-xl bg-[#00D4FF]/15 flex items-center justify-center flex-shrink-0">
-              <Music size={18} className="text-[#00D4FF]" />
-            </div>
-
-            {/* Track info */}
-            <div className="flex-1 min-w-0">
-              <p className="text-white text-sm font-medium truncate">
-                {currentTrack.name}
-              </p>
-              <p className="text-[#94A3B8] text-[10px]">
-                {isPlaying ? 'Now playing' : 'Paused'}
-              </p>
-            </div>
-
-            {/* Controls */}
-            <div className="flex items-center gap-1">
-              <button
-                onClick={toggleAudio}
-                className="w-10 h-10 rounded-full bg-[#00D4FF] flex items-center justify-center
-                           active:scale-90 transition-transform duration-100"
-              >
-                {isPlaying
-                  ? <Pause size={18} className="text-white" />
-                  : <Play size={18} className="text-white ml-0.5" />
-                }
-              </button>
-              <button
-                onClick={closeMiniPlayer}
-                className="w-10 h-10 rounded-full flex items-center justify-center
-                           active:scale-90 transition-transform duration-100"
-              >
-                <X size={16} className="text-[#94A3B8]" />
-              </button>
-            </div>
-          </div>
-
-          {/* Hidden audio element */}
-          <audio ref={audioRef} preload="metadata" />
-        </div>
+        <MiniPlayer
+          track={currentTrack}
+          isPlaying={isPlaying}
+          onToggle={handleToggleAudio}
+          onNext={handleNextTrack}
+          onClose={handleCloseMiniPlayer}
+          onProgress={setMiniPlayerProgress}
+        />
       )}
 
-      {/* ── GESTURE HINT (Videos tab only, first visit) ── */}
-      {activeTab === 'videos' && !activeVideo && (
-        <div className="px-4 pt-4">
-          <div className="bg-[#111827] border border-[#1E293B] rounded-2xl p-4">
-            <div className="flex items-center gap-2 mb-2">
-              <Video size={14} className="text-[#7C5CFF]" />
-              <p className="text-white text-xs font-semibold">Gesture Controls</p>
-            </div>
-            <div className="space-y-1.5">
-              <div className="flex items-center gap-2">
-                <span className="text-[10px] text-[#94A3B8]">Left half swipe</span>
-                <ChevronRight size={10} className="text-[#94A3B8]/50" />
-                <span className="text-[10px] text-yellow-400 font-medium">Brightness</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="text-[10px] text-[#94A3B8]">Right half swipe</span>
-                <ChevronRight size={10} className="text-[#94A3B8]/50" />
-                <span className="text-[10px] text-[#00D4FF] font-medium">Volume</span>
-              </div>
-            </div>
-          </div>
-        </div>
+      {/* ════════════════════════════════════════════════════════
+          SAFE FOLDER MODAL
+          ════════════════════════════════════════════════════════ */}
+      {showSafeFolder && (
+        <SafeFolderModal
+          onClose={() => { setShowSafeFolder(false); setSafeFolderItem(null) }}
+          initialItem={safeFolderItem}
+        />
+      )}
+
+      {/* ════════════════════════════════════════════════════════
+          MP3 EXTRACTOR MODAL
+          ════════════════════════════════════════════════════════ */}
+      {showExtractor && (
+        <MP3ExtractorModal
+          sourceName={extractorSource.name}
+          sourceFile={extractorSource.file}
+          onClose={() => { setShowExtractor(false); setExtractorSource({ name: '', file: null }) }}
+        />
       )}
     </div>
   )

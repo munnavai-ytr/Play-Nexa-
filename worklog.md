@@ -44,3 +44,28 @@ Stage Summary:
 - Safe Folder with PIN dial pad + XOR encryption for localStorage
 - All components 2GB RAM optimized: URL.createObjectURL, no backdrop-blur, GPU transforms only
 - No existing features broken — purely additive module
+
+---
+Task ID: 3
+Agent: Main Agent
+Task: Rebuild Local Hub as PLAYit-inspired unified dashboard with pill toggle, search, mini-player
+
+Work Log:
+- Deleted old 4-tab components (VideoGrid, MusicList, MP3Extractor, SafeFolder)
+- Kept utility libs: safe-store.ts, audio-extractor.ts (unchanged)
+- Kept VideoPlayer.tsx (gesture-controlled player, unchanged)
+- Rebuilt PinDial.tsx with AMOLED dark styling
+- Built VideoGridView.tsx: PLAYit-style folder-grouped grid, 2-col mobile / 4-col desktop, 3-dot menus (Play, Convert to MP3, Move to Safe Folder, Delete), content-visibility: auto
+- Built MusicListView.tsx: premium track list with equalizer bars, 3-dot menus, search filtering
+- Built MiniPlayer.tsx: persistent bottom dock with progress bar, play/pause, next, close; stays alive across tab switches
+- Built SafeFolderModal.tsx: full-screen overlay with PIN gate, add/remove entries, initial item support from 3-dot menus
+- Built MP3ExtractorModal.tsx: full-screen overlay with progress bar, auto-starts extraction on mount, WAV download
+- Rebuilt /local/page.tsx: unified hub with pill toggle [📹 Videos][🎵 Music], search bar, gesture hint card, Safe Folder button in header, all modal integrations
+
+Stage Summary:
+- Complete PLAYit-inspired Local Hub with pill toggle switching
+- Folder-grouped video grid with content-visibility: auto for 60 FPS
+- Persistent mini-player that survives tab switches
+- Three-dot menus with Convert to MP3 + Move to Safe Folder actions
+- AMOLED black (bg-black + border-neutral-800) throughout
+- Build verified passing
