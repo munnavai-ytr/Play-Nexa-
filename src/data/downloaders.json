@@ -98,7 +98,7 @@
         "name": "SaveFrom",
         "url": "https://en.savefrom.net/",
         "buildUrl": "savefrom",
-        "note": "Universal gateway — handles FB videos, reels, watch"
+        "note": "Universal gateway — handles FB videos, reels, watch, fb.watch"
       },
       {
         "id": "snapsave_fb",
@@ -133,7 +133,7 @@
         "name": "SaveFrom",
         "url": "https://en.savefrom.net/",
         "buildUrl": "savefrom",
-        "note": "Universal gateway — handles IG reels, posts, stories"
+        "note": "Universal gateway — handles IG reels, posts, stories, instagr.am, ig.me"
       },
       {
         "id": "snapinsta",
@@ -247,6 +247,40 @@
         "url": "",
         "buildUrl": "sfrom",
         "note": "Shortcut gateway"
+      }
+    ]
+  },
+  "universal": {
+    "video": [
+      {
+        "id": "sfrom_universal",
+        "name": "sfrom.net",
+        "url": "",
+        "buildUrl": "sfrom",
+        "note": "Universal shortcut: sfrom.net/{raw_url} — handles ANY video link"
+      },
+      {
+        "id": "savefrom_universal",
+        "name": "SaveFrom",
+        "url": "https://en.savefrom.net/",
+        "buildUrl": "savefrom",
+        "note": "Universal gateway: en.savefrom.net/?url= — auto-detects any platform"
+      }
+    ],
+    "audio": [
+      {
+        "id": "savefrom_universal_audio",
+        "name": "SaveFrom",
+        "url": "https://en.savefrom.net/",
+        "buildUrl": "savefrom",
+        "note": "Universal gateway — select audio format on page"
+      },
+      {
+        "id": "sfrom_universal_audio",
+        "name": "sfrom.net",
+        "url": "",
+        "buildUrl": "sfrom",
+        "note": "Universal shortcut gateway"
       }
     ]
   }

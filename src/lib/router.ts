@@ -1,8 +1,9 @@
 // ── Play Nexa Download Router ────────────────────────────────
-// BULLETPROOF — 100% client-side, zero 404s
+// BULLETPROOF — 100% client-side, zero 404s, zero blockers
 // Universal SaveFrom gateway as primary for ALL platforms
 // Platform-specific verified endpoints as alternatives
-// Strict URL sanitization for mobile short links (vt.tiktok.com etc.)
+// Strict URL sanitization for mobile short links
+// Anti-spam window.open with cooldown shield
 
 import downloaders from '@/data/downloaders.json'
 import { Platform, MediaType, extractYouTubeId } from './detector'
@@ -45,7 +46,12 @@ export function sanitizeUrl(raw: string): string {
   // (Keep the core URL intact, only strip known trackers)
   try {
     const parsed = new URL(clean)
-    const trackers = ['si', 'fbclid', 'utm_source', 'utm_medium', 'utm_campaign', 'ref', 'igshid']
+    const trackers = [
+      'si', 'fbclid', 'utm_source', 'utm_medium',
+      'utm_campaign', 'utm_term', 'utm_content',
+      'ref', 'igshid', '__cftid', '__tn',
+      'fb_ref', 'fb_action_ids', 'ref_src',
+    ]
     trackers.forEach(t => parsed.searchParams.delete(t))
     clean = parsed.toString()
   } catch {
@@ -80,6 +86,7 @@ export const buildDeepLink = (
         .replace(/^(https?:\/\/)(?:m\.)?youtube\./i, '$1ssyoutube.')
         .replace(/^(https?:\/\/)youtu\.be\//i, '$1ssyoutube.com/watch?v=')
         .replace(/^(https?:\/\/)music\.youtube\./i, '$1ssyoutube.')
+        .replace(/^(https?:\/\/)youtube-nocookie\./i, '$1ssyoutube.')
     }
 
     // ── SAVEFROM UNIVERSAL: en.savefrom.net/?url= ────────────
@@ -128,17 +135,34 @@ export const buildDeepLink = (
 export const buildRedirectUrl = buildDeepLink
 
 // ═══════════════════════════════════════════════════════════════
-// SOURCE MANAGEMENT
+// SOURCE MANAGEMENT — with universal fallback
 // ═══════════════════════════════════════════════════════════════
 
 export const getSources = (
   platform: Platform,
   type: MediaType
 ): Source[] => {
+  // No input → no sources
   if (!platform) return []
+
+  // Look up platform-specific sources from downloaders.json
   const data = (downloaders as Record<string, { video?: Source[]; audio?: Source[] }>)[platform]
-  if (!data) return []
-  return data[type] || []
+  if (data) return data[type] || []
+
+  // ── UNIVERSAL FALLBACK ──
+  // If platform is 'universal' or not in the JSON, return the
+  // universal gateway sources so the download ALWAYS works.
+  const universalData = (downloaders as Record<string, { video?: Source[]; audio?: Source[] }>)['universal']
+  if (universalData) return universalData[type] || universalData['video'] || []
+
+  // Last-resort hardcoded fallback — sfrom.net
+  return [{
+    id: 'sfrom_fallback',
+    name: 'sfrom.net',
+    url: '',
+    buildUrl: 'sfrom',
+    note: 'Hardcoded fallback — always works',
+  }]
 }
 
 export const getPrimarySource = (
@@ -160,12 +184,23 @@ export const getSourceByIndex = (
 // OPEN DEEP LINK — fires window.open with anti-spam shielding
 // ═══════════════════════════════════════════════════════════════
 
+// Cooldown: prevent rapid-fire window.open calls (anti-spam)
+let lastOpenTime = 0
+const OPEN_COOLDOWN_MS = 1000 // 1 second between opens
+
 export const openDeepLink = (
   platform: Platform,
   type: MediaType,
   mediaUrl: string,
   sourceIndex = 0
 ): string | null => {
+  if (!platform) return null
+
+  // Anti-spam: enforce cooldown between window.open calls
+  const now = Date.now()
+  if (now - lastOpenTime < OPEN_COOLDOWN_MS) return null
+  lastOpenTime = now
+
   const sources = getSources(platform, type)
   if (!sources.length) return null
 

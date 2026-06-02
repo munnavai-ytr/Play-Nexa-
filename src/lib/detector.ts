@@ -1,6 +1,10 @@
 // ── Play Nexa Platform Detector ──────────────────────────────
-// Robust RegEx-based platform detection with URL parsing
-// Supports: YouTube, Shorts, TikTok, Facebook, Instagram, Twitter/X, Vimeo, SoundCloud
+// ULTRA-INCLUSIVE RegEx-based platform detection
+// Supports: YouTube, TikTok, Facebook, Instagram, Twitter/X, Vimeo, SoundCloud
+// Plus: Universal catch-all for ANY valid URL → sfrom.net gateway
+//
+// Design: Domain-first matching — any path on a known domain is accepted.
+// Mobile subdomains, short URLs, and regional variants all matched.
 
 export type Platform =
   | 'youtube'
@@ -10,13 +14,17 @@ export type Platform =
   | 'twitter'
   | 'vimeo'
   | 'soundcloud'
-  | null
+  | 'universal'   // ← catch-all for any valid URL not matching above
+  | null          // ← only for empty/invalid input
 
 export type MediaType = 'video' | 'audio'
 
-// ── RegEx patterns for each platform ────────────────────────
+// ── Ultra-inclusive domain-first RegEx patterns ──────────────
+// Strategy: Match the domain first, accept any path after it.
+// This prevents "fb.watch" or "instagr.am" from being missed
+// just because the path structure changed.
 const PLATFORM_PATTERNS: Array<{
-  platform: Platform
+  platform: Exclude<NonNullable<Platform>, 'universal'>
   patterns: RegExp[]
   label: string
   icon: string
@@ -26,13 +34,16 @@ const PLATFORM_PATTERNS: Array<{
   {
     platform: 'youtube',
     patterns: [
-      /(?:https?:\/\/)?(?:www\.)?youtube\.com\/watch\?v=[\w-]+/i,
-      /(?:https?:\/\/)?(?:www\.)?youtube\.com\/shorts\/[\w-]+/i,
-      /(?:https?:\/\/)?(?:www\.)?youtube\.com\/embed\/[\w-]+/i,
-      /(?:https?:\/\/)?(?:www\.)?youtube\.com\/live\/[\w-]+/i,
-      /(?:https?:\/\/)?youtu\.be\/[\w-]+/i,
-      /(?:https?:\/\/)?m\.youtube\.com\/watch\?v=[\w-]+/i,
-      /(?:https?:\/\/)?music\.youtube\.com\/watch\?v=[\w-]+/i,
+      // Standard desktop
+      /(?:https?:\/\/)?(?:www\.)?youtube\.com\//i,
+      // Mobile
+      /(?:https?:\/\/)?m\.youtube\.com\//i,
+      // Music
+      /(?:https?:\/\/)?music\.youtube\.com\//i,
+      // Short URL
+      /(?:https?:\/\/)?youtu\.be\//i,
+      // Kids (some users paste kids videos)
+      /(?:https?:\/\/)?(?:www\.)?youtube-nocookie\.com\//i,
     ],
     label: 'YouTube',
     icon: '▶️',
@@ -42,11 +53,15 @@ const PLATFORM_PATTERNS: Array<{
   {
     platform: 'tiktok',
     patterns: [
-      /(?:https?:\/\/)?(?:www\.)?tiktok\.com\/@[\w.-]+\/video\/\d+/i,
-      /(?:https?:\/\/)?(?:www\.)?tiktok\.com\/[\w.-]+\/video\/\d+/i,
-      /(?:https?:\/\/)?vm\.tiktok\.com\/[\w-]+/i,
-      /(?:https?:\/\/)?vt\.tiktok\.com\/[\w-]+/i,
-      /(?:https?:\/\/)?tiktok\.com\/t\/[\w-]+/i,
+      // Standard desktop
+      /(?:https?:\/\/)?(?:www\.)?tiktok\.com\//i,
+      // Mobile short links (vt/vm)
+      /(?:https?:\/\/)?vt\.tiktok\.com\//i,
+      /(?:https?:\/\/)?vm\.tiktok\.com\//i,
+      // TikTok short redirect
+      /(?:https?:\/\/)?tiktok\.com\/t\//i,
+      // Regional subdomains
+      /(?:https?:\/\/)?(?:www\.)?tiktok\.com\/@/i,
     ],
     label: 'TikTok',
     icon: '🎵',
@@ -56,12 +71,18 @@ const PLATFORM_PATTERNS: Array<{
   {
     platform: 'facebook',
     patterns: [
-      /(?:https?:\/\/)?(?:www\.)?facebook\.com\/.*\/videos\//i,
-      /(?:https?:\/\/)?(?:www\.)?facebook\.com\/reel\//i,
-      /(?:https?:\/\/)?(?:www\.)?facebook\.com\/watch/i,
-      /(?:https?:\/\/)?(?:www\.)?facebook\.com\/.*\/posts\//i,
-      /(?:https?:\/\/)?fb\.watch\/[\w-]+/i,
-      /(?:https?:\/\/)?(?:www\.)?fb\.com\/video/i,
+      // Standard desktop
+      /(?:https?:\/\/)?(?:www\.)?facebook\.com\//i,
+      // Mobile
+      /(?:https?:\/\/)?m\.facebook\.com\//i,
+      // Short URL fb.watch
+      /(?:https?:\/\/)?fb\.watch\//i,
+      // fb.com short domain
+      /(?:https?:\/\/)?(?:www\.)?fb\.com\//i,
+      // fb.me short links
+      /(?:https?:\/\/)?fb\.me\//i,
+      // Facebook web standalone (fbcdn not needed — those are CDN URLs)
+      /(?:https?:\/\/)?web\.facebook\.com\//i,
     ],
     label: 'Facebook',
     icon: '📘',
@@ -71,10 +92,16 @@ const PLATFORM_PATTERNS: Array<{
   {
     platform: 'instagram',
     patterns: [
-      /(?:https?:\/\/)?(?:www\.)?instagram\.com\/reel\//i,
-      /(?:https?:\/\/)?(?:www\.)?instagram\.com\/p\//i,
-      /(?:https?:\/\/)?(?:www\.)?instagram\.com\/tv\//i,
-      /(?:https?:\/\/)?(?:www\.)?instagram\.com\/stories\//i,
+      // Standard desktop
+      /(?:https?:\/\/)?(?:www\.)?instagram\.com\//i,
+      // Mobile
+      /(?:https?:\/\/)?m\.instagram\.com\//i,
+      // Short domain instagr.am
+      /(?:https?:\/\/)?instagr\.am\//i,
+      // ig.me short links
+      /(?:https?:\/\/)?ig\.me\//i,
+      // Instagram link in bio / dd.instagram.com
+      /(?:https?:\/\/)?dd\.instagram\.com\//i,
     ],
     label: 'Instagram',
     icon: '📷',
@@ -84,9 +111,14 @@ const PLATFORM_PATTERNS: Array<{
   {
     platform: 'twitter',
     patterns: [
-      /(?:https?:\/\/)?(?:www\.)?twitter\.com\/\w+\/status\/\d+/i,
-      /(?:https?:\/\/)?(?:www\.)?x\.com\/\w+\/status\/\d+/i,
-      /(?:https?:\/\/)?(?:mobile\.)?twitter\.com\/\w+\/status\/\d+/i,
+      // Standard twitter.com
+      /(?:https?:\/\/)?(?:www\.)?twitter\.com\//i,
+      // Mobile twitter
+      /(?:https?:\/\/)?mobile\.twitter\.com\//i,
+      // X.com (rebranded)
+      /(?:https?:\/\/)?(?:www\.)?x\.com\//i,
+      // t.co short links (Twitter's URL shortener)
+      /(?:https?:\/\/)?t\.co\//i,
     ],
     label: 'Twitter / X',
     icon: '🐦',
@@ -96,9 +128,12 @@ const PLATFORM_PATTERNS: Array<{
   {
     platform: 'vimeo',
     patterns: [
-      /(?:https?:\/\/)?(?:www\.)?vimeo\.com\/\d+/i,
-      /(?:https?:\/\/)?(?:www\.)?vimeo\.com\/channels\/[\w-]+\/\d+/i,
-      /(?:https?:\/\/)?player\.vimeo\.com\/video\/\d+/i,
+      // Standard
+      /(?:https?:\/\/)?(?:www\.)?vimeo\.com\//i,
+      // Player embed
+      /(?:https?:\/\/)?player\.vimeo\.com\//i,
+      // Vimeo OTT / on-demand
+      /(?:https?:\/\/)?vod\.vimeo\.com\//i,
     ],
     label: 'Vimeo',
     icon: '🎬',
@@ -108,9 +143,14 @@ const PLATFORM_PATTERNS: Array<{
   {
     platform: 'soundcloud',
     patterns: [
-      /(?:https?:\/\/)?(?:www\.)?soundcloud\.com\/[\w-]+\/[\w-]+/i,
-      /(?:https?:\/\/)?(?:m\.)?soundcloud\.com\/[\w-]+\/[\w-]+/i,
-      /(?:https?:\/\/)?on\.soundcloud\.com\/[\w-]+/i,
+      // Standard
+      /(?:https?:\/\/)?(?:www\.)?soundcloud\.com\//i,
+      // Mobile
+      /(?:https?:\/\/)?m\.soundcloud\.com\//i,
+      // Short links
+      /(?:https?:\/\/)?on\.soundcloud\.com\//i,
+      // API subdomain some users see
+      /(?:https?:\/\/)?api\.soundcloud\.com\//i,
     ],
     label: 'SoundCloud',
     icon: '🎧',
@@ -120,15 +160,28 @@ const PLATFORM_PATTERNS: Array<{
 ]
 
 // ── Detect platform from URL using RegEx ────────────────────
+// Returns the matched platform, 'universal' for valid but unrecognized URLs,
+// or null only for empty/blank input.
 export const detectPlatform = (url: string): Platform => {
   if (!url || !url.trim()) return null
   const trimmed = url.trim()
 
+  // Try each known platform's patterns
   for (const rule of PLATFORM_PATTERNS) {
     for (const pattern of rule.patterns) {
       if (pattern.test(trimmed)) return rule.platform
     }
   }
+
+  // ── UNIVERSAL CATCH-ALL ──
+  // If the input is a valid URL but didn't match any known platform,
+  // route it through the universal engine (sfrom.net).
+  // This ensures 100% coverage — NO "not supported" blocker.
+  if (isValidUrl(trimmed)) return 'universal'
+
+  // Might be a partial/domain-like input — try adding https://
+  if (/^[\w.-]+\.\w{2,}/i.test(trimmed)) return 'universal'
+
   return null
 }
 
@@ -144,6 +197,7 @@ export const extractYouTubeId = (url: string): string | null => {
     /(?:m\.youtube\.com\/watch\?v=)([a-zA-Z0-9_-]{11})/,
     /(?:music\.youtube\.com\/watch\?v=)([a-zA-Z0-9_-]{11})/,
     /(?:youtube\.com\/watch\?.*&(?:amp;)?v=)([a-zA-Z0-9_-]{11})/,
+    /(?:youtube-nocookie\.com\/embed\/)([a-zA-Z0-9_-]{11})/,
   ]
   for (const p of patterns) {
     const m = url.match(p)
@@ -159,21 +213,25 @@ export const isYouTubeShorts = (url: string): boolean => {
 
 // ── Platform metadata helpers ───────────────────────────────
 export const getPlatformIcon = (p: Platform): string => {
+  if (p === 'universal') return '🌐'
   const rule = PLATFORM_PATTERNS.find(r => r.platform === p)
   return rule?.icon ?? '🔗'
 }
 
 export const getPlatformColor = (p: Platform): string => {
+  if (p === 'universal') return '#7C5CFF'
   const rule = PLATFORM_PATTERNS.find(r => r.platform === p)
   return rule?.color ?? '#7C5CFF'
 }
 
 export const getPlatformGradient = (p: Platform): string => {
+  if (p === 'universal') return 'from-purple-500 to-indigo-600'
   const rule = PLATFORM_PATTERNS.find(r => r.platform === p)
   return rule?.gradient ?? 'from-purple-500 to-purple-700'
 }
 
 export const getPlatformName = (p: Platform): string => {
+  if (p === 'universal') return 'Universal'
   const rule = PLATFORM_PATTERNS.find(r => r.platform === p)
   return rule?.label ?? 'Unknown'
 }
@@ -185,7 +243,7 @@ export const isAudioOnly = (p: Platform): boolean =>
 // ── Validate URL format ─────────────────────────────────────
 export const isValidUrl = (url: string): boolean => {
   try {
-    new URL(url)
+    new URL(url.startsWith('http') ? url : `https://${url}`)
     return true
   } catch {
     return false
@@ -201,10 +259,20 @@ export interface PlatformMeta {
   gradient: string
 }
 
-export const ALL_PLATFORMS: PlatformMeta[] = PLATFORM_PATTERNS.map(r => ({
-  key: r.platform!,
-  label: r.label,
-  icon: r.icon,
-  color: r.color,
-  gradient: r.gradient,
-}))
+export const ALL_PLATFORMS: PlatformMeta[] = [
+  ...PLATFORM_PATTERNS.map(r => ({
+    key: r.platform as NonNullable<Platform>,
+    label: r.label,
+    icon: r.icon,
+    color: r.color,
+    gradient: r.gradient,
+  })),
+  // Universal is shown in the grid too
+  {
+    key: 'universal',
+    label: 'Any Link',
+    icon: '🌐',
+    color: '#7C5CFF',
+    gradient: 'from-purple-500 to-indigo-600',
+  },
+]

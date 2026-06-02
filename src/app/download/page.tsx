@@ -208,7 +208,7 @@ export default function DownloadHubPage() {
               <span className="text-[10px] text-[#22C55E] font-semibold">FREE</span>
             </div>
             <div className="px-2 py-1 rounded-full bg-[#7C5CFF]/10 border border-[#7C5CFF]/30">
-              <span className="text-[10px] text-[#7C5CFF] font-semibold">7 Platforms</span>
+              <span className="text-[10px] text-[#7C5CFF] font-semibold">Any Link</span>
             </div>
           </div>
         </div>
@@ -236,7 +236,7 @@ export default function DownloadHubPage() {
             <input
               value={url}
               onChange={e => setUrl(e.target.value)}
-              placeholder="Paste YouTube, TikTok, Instagram URL..."
+              placeholder="Paste any video or audio link..."
               className="flex-1 bg-transparent text-white text-sm outline-none placeholder-[#94A3B8] min-w-0"
               readOnly={uiStep === 'processing'}
             />
@@ -262,8 +262,8 @@ export default function DownloadHubPage() {
           </div>
         </div>
 
-        {/* ── PLATFORM DETECTED CARD ── */}
-        {platform && (
+        {/* ── PLATFORM DETECTED CARD (specific platforms only) ── */}
+        {platform && platform !== 'universal' && (
           <div
             className="flex items-center gap-3 rounded-2xl p-4 border animate-[fade-in_300ms_ease-out]"
             style={{
@@ -296,16 +296,35 @@ export default function DownloadHubPage() {
           </div>
         )}
 
-        {/* ── UNRECOGNIZED URL ── */}
-        {url && !platform && (
-          <div className="flex items-center gap-3 bg-yellow-500/10 border border-yellow-500/25 rounded-2xl p-4 animate-[fade-in_300ms_ease-out]">
-            <AlertCircle size={18} className="text-yellow-400 flex-shrink-0" />
-            <div>
-              <p className="text-white text-sm font-medium">Platform not recognized</p>
-              <p className="text-[#94A3B8] text-xs mt-0.5">
-                Supported: YouTube, TikTok, Facebook, Instagram, Twitter/X, Vimeo, SoundCloud
+        {/* ── UNIVERSAL DETECTION CARD (replaces old blocker) ── */}
+        {url && platform === 'universal' && (
+          <div
+            className="flex items-center gap-3 rounded-2xl p-4 border animate-[fade-in_300ms_ease-out]"
+            style={{
+              backgroundColor: '#7C5CFF12',
+              borderColor: '#7C5CFF35'
+            }}
+          >
+            <div
+              className="w-10 h-10 rounded-xl flex items-center justify-center text-xl"
+              style={{ backgroundColor: '#7C5CFF25' }}
+            >
+              🌐
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2">
+                <p className="text-white font-semibold text-sm">
+                  Universal Link Detected
+                </p>
+                <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-[#7C5CFF]/20 text-[#7C5CFF] uppercase tracking-wide">
+                  Auto-Route
+                </span>
+              </div>
+              <p className="text-[#94A3B8] text-xs mt-0.5 truncate max-w-[220px]">
+                Will route through universal gateway
               </p>
             </div>
+            <Globe size={20} className="text-[#7C5CFF]" />
           </div>
         )}
 
@@ -508,7 +527,7 @@ export default function DownloadHubPage() {
         <div className="flex items-center justify-center gap-2 py-2">
           <Shield size={12} className="text-[#22C55E]" />
           <p className="text-[10px] text-[#94A3B8]">
-            Client-side only • URL sanitized • Deep link auto-fills • No pop-ups
+            Client-side only • URL sanitized • Deep link auto-fills • Any link works
           </p>
         </div>
       </div>
