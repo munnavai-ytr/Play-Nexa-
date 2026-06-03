@@ -4,12 +4,12 @@
 // Google Files / PLAYit inspired unified local media dashboard
 // Pill toggle [Videos] [Audio] · Local search · Mini-player
 // Gesture video overlay · MP3 extractor modal · Safe folder modal
+// Each component owns its own header (< Video Player / < Music Player)
 // 2GB RAM: URL.createObjectURL · content-visibility: auto · no backdrop-blur
 
 import { useState, useCallback, useRef, useEffect } from 'react'
 import {
-  Video, Music, Search, Shield, X,
-  Zap, HardDrive, ArrowLeft
+  Video, Music, Search, Shield, X, Zap
 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import VideoGridView from '@/components/local/VideoGridView'
@@ -51,6 +51,9 @@ export default function LocalHubPage() {
   // Store file references
   const videoFileMap = useRef<Map<string, File>>(new Map())
   const trackFileMap = useRef<Map<string, File>>(new Map())
+
+  // ── Back handler ──
+  const handleBack = useCallback(() => { router.back() }, [router])
 
   // ── Video playback ──
   const handlePlayVideo = useCallback((video: LocalVideo) => {
@@ -110,7 +113,7 @@ export default function LocalHubPage() {
     setShowSafeFolder(true)
   }, [])
 
-  // ── Close menus when switching tabs ──
+  // ── Reset search when switching tabs ──
   useEffect(() => {
     setSearchQuery('')
   }, [activeView])
@@ -118,42 +121,14 @@ export default function LocalHubPage() {
   return (
     <div className="min-h-screen bg-black pb-24">
       {/* ════════════════════════════════════════════════════════
-          STICKY HEADER — GG / PLAYit style
+          STICKY CONTROL BAR — Tab toggle + Search + Safe Folder
+          Component headers handle their own back/title
           ════════════════════════════════════════════════════════ */}
       <div className="sticky top-0 z-50 bg-black/95 border-b border-neutral-900">
-        {/* Top row: back + title + safe folder */}
-        <div className="px-3 h-12 flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <button
-              onClick={() => router.back()}
-              className="w-8 h-8 rounded-full flex items-center justify-center
-                         active:scale-90 transition-transform duration-100"
-            >
-              <ArrowLeft size={18} className="text-white" />
-            </button>
-            <div className="flex items-center gap-1.5">
-              <HardDrive size={13} className="text-[#7C5CFF]" />
-              <h1 className="text-white text-sm font-bold">Local Media</h1>
-            </div>
-          </div>
-
-          {/* Safe Folder button */}
-          <button
-            onClick={() => {
-              setSafeFolderItem(null)
-              setShowSafeFolder(true)
-            }}
-            className="w-8 h-8 rounded-full bg-neutral-900 border border-neutral-800
-                       flex items-center justify-center
-                       active:scale-90 transition-transform duration-100"
-          >
-            <Shield size={13} className="text-[#22C55E]" />
-          </button>
-        </div>
-
-        {/* ── ZERO-LATENCY TAB BAR ── */}
-        <div className="px-3 pb-2">
-          <div className="flex bg-neutral-900/80 rounded-lg p-[3px] border border-neutral-800/50">
+        {/* ── Tab toggle + Safe Folder ── */}
+        <div className="px-3 pt-2 pb-1.5 flex items-center gap-2">
+          {/* Pill toggle */}
+          <div className="flex-1 flex bg-neutral-900/80 rounded-lg p-[3px] border border-neutral-800/50">
             {([
               { key: 'videos' as View, label: 'Videos', Icon: Video },
               { key: 'music' as View, label: 'Audio', Icon: Music },
@@ -163,30 +138,43 @@ export default function LocalHubPage() {
                 <button
                   key={tab.key}
                   onClick={() => setActiveView(tab.key)}
-                  className={`relative flex-1 h-8 rounded-md flex items-center justify-center gap-1.5
+                  className={`relative flex-1 h-7 rounded-md flex items-center justify-center gap-1.5
                              text-[11px] font-semibold tracking-wide transition-all duration-150
                              ${isActive
                                ? 'bg-[#7C5CFF] text-white shadow-[0_0_10px_rgba(124,92,255,0.25)]'
                                : 'text-neutral-500 active:text-neutral-300'
                              }`}
                 >
-                  <tab.Icon size={13} />
+                  <tab.Icon size={12} />
                   {tab.label}
                 </button>
               )
             })}
           </div>
+
+          {/* Safe Folder button */}
+          <button
+            onClick={() => {
+              setSafeFolderItem(null)
+              setShowSafeFolder(true)
+            }}
+            className="w-8 h-8 rounded-full bg-neutral-900 border border-neutral-800
+                       flex items-center justify-center flex-shrink-0
+                       active:scale-90 transition-transform duration-100"
+          >
+            <Shield size={13} className="text-[#22C55E]" />
+          </button>
         </div>
 
-        {/* ── SEARCH BAR ── */}
-        <div className="px-3 pb-2.5">
-          <div className={`flex items-center gap-2 bg-neutral-900 border rounded-lg px-2.5 h-9
+        {/* ── Search bar ── */}
+        <div className="px-3 pb-2">
+          <div className={`flex items-center gap-2 bg-neutral-900 border rounded-lg px-2.5 h-8
                           transition-colors duration-150
                           ${searchFocused
                             ? 'border-[#7C5CFF]/40'
                             : 'border-neutral-800/50'
                           }`}>
-            <Search size={13} className="text-neutral-600 flex-shrink-0" />
+            <Search size={12} className="text-neutral-600 flex-shrink-0" />
             <input
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
@@ -209,35 +197,34 @@ export default function LocalHubPage() {
       </div>
 
       {/* ════════════════════════════════════════════════════════
-          CONTENT AREA — Instant switch, no re-render lag
+          CONTENT AREA — Each component owns its own header
+          Hidden/block for zero-latency tab switching
           ════════════════════════════════════════════════════════ */}
-      <div className="px-2 pt-3">
-        {/* Videos View */}
-        <div className={activeView === 'videos' ? 'block' : 'hidden'}>
-          <VideoGridView
-            searchQuery={searchQuery}
-            onPlay={handlePlayVideo}
-            onConvertToMp3={handleConvertToMp3Video}
-            onMoveToSafe={handleMoveToSafeVideo}
-          />
-        </div>
+      <div className={activeView === 'videos' ? 'block' : 'hidden'}>
+        <VideoGridView
+          searchQuery={searchQuery}
+          onPlay={handlePlayVideo}
+          onConvertToMp3={handleConvertToMp3Video}
+          onMoveToSafe={handleMoveToSafeVideo}
+          onBack={handleBack}
+        />
+      </div>
 
-        {/* Audio View */}
-        <div className={activeView === 'music' ? 'block' : 'hidden'}>
-          <MusicListView
-            searchQuery={searchQuery}
-            currentTrackId={currentTrack?.id ?? null}
-            isPlaying={isPlaying}
-            onPlay={handlePlayTrack}
-            onPause={handlePauseTrack}
-            onConvertToMp3={handleConvertToMp3Track}
-            onMoveToSafe={handleMoveToSafeTrack}
-          />
-        </div>
+      <div className={activeView === 'music' ? 'block' : 'hidden'}>
+        <MusicListView
+          searchQuery={searchQuery}
+          currentTrackId={currentTrack?.id ?? null}
+          isPlaying={isPlaying}
+          onPlay={handlePlayTrack}
+          onPause={handlePauseTrack}
+          onConvertToMp3={handleConvertToMp3Track}
+          onMoveToSafe={handleMoveToSafeTrack}
+          onBack={handleBack}
+        />
       </div>
 
       {/* ════════════════════════════════════════════════════════
-          GESTURE HINT CARD (videos view only, dismissible)
+          GESTURE HINT CARD (videos view only)
           ════════════════════════════════════════════════════════ */}
       {activeView === 'videos' && !activeVideo && (
         <div className="px-3 pt-4">

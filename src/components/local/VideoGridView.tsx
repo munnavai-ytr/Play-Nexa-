@@ -1,15 +1,16 @@
 'use client'
 
 // ── Play Nexa Local Video Grid ──────────────────────────────
-// Google Files / PLAYit inspired visual grid
-// 3-col mobile · 4-col md · 6-col lg
-// Chronological sectioning by date
+// Google Files (GG) inspired visual grid layout
+// Component header: < Video Player back + + Add button
+// 3-col mobile · 4-col md · gap-2
+// Chronological sectioning by date metadata
 // Glassmorphism play icon · Size overlay · content-visibility: auto
 // Three-dot actions: Play, Convert to MP3, Move to Safe Folder, Delete
 
 import { useState, useCallback, useRef, useEffect } from 'react'
 import {
-  Plus, Trash2, Play, Film,
+  Plus, Trash2, Play, Film, ChevronLeft,
   MoreVertical, FileAudio, Shield
 } from 'lucide-react'
 
@@ -30,6 +31,7 @@ interface VideoGridViewProps {
   onPlay: (video: LocalVideo) => void
   onConvertToMp3: (video: LocalVideo) => void
   onMoveToSafe: (video: LocalVideo) => void
+  onBack: () => void
 }
 
 // ── Chronological date group helper ──
@@ -47,7 +49,7 @@ function getDateGroup(timestamp: number): string {
 }
 
 export default function VideoGridView({
-  searchQuery, onPlay, onConvertToMp3, onMoveToSafe
+  searchQuery, onPlay, onConvertToMp3, onMoveToSafe, onBack
 }: VideoGridViewProps) {
   const [videos, setVideos] = useState<LocalVideo[]>([])
   const [menuOpen, setMenuOpen] = useState<string | null>(null)
@@ -96,7 +98,7 @@ export default function VideoGridView({
       duration: 0,
       file,
       folder: file.webkitRelativePath?.split('/').slice(0, -1).join('/') || 'Downloads',
-      addedAt: now - i, // Slight offset for ordering
+      addedAt: now - i,
     }))
 
     setVideos(prev => {
@@ -109,45 +111,53 @@ export default function VideoGridView({
 
   // ── Get duration & thumbnail ──
   useEffect(() => {
-    videos.forEach(v => {
-      if (v.url) {
-        // Extract duration
-        if (v.duration === 0) {
-          const el = document.createElement('video')
-          el.preload = 'metadata'
-          el.src = v.url
-          el.onloadedmetadata = () => {
-            const dur = el.duration
-            setVideos(prev => {
-              const updated = prev.map(vid =>
-                vid.id === v.id ? { ...vid, duration: dur } : vid
-              )
-              saveMeta(updated)
-              return updated
-            })
-          }
-        }
+    const pendingDurations: string[] = []
+    const pendingThumbnails: string[] = []
 
-        // Generate thumbnail from first frame
-        if (!thumbnailMap[v.id]) {
-          const vid = document.createElement('video')
-          vid.preload = 'metadata'
-          vid.src = v.url
-          vid.currentTime = 1 // Seek to 1 second
-          vid.onloadeddata = () => {
-            try {
-              const canvas = document.createElement('canvas')
-              canvas.width = 240
-              canvas.height = 135
-              const ctx = canvas.getContext('2d')
-              if (ctx) {
-                ctx.drawImage(vid, 0, 0, 240, 135)
-                const dataUrl = canvas.toDataURL('image/jpeg', 0.5)
-                setThumbnailMap(prev => ({ ...prev, [v.id]: dataUrl }))
-              }
-            } catch {}
+    videos.forEach(v => {
+      if (v.url && v.duration === 0) pendingDurations.push(v.id)
+      if (v.url && !thumbnailMap[v.id]) pendingThumbnails.push(v.id)
+    })
+
+    // Extract duration
+    pendingDurations.forEach(vidId => {
+      const v = videos.find(x => x.id === vidId)
+      if (!v?.url) return
+      const el = document.createElement('video')
+      el.preload = 'metadata'
+      el.src = v.url
+      el.onloadedmetadata = () => {
+        const dur = el.duration
+        setVideos(prev => {
+          const updated = prev.map(vid =>
+            vid.id === vidId ? { ...vid, duration: dur } : vid
+          )
+          saveMeta(updated)
+          return updated
+        })
+      }
+    })
+
+    // Generate thumbnails
+    pendingThumbnails.forEach(vidId => {
+      const v = videos.find(x => x.id === vidId)
+      if (!v?.url) return
+      const vid = document.createElement('video')
+      vid.preload = 'metadata'
+      vid.src = v.url
+      vid.currentTime = 1
+      vid.onloadeddata = () => {
+        try {
+          const canvas = document.createElement('canvas')
+          canvas.width = 240
+          canvas.height = 135
+          const ctx = canvas.getContext('2d')
+          if (ctx) {
+            ctx.drawImage(vid, 0, 0, 240, 135)
+            const dataUrl = canvas.toDataURL('image/jpeg', 0.5)
+            setThumbnailMap(prev => ({ ...prev, [vidId]: dataUrl }))
           }
-        }
+        } catch {}
       }
     })
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -217,7 +227,6 @@ export default function VideoGridView({
     return acc
   }, {})
 
-  // Sort groups: most recent first
   const sortedGroups = Object.entries(dateGroups).sort(([, a], [, b]) => {
     const aTime = Math.max(...a.map(v => v.addedAt || v.lastPlayed || 0))
     const bTime = Math.max(...b.map(v => v.addedAt || v.lastPlayed || 0))
@@ -225,7 +234,7 @@ export default function VideoGridView({
   })
 
   return (
-    <div className="space-y-5">
+    <div>
       <input
         ref={fileInputRef}
         type="file"
@@ -235,177 +244,184 @@ export default function VideoGridView({
         className="hidden"
       />
 
-      {/* Add Videos FAB */}
-      <button
-        onClick={pickVideos}
-        className="w-full h-12 rounded-xl border border-dashed border-neutral-700
-                   flex items-center justify-center gap-2.5
-                   text-[#7C5CFF] text-xs font-semibold
-                   active:scale-[0.98] active:bg-white/5
-                   transition-all duration-150"
-      >
-        <Plus size={16} />
-        Add Videos
-      </button>
+      {/* ════════════════════════════════════════════════════════
+          COMPONENT HEADER — "< Video Player" + "+ Add"
+          ════════════════════════════════════════════════════════ */}
+      <div className="flex items-center justify-between px-3 h-12">
+        <button
+          onClick={onBack}
+          className="flex items-center gap-1 active:scale-95 transition-transform duration-100"
+        >
+          <ChevronLeft size={20} className="text-white" />
+          <span className="text-white text-sm font-semibold">Video Player</span>
+        </button>
+        <button
+          onClick={pickVideos}
+          className="flex items-center gap-1 px-3 h-8 rounded-lg
+                     bg-[#7C5CFF]/10 border border-[#7C5CFF]/20
+                     text-[#7C5CFF] text-[11px] font-semibold
+                     active:scale-95 transition-transform duration-100"
+        >
+          <Plus size={14} />
+          Add
+        </button>
+      </div>
 
-      {/* Empty state */}
-      {filtered.length === 0 && (
-        <div className="flex flex-col items-center justify-center py-20">
-          <div className="w-16 h-16 rounded-2xl bg-neutral-900 flex items-center justify-center mb-4">
-            <Film size={28} className="text-neutral-600" />
+      {/* ── Content ── */}
+      <div className="px-2 space-y-5">
+        {/* Empty state */}
+        {filtered.length === 0 && (
+          <div className="flex flex-col items-center justify-center py-20">
+            <div className="w-16 h-16 rounded-2xl bg-neutral-900 flex items-center justify-center mb-4">
+              <Film size={28} className="text-neutral-600" />
+            </div>
+            <p className="text-neutral-500 text-sm font-medium mb-1">No videos found</p>
+            <p className="text-neutral-700 text-xs text-center">
+              {searchQuery ? 'Try a different search term' : 'Tap "+ Add" to pick videos from your device'}
+            </p>
           </div>
-          <p className="text-neutral-500 text-sm font-medium mb-1">No videos found</p>
-          <p className="text-neutral-700 text-xs text-center">
-            {searchQuery ? 'Try a different search term' : 'Tap above to pick videos from your device'}
-          </p>
-        </div>
-      )}
+        )}
 
-      {/* Chronological video grid */}
-      {sortedGroups.map(([dateLabel, vids]) => (
-        <div key={dateLabel}>
-          {/* Date sub-header */}
-          <div className="flex items-center gap-2 mb-2.5">
-            <p className="text-neutral-400 text-[11px] font-semibold tracking-wide">
+        {/* ── Chronological video grid ── */}
+        {sortedGroups.map(([dateLabel, vids]) => (
+          <div key={dateLabel}>
+            {/* Date sub-header */}
+            <p className="text-neutral-400 text-[11px] font-semibold tracking-wide px-1 mb-2">
               {dateLabel}
             </p>
-            <span className="text-neutral-700 text-[10px]">
-              {vids.length} video{vids.length !== 1 ? 's' : ''}
-            </span>
-          </div>
 
-          {/* Video cards grid — GG style */}
-          <div className="grid grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-1.5">
-            {vids.map(video => (
-              <div
-                key={video.id}
-                className="relative rounded-lg overflow-hidden
-                           active:scale-[0.97] transition-transform duration-150"
-                style={{ contentVisibility: 'auto', containIntrinsicSize: '0 180px' }}
-              >
-                {/* Thumbnail area — aspect-ratio accurate */}
-                <button
-                  onClick={() => handlePlay(video)}
-                  className="relative w-full aspect-[4/3] bg-neutral-900 flex items-center justify-center block"
+            {/* ═══ GG Visual Grid: 3-col mobile, 4-col md ═══ */}
+            <div className="grid grid-cols-3 md:grid-cols-4 gap-2">
+              {vids.map(video => (
+                <div
+                  key={video.id}
+                  className="relative rounded-lg overflow-hidden
+                             active:scale-[0.97] transition-transform duration-150"
+                  style={{ contentVisibility: 'auto', containIntrinsicSize: '0 160px' }}
                 >
-                  {/* Thumbnail image or placeholder */}
-                  {thumbnailMap[video.id] ? (
-                    <img
-                      src={thumbnailMap[video.id]}
-                      alt={video.name}
-                      className="absolute inset-0 w-full h-full object-cover"
-                      loading="lazy"
-                    />
-                  ) : (
-                    <Film size={18} className="text-neutral-700 z-10" />
-                  )}
-
-                  {/* Glassmorphism play icon center */}
-                  <div className="absolute inset-0 flex items-center justify-center
-                                  opacity-0 group-hover:opacity-100
-                                  active:opacity-100">
-                    <div className="w-9 h-9 rounded-full bg-white/15
-                                    flex items-center justify-center
-                                    border border-white/20
-                                    shadow-[0_0_12px_rgba(0,0,0,0.5)]">
-                      <Play size={14} className="text-white ml-0.5" fill="white" />
-                    </div>
-                  </div>
-
-                  {/* Duration badge — bottom right */}
-                  {video.duration > 0 && (
-                    <span className="absolute bottom-1 right-1 bg-black/75 text-white
-                                   text-[8px] font-mono font-medium px-1 py-0.5 rounded
-                                   leading-none">
-                      {fmtDur(video.duration)}
-                    </span>
-                  )}
-
-                  {/* Size badge — top right with semi-transparent tag */}
-                  <span className="absolute top-1 right-1 bg-black/60 text-neutral-300
-                                 text-[7px] font-medium px-1 py-0.5 rounded
-                                 leading-none">
-                    {fmtSize(video.size)}
-                  </span>
-
-                  {/* Re-pick indicator */}
-                  {!video.url && (
-                    <span className="absolute top-1 left-1 bg-yellow-500/25 text-yellow-400
-                                   text-[6px] font-bold px-1 py-0.5 rounded-full uppercase
-                                   leading-none">
-                      Re-pick
-                    </span>
-                  )}
-                </button>
-
-                {/* File name under thumbnail — single line */}
-                <div className="px-1 py-1.5 relative">
-                  <p className="text-white text-[10px] font-medium truncate leading-tight">
-                    {video.name}
-                  </p>
-
-                  {/* Three-dot menu trigger — absolute positioned */}
+                  {/* ── Thumbnail area — square/rectangular asset layout ── */}
                   <button
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      setMenuOpen(menuOpen === video.id ? null : video.id)
-                    }}
-                    className="absolute top-1 right-0.5 p-0.5 rounded-full
-                               active:scale-90 transition-transform duration-100"
+                    onClick={() => handlePlay(video)}
+                    className="relative w-full aspect-square bg-neutral-900 flex items-center justify-center block"
                   >
-                    <MoreVertical size={11} className="text-neutral-500" />
-                  </button>
-                </div>
+                    {/* Thumbnail image or placeholder */}
+                    {thumbnailMap[video.id] ? (
+                      <img
+                        src={thumbnailMap[video.id]}
+                        alt={video.name}
+                        className="absolute inset-0 w-full h-full object-cover"
+                        loading="lazy"
+                      />
+                    ) : (
+                      <Film size={18} className="text-neutral-700 z-10" />
+                    )}
 
-                {/* Context menu */}
-                {menuOpen === video.id && (
-                  <div
-                    ref={menuRef}
-                    className="absolute left-0 right-0 top-full z-30 min-w-[150px]
-                               bg-neutral-900 border border-neutral-700 rounded-xl
-                               overflow-hidden shadow-lg shadow-black/60
-                               animate-[fade-in_100ms_ease-out]"
-                  >
+                    {/* ── Glassmorphism play icon — dead center ── */}
+                    <div className="absolute inset-0 flex items-center justify-center
+                                    active:opacity-100">
+                      <div className="w-9 h-9 rounded-full bg-white/15
+                                      flex items-center justify-center
+                                      border border-white/20
+                                      shadow-[0_0_12px_rgba(0,0,0,0.5)]">
+                        <Play size={14} className="text-white ml-0.5" fill="white" />
+                      </div>
+                    </div>
+
+                    {/* ── File size overlay — top-right semi-transparent badge ── */}
+                    <span className="absolute top-1.5 right-1.5 bg-black/65 text-neutral-200
+                                   text-[7px] font-semibold px-1.5 py-[3px] rounded
+                                   leading-none">
+                      {fmtSize(video.size)}
+                    </span>
+
+                    {/* ── Duration badge — bottom-right ── */}
+                    {video.duration > 0 && (
+                      <span className="absolute bottom-1.5 right-1.5 bg-black/75 text-white
+                                     text-[8px] font-mono font-medium px-1 py-0.5 rounded
+                                     leading-none">
+                        {fmtDur(video.duration)}
+                      </span>
+                    )}
+
+                    {/* ── Re-pick indicator ── */}
+                    {!video.url && (
+                      <span className="absolute top-1.5 left-1.5 bg-yellow-500/25 text-yellow-400
+                                     text-[6px] font-bold px-1 py-0.5 rounded-full uppercase
+                                     leading-none">
+                        Re-pick
+                      </span>
+                    )}
+                  </button>
+
+                  {/* ── File name under thumbnail — single line ── */}
+                  <div className="px-1 pt-1.5 pb-1 relative">
+                    <p className="text-white text-[10px] font-medium truncate leading-tight pr-5">
+                      {video.name}
+                    </p>
+
+                    {/* Three-dot menu trigger */}
                     <button
-                      onClick={() => { handlePlay(video); setMenuOpen(null) }}
-                      className="flex items-center gap-2.5 w-full px-3 py-2.5 text-white text-[11px]
-                                 font-medium active:bg-neutral-800 transition-colors duration-100"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setMenuOpen(menuOpen === video.id ? null : video.id)
+                      }}
+                      className="absolute top-1 right-0 p-1 rounded-full
+                                 active:scale-90 transition-transform duration-100"
                     >
-                      <Play size={12} className="text-[#7C5CFF]" />
-                      Play
-                    </button>
-                    <button
-                      onClick={() => { onConvertToMp3(video); setMenuOpen(null) }}
-                      className="flex items-center gap-2.5 w-full px-3 py-2.5 text-white text-[11px]
-                                 font-medium active:bg-neutral-800 transition-colors duration-100"
-                    >
-                      <FileAudio size={12} className="text-[#00D4FF]" />
-                      Convert to MP3
-                    </button>
-                    <button
-                      onClick={() => { onMoveToSafe(video); setMenuOpen(null) }}
-                      className="flex items-center gap-2.5 w-full px-3 py-2.5 text-white text-[11px]
-                                 font-medium active:bg-neutral-800 transition-colors duration-100"
-                    >
-                      <Shield size={12} className="text-[#22C55E]" />
-                      Move to Safe
-                    </button>
-                    <div className="border-t border-neutral-800" />
-                    <button
-                      onClick={() => removeVideo(video.id)}
-                      className="flex items-center gap-2.5 w-full px-3 py-2.5 text-red-400 text-[11px]
-                                 font-medium active:bg-neutral-800 transition-colors duration-100"
-                    >
-                      <Trash2 size={12} />
-                      Delete
+                      <MoreVertical size={12} className="text-neutral-500" />
                     </button>
                   </div>
-                )}
-              </div>
-            ))}
+
+                  {/* ── Context menu ── */}
+                  {menuOpen === video.id && (
+                    <div
+                      ref={menuRef}
+                      className="absolute left-0 right-0 top-full z-30 min-w-[150px]
+                                 bg-neutral-900 border border-neutral-700 rounded-xl
+                                 overflow-hidden shadow-lg shadow-black/60
+                                 animate-[fade-in_100ms_ease-out]"
+                    >
+                      <button
+                        onClick={() => { handlePlay(video); setMenuOpen(null) }}
+                        className="flex items-center gap-2.5 w-full px-3 py-2.5 text-white text-[11px]
+                                   font-medium active:bg-neutral-800 transition-colors duration-100"
+                      >
+                        <Play size={12} className="text-[#7C5CFF]" />
+                        Play
+                      </button>
+                      <button
+                        onClick={() => { onConvertToMp3(video); setMenuOpen(null) }}
+                        className="flex items-center gap-2.5 w-full px-3 py-2.5 text-white text-[11px]
+                                   font-medium active:bg-neutral-800 transition-colors duration-100"
+                      >
+                        <FileAudio size={12} className="text-[#00D4FF]" />
+                        Convert to MP3
+                      </button>
+                      <button
+                        onClick={() => { onMoveToSafe(video); setMenuOpen(null) }}
+                        className="flex items-center gap-2.5 w-full px-3 py-2.5 text-white text-[11px]
+                                   font-medium active:bg-neutral-800 transition-colors duration-100"
+                      >
+                        <Shield size={12} className="text-[#22C55E]" />
+                        Move to Safe
+                      </button>
+                      <div className="border-t border-neutral-800" />
+                      <button
+                        onClick={() => removeVideo(video.id)}
+                        className="flex items-center gap-2.5 w-full px-3 py-2.5 text-red-400 text-[11px]
+                                   font-medium active:bg-neutral-800 transition-colors duration-100"
+                      >
+                        <Trash2 size={12} />
+                        Delete
+                      </button>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
           </div>
-        </div>
-      ))}
+        ))}
+      </div>
     </div>
   )
 }

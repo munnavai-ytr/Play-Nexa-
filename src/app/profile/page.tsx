@@ -5,7 +5,7 @@ import {
   Settings, ChevronRight, Download,
   Heart, ListMusic, Gamepad2,
   Moon, Bell, HelpCircle,
-  Star, Share2, Clock, HardDrive
+  Star, Share2, Clock
 } from 'lucide-react'
 import { useProfile } from '@/hooks/useProfile'
 import { getSettings, saveSettings } from '@/lib/settings'
@@ -120,17 +120,6 @@ export default function ProfilePage() {
   }
 
   const ACTIVITY_ITEMS = [
-    {
-      icon: (
-        <div className="w-[18px] h-[18px] rounded-md bg-gradient-to-br from-[#7C5CFF] to-[#00D4FF]
-                        flex items-center justify-center">
-          <HardDrive size={11} className="text-white" />
-        </div>
-      ),
-      label: 'Local Media',
-      sublabel: 'Videos & Music',
-      onTap: () => router.push('/local')
-    },
     {
       icon: <Download size={18} className="text-blue-400" />,
       label: 'Recent Downloads',
@@ -295,16 +284,10 @@ export default function ProfilePage() {
                                 justify-center flex-shrink-0">
                   {item.icon}
                 </div>
-                <div className="flex-1 text-left min-w-0">
-                  <p className="text-white text-sm font-medium">
-                    {item.label}
-                  </p>
-                  {'sublabel' in item && item.sublabel && (
-                    <p className="text-[#94A3B8] text-[10px] mt-0.5">
-                      {item.sublabel}
-                    </p>
-                  )}
-                </div>
+                <p className="text-white text-sm
+                              font-medium flex-1 text-left">
+                  {item.label}
+                </p>
                 <ChevronRight size={16}
                               className="text-[#94A3B8]" />
               </button>

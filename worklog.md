@@ -92,3 +92,24 @@ Stage Summary:
 - profile/page.tsx: Added "Local Media" entry with gradient icon and "Videos & Music" sublabel
 - All localStorage keys preserved (pn_local_videos_v2, pn_local_tracks_v2)
 - No breaking changes to existing modules
+
+---
+Task ID: gg-style-ui-refactor
+Agent: Super Z (main)
+Task: Strict UI refactor of VideoGridView and MusicListView to match Google Files (GG) style — no new pages, no profile changes
+
+Work Log:
+- Read current VideoGridView.tsx, MusicListView.tsx, page.tsx, profile/page.tsx
+- Rebuilt VideoGridView.tsx with: component-owned header ("< Video Player" back + "+ Add" button), 3-col mobile / 4-col md grid with gap-2, square aspect-square thumbnails, file size overlay top-right with bg-black/65 badge, glassmorphism play icon center (bg-white/15 + border-white/20), canvas-based thumbnail generation, chronological sectioning (Today/Yesterday/weekday/date), onBack prop
+- Rebuilt MusicListView.tsx with: component-owned header ("< Music Player" back + "+ Add" button), "Online Music" promotional banner (gradient card linking to /music), dark-gray rounded square with music note icon on left, bold track title + "size • timeAgo" sub-metadata line, premium vertical three-dot MoreVertical menu, onBack prop, useRouter for banner navigation
+- Updated page.tsx: Removed redundant shared header (back button, "Local Media" title), kept pill toggle [Videos] [Audio] + search bar + Safe Folder button in sticky control bar, passes onBack={() => router.back()} to both components
+- Reverted profile page: Removed "Local Media" activity entry, HardDrive import, sublabel rendering — restored to original 5 activity items per CRITICAL RULE 1
+- Build verified: npx next build compiled successfully with zero errors
+
+Stage Summary:
+- VideoGridView.tsx: GG-style visual grid with component header, 3/4-col grid, glassmorphism play, size overlay, chronological sections
+- MusicListView.tsx: GG-style list with component header, Online Music banner, note icon rows, bold title + size•date, three-dot menu
+- page.tsx: Simplified to tab toggle + search + safe folder, components own their headers
+- profile/page.tsx: Fully reverted to original state (no Local Media entry)
+- All backend logic, file-picking, delete, and modals remain 100% intact
+- localStorage keys preserved: pn_local_videos_v2, pn_local_tracks_v2
