@@ -69,3 +69,26 @@ Stage Summary:
 - Three-dot menus with Convert to MP3 + Move to Safe Folder actions
 - AMOLED black (bg-black + border-neutral-800) throughout
 - Build verified passing
+
+---
+Task ID: local-hub-gg-refactor
+Agent: Super Z (main)
+Task: Rebuild Local Hub with Google Files / PLAYit inspired design - GG style visual grid, chronological sectioning, clean audio list, profile integration
+
+Work Log:
+- Read existing VideoGridView.tsx (321 lines), MusicListView.tsx (294 lines), local/page.tsx (310 lines), profile/page.tsx (647 lines), MiniPlayer.tsx (136 lines), VideoPlayer.tsx (341 lines), globals.css (243 lines)
+- Completely rebuilt VideoGridView.tsx with: 3-col mobile / 4-col md / 6-col lg responsive grid, chronological date sectioning (Today/Yesterday/weekday/date), aspect-[4/3] thumbnail containers, file size overlay top-right with semi-transparent tag, glassmorphism play icon center, canvas-based thumbnail generation, outside-click menu close
+- Completely rebuilt MusicListView.tsx with: Square music note icon on left, bold track title, sub-metadata line (size • relative time), three-dot context menu, timeAgo() helper, outside-click menu close
+- Rebuilt local/page.tsx with: back button navigation, GG-style compact tab bar (Videos/Audio), search bar with focus state, hidden/block tab switching (no re-mount), persistent mini-player survives tab switches, gesture hint card
+- Added Local Media Dashboard entry to Profile page Activity section with gradient icon (purple→cyan HardDrive), "Videos & Music" sublabel, routes to /local
+- Updated ACTIVITY_ITEMS type to support optional sublabel field
+- Updated activity item rendering to show sublabel text
+- Build verified: `npx next build` compiled successfully with zero errors
+
+Stage Summary:
+- VideoGridView.tsx: GG-style 3/4/6-col grid with chronological sectioning, thumbnail generation, glassmorphism play icon
+- MusicListView.tsx: GG-style clean list with music note icon, bold title, size•date metadata
+- local/page.tsx: GG-style tab bar, search, back button, persistent mini-player
+- profile/page.tsx: Added "Local Media" entry with gradient icon and "Videos & Music" sublabel
+- All localStorage keys preserved (pn_local_videos_v2, pn_local_tracks_v2)
+- No breaking changes to existing modules

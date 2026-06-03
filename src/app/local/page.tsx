@@ -1,16 +1,17 @@
 'use client'
 
 // ── Play Nexa Local Hub ─────────────────────────────────────
-// PLAYit-inspired unified local media dashboard
-// Pill toggle [📹 Videos] [🎵 Music] · Local search · Mini-player
+// Google Files / PLAYit inspired unified local media dashboard
+// Pill toggle [Videos] [Audio] · Local search · Mini-player
 // Gesture video overlay · MP3 extractor modal · Safe folder modal
 // 2GB RAM: URL.createObjectURL · content-visibility: auto · no backdrop-blur
 
 import { useState, useCallback, useRef, useEffect } from 'react'
 import {
   Video, Music, Search, Shield, X,
-  Zap, HardDrive
+  Zap, HardDrive, ArrowLeft
 } from 'lucide-react'
+import { useRouter } from 'next/navigation'
 import VideoGridView from '@/components/local/VideoGridView'
 import type { LocalVideo } from '@/components/local/VideoGridView'
 import MusicListView from '@/components/local/MusicListView'
@@ -23,8 +24,10 @@ import MP3ExtractorModal from '@/components/local/MP3ExtractorModal'
 type View = 'videos' | 'music'
 
 export default function LocalHubPage() {
-  const [activeView, setActiveView]   = useState<View>('videos')
+  const router = useRouter()
+  const [activeView, setActiveView] = useState<View>('videos')
   const [searchQuery, setSearchQuery] = useState('')
+  const [searchFocused, setSearchFocused] = useState(false)
 
   // ── Video player overlay ──
   const [activeVideo, setActiveVideo] = useState<LocalVideo | null>(null)
@@ -45,7 +48,7 @@ export default function LocalHubPage() {
     name: string; file: File | null
   }>({ name: '', file: null })
 
-  // Store video files for extractor access
+  // Store file references
   const videoFileMap = useRef<Map<string, File>>(new Map())
   const trackFileMap = useRef<Map<string, File>>(new Map())
 
@@ -75,7 +78,6 @@ export default function LocalHubPage() {
   }, [])
 
   const handleNextTrack = useCallback(() => {
-    // For now, just stop. In future, advance to next track in list.
     setIsPlaying(false)
     setCurrentTrack(null)
   }, [])
@@ -99,36 +101,40 @@ export default function LocalHubPage() {
 
   // ── Move to Safe Folder ──
   const handleMoveToSafeVideo = useCallback((video: LocalVideo) => {
-    setSafeFolderItem({
-      name: video.name,
-      type: 'video',
-      size: video.size,
-    })
+    setSafeFolderItem({ name: video.name, type: 'video', size: video.size })
     setShowSafeFolder(true)
   }, [])
 
   const handleMoveToSafeTrack = useCallback((track: LocalTrack) => {
-    setSafeFolderItem({
-      name: track.name,
-      type: 'audio',
-      size: track.size,
-    })
+    setSafeFolderItem({ name: track.name, type: 'audio', size: track.size })
     setShowSafeFolder(true)
   }, [])
+
+  // ── Close menus when switching tabs ──
+  useEffect(() => {
+    setSearchQuery('')
+  }, [activeView])
 
   return (
     <div className="min-h-screen bg-black pb-24">
       {/* ════════════════════════════════════════════════════════
-          STICKY HEADER
+          STICKY HEADER — GG / PLAYit style
           ════════════════════════════════════════════════════════ */}
-      <div className="sticky top-0 z-50 bg-black border-b border-neutral-800">
-        {/* Top bar */}
-        <div className="px-4 h-12 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="w-7 h-7 rounded-lg bg-[#7C5CFF]/15 flex items-center justify-center">
-              <HardDrive size={14} className="text-[#7C5CFF]" />
+      <div className="sticky top-0 z-50 bg-black/95 border-b border-neutral-900">
+        {/* Top row: back + title + safe folder */}
+        <div className="px-3 h-12 flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <button
+              onClick={() => router.back()}
+              className="w-8 h-8 rounded-full flex items-center justify-center
+                         active:scale-90 transition-transform duration-100"
+            >
+              <ArrowLeft size={18} className="text-white" />
+            </button>
+            <div className="flex items-center gap-1.5">
+              <HardDrive size={13} className="text-[#7C5CFF]" />
+              <h1 className="text-white text-sm font-bold">Local Media</h1>
             </div>
-            <h1 className="text-white text-sm font-bold">Local Hub</h1>
           </div>
 
           {/* Safe Folder button */}
@@ -137,34 +143,34 @@ export default function LocalHubPage() {
               setSafeFolderItem(null)
               setShowSafeFolder(true)
             }}
-            className="w-9 h-9 rounded-full bg-neutral-900 border border-neutral-800
+            className="w-8 h-8 rounded-full bg-neutral-900 border border-neutral-800
                        flex items-center justify-center
                        active:scale-90 transition-transform duration-100"
           >
-            <Shield size={15} className="text-[#22C55E]" />
+            <Shield size={13} className="text-[#22C55E]" />
           </button>
         </div>
 
-        {/* ── PILL TOGGLE ── */}
-        <div className="px-4 pb-2">
-          <div className="flex bg-neutral-900 rounded-xl p-1 border border-neutral-800">
+        {/* ── ZERO-LATENCY TAB BAR ── */}
+        <div className="px-3 pb-2">
+          <div className="flex bg-neutral-900/80 rounded-lg p-[3px] border border-neutral-800/50">
             {([
-              { key: 'videos' as View, label: 'Videos', icon: Video, emoji: '📹' },
-              { key: 'music' as View, label: 'Music', icon: Music, emoji: '🎵' },
+              { key: 'videos' as View, label: 'Videos', Icon: Video },
+              { key: 'music' as View, label: 'Audio', Icon: Music },
             ]).map(tab => {
               const isActive = activeView === tab.key
               return (
                 <button
                   key={tab.key}
                   onClick={() => setActiveView(tab.key)}
-                  className={`relative flex-1 h-9 rounded-lg flex items-center justify-center gap-1.5
-                             text-xs font-semibold transition-all duration-200
+                  className={`relative flex-1 h-8 rounded-md flex items-center justify-center gap-1.5
+                             text-[11px] font-semibold tracking-wide transition-all duration-150
                              ${isActive
-                               ? 'bg-[#7C5CFF] text-white shadow-[0_0_12px_rgba(124,92,255,0.3)]'
+                               ? 'bg-[#7C5CFF] text-white shadow-[0_0_10px_rgba(124,92,255,0.25)]'
                                : 'text-neutral-500 active:text-neutral-300'
                              }`}
                 >
-                  <span className="text-sm">{tab.emoji}</span>
+                  <tab.Icon size={13} />
                   {tab.label}
                 </button>
               )
@@ -173,15 +179,21 @@ export default function LocalHubPage() {
         </div>
 
         {/* ── SEARCH BAR ── */}
-        <div className="px-4 pb-3">
-          <div className="flex items-center gap-2 bg-neutral-900 border border-neutral-800
-                          rounded-xl px-3 h-10">
-            <Search size={14} className="text-neutral-600 flex-shrink-0" />
+        <div className="px-3 pb-2.5">
+          <div className={`flex items-center gap-2 bg-neutral-900 border rounded-lg px-2.5 h-9
+                          transition-colors duration-150
+                          ${searchFocused
+                            ? 'border-[#7C5CFF]/40'
+                            : 'border-neutral-800/50'
+                          }`}>
+            <Search size={13} className="text-neutral-600 flex-shrink-0" />
             <input
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
-              placeholder={`Search ${activeView}...`}
-              className="flex-1 bg-transparent text-white text-xs outline-none
+              onFocus={() => setSearchFocused(true)}
+              onBlur={() => setSearchFocused(false)}
+              placeholder={`Search ${activeView === 'videos' ? 'videos' : 'audio'}...`}
+              className="flex-1 bg-transparent text-white text-[11px] outline-none
                          placeholder-neutral-600 min-w-0"
             />
             {searchQuery && (
@@ -189,7 +201,7 @@ export default function LocalHubPage() {
                 onClick={() => setSearchQuery('')}
                 className="p-1 active:scale-90 transition-transform duration-100"
               >
-                <X size={12} className="text-neutral-500" />
+                <X size={11} className="text-neutral-500" />
               </button>
             )}
           </div>
@@ -197,19 +209,21 @@ export default function LocalHubPage() {
       </div>
 
       {/* ════════════════════════════════════════════════════════
-          CONTENT AREA
+          CONTENT AREA — Instant switch, no re-render lag
           ════════════════════════════════════════════════════════ */}
-      <div className="px-4 pt-4">
-        {activeView === 'videos' && (
+      <div className="px-2 pt-3">
+        {/* Videos View */}
+        <div className={activeView === 'videos' ? 'block' : 'hidden'}>
           <VideoGridView
             searchQuery={searchQuery}
             onPlay={handlePlayVideo}
             onConvertToMp3={handleConvertToMp3Video}
             onMoveToSafe={handleMoveToSafeVideo}
           />
-        )}
+        </div>
 
-        {activeView === 'music' && (
+        {/* Audio View */}
+        <div className={activeView === 'music' ? 'block' : 'hidden'}>
           <MusicListView
             searchQuery={searchQuery}
             currentTrackId={currentTrack?.id ?? null}
@@ -219,35 +233,35 @@ export default function LocalHubPage() {
             onConvertToMp3={handleConvertToMp3Track}
             onMoveToSafe={handleMoveToSafeTrack}
           />
-        )}
+        </div>
       </div>
 
       {/* ════════════════════════════════════════════════════════
-          GESTURE HINT CARD (videos view only)
+          GESTURE HINT CARD (videos view only, dismissible)
           ════════════════════════════════════════════════════════ */}
       {activeView === 'videos' && !activeVideo && (
-        <div className="px-4 pt-4">
-          <div className="bg-neutral-900 border border-neutral-800 rounded-2xl p-4">
-            <div className="flex items-center gap-2 mb-3">
-              <Zap size={12} className="text-[#7C5CFF]" />
-              <p className="text-white text-[10px] font-semibold uppercase tracking-wider">
+        <div className="px-3 pt-4">
+          <div className="bg-neutral-900/50 border border-neutral-800/50 rounded-xl p-3">
+            <div className="flex items-center gap-1.5 mb-2">
+              <Zap size={10} className="text-[#7C5CFF]" />
+              <p className="text-neutral-400 text-[9px] font-semibold uppercase tracking-wider">
                 Gesture Controls
               </p>
             </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="bg-black rounded-xl p-3">
-                <p className="text-neutral-500 text-[9px] uppercase tracking-wider mb-1">
+            <div className="grid grid-cols-2 gap-2">
+              <div className="bg-black rounded-lg p-2.5">
+                <p className="text-neutral-600 text-[8px] uppercase tracking-wider mb-0.5">
                   Left half
                 </p>
-                <p className="text-yellow-400 text-xs font-semibold">
+                <p className="text-yellow-400 text-[10px] font-semibold">
                   ↕ Brightness
                 </p>
               </div>
-              <div className="bg-black rounded-xl p-3">
-                <p className="text-neutral-500 text-[9px] uppercase tracking-wider mb-1">
+              <div className="bg-black rounded-lg p-2.5">
+                <p className="text-neutral-600 text-[8px] uppercase tracking-wider mb-0.5">
                   Right half
                 </p>
-                <p className="text-[#00D4FF] text-xs font-semibold">
+                <p className="text-[#00D4FF] text-[10px] font-semibold">
                   ↕ Volume
                 </p>
               </div>
