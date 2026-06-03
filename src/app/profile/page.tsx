@@ -5,8 +5,9 @@ import {
   Settings, ChevronRight, Download,
   Heart, ListMusic, Gamepad2,
   Moon, Bell, HelpCircle,
-  Star, Share2, Clock
+  Star, Share2, Clock, Lock
 } from 'lucide-react'
+import PrivateLocker from '@/components/profile/PrivateLocker'
 import { useProfile } from '@/hooks/useProfile'
 import { getSettings, saveSettings } from '@/lib/settings'
 import { applyTheme } from '@/lib/theme'
@@ -27,6 +28,7 @@ export default function ProfilePage() {
   const [ratingValue, setRatingValue] = useState(0)
   const [ratingDone, setRatingDone] = useState(false)
   const [shareToast, setShareToast] = useState(false)
+  const [showPrivateLocker, setShowPrivateLocker] = useState(false)
 
   useEffect(() => {
     const s = getSettings()
@@ -260,6 +262,38 @@ export default function ProfilePage() {
               </div>
             ))}
           </div>
+        </div>
+
+        {/* Private Folder */}
+        <div>
+          <p className="text-white font-semibold
+                        text-sm mb-3">
+            Privacy
+          </p>
+          <button
+            onClick={() => setShowPrivateLocker(true)}
+            className="w-full flex items-center gap-4
+                       bg-[#111827] border border-[#1E293B]
+                       rounded-2xl p-4
+                       active:scale-95
+                       transition-transform duration-150"
+          >
+            <div className="w-9 h-9 rounded-xl
+                            bg-[#0F172A] flex items-center
+                            justify-center flex-shrink-0">
+              <Lock size={18} className="text-[#00D4FF]" />
+            </div>
+            <div className="flex-1 text-left min-w-0">
+              <p className="text-white text-sm font-medium">
+                Private Folder
+              </p>
+              <p className="text-[#94A3B8] text-[10px] mt-0.5">
+                PIN-protected vault for hidden media
+              </p>
+            </div>
+            <ChevronRight size={16}
+                          className="text-[#94A3B8]" />
+          </button>
         </div>
 
         {/* Activity */}
@@ -511,6 +545,11 @@ export default function ProfilePage() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Private Locker Overlay */}
+      {showPrivateLocker && (
+        <PrivateLocker onClose={() => setShowPrivateLocker(false)} />
       )}
 
       {/* Edit Profile Modal */}

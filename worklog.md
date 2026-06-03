@@ -113,3 +113,33 @@ Stage Summary:
 - profile/page.tsx: Fully reverted to original state (no Local Media entry)
 - All backend logic, file-picking, delete, and modals remain 100% intact
 - localStorage keys preserved: pn_local_videos_v2, pn_local_tracks_v2
+
+---
+Task ID: private-locker-profile
+Agent: Super Z (main)
+Task: Implement Videmate-style Private Locker inside Profile page with 3 states
+
+Work Log:
+- Read safe-store.ts (XOR+Base64 encrypted localStorage), PinDial.tsx (4-digit dial pad), SafeFolderModal.tsx (existing safe folder overlay)
+- Created /src/components/profile/PrivateLocker.tsx (~450 lines) with 3 state machine:
+  - State 1 "set-password": AMOLED dark screen, neon-teal Lock icon with gradient glow, "Set Password" heading, description subtext, crimson red "SET PASSWORD" button → triggers PIN setup
+  - State 1b "setup dial": Enter 4-digit PIN → Confirm PIN flow, neon-teal dots fill with glow, shake on mismatch
+  - State 2 "enter-pin": Sleek dark dial pad (1-9, 0, backspace), 4 purple dots auto-fill, auto-validate on 4th digit, green success flash, shake + red border on incorrect PIN
+  - State 3 "unlocked": Private Vault with Videos/Audio micro-tabs, "+ Add File" imports device files, 3-col video grid with glassmorphism play icons, audio list with play/pause, EyeOff "Unhide" action releases files back to public lists, Trash2 "Delete" removes permanently, HTML5 video/audio player overlays, Lock button to re-lock
+- Integrated into Profile page:
+  - Added Lock import from lucide-react
+  - Added PrivateLocker import from @/components/profile/PrivateLocker
+  - Added showPrivateLocker state
+  - Added "Privacy" section with "Private Folder" row (Lock icon in cyan, sublabel "PIN-protected vault for hidden media")
+  - Added PrivateLocker overlay rendering when showPrivateLocker is true
+- Reuses safe-store.ts encrypted storage: pn_safe_pin for hashed PIN, pn_safe_data for XOR-encrypted entries
+- "Unhide" writes back to pn_local_videos_v2 / pn_local_tracks_v2
+- Build verified: npx next build compiled with zero errors
+
+Stage Summary:
+- PrivateLocker.tsx: 3-state Videmate-style locker (Set Password → Enter Passcode → Unlocked Vault)
+- Profile page: "Privacy" section with "Private Folder" entry between Stats and Activity
+- All existing modules untouched: bottom nav, Movie Hub, Download Hub, Local Hub
+- Real file import via <input type="file" accept="video/*,audio/*">
+- Real HTML5 playback in vault (video controls, audio player)
+- Unhide action moves files from encrypted vault back to public local media
