@@ -4,6 +4,8 @@ import "./globals.css";
 import BottomNav from "@/components/layout/BottomNav";
 import OfflineIndicator from "@/components/OfflineIndicator";
 import ServiceWorkerRegistrar from "@/components/ServiceWorkerRegistrar";
+import { DisguiseProvider } from "@/lib/disguise-context";
+import DisguiseWrapper from "@/components/layout/DisguiseWrapper";
 
 const inter = Inter({
   variable: "--font-geist-sans",
@@ -76,12 +78,16 @@ export default function RootLayout({
       <body
         className={`${inter.variable} antialiased bg-pn-bg text-white min-h-screen`}
       >
-        <OfflineIndicator />
-        <ServiceWorkerRegistrar />
-        <main className="min-h-screen">
-          {children}
-        </main>
-        <BottomNav />
+        <DisguiseProvider>
+          <DisguiseWrapper>
+            <OfflineIndicator />
+            <ServiceWorkerRegistrar />
+            <main className="min-h-screen">
+              {children}
+            </main>
+            <BottomNav />
+          </DisguiseWrapper>
+        </DisguiseProvider>
       </body>
     </html>
   );

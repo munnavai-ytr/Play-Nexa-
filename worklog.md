@@ -204,3 +204,54 @@ Stage Summary:
 - Unchanged: src/lib/idb-store.ts, src/lib/safe-store.ts, globals.css
 - Build: PASS (0 errors)
 - APK compatibility: All APIs verified safe for Capacitor WebView
+
+---
+Task ID: security-suite-build
+Agent: Main
+Task: Build Play Nexa Advanced Security & Icon Disguise Suite (3 flagship features)
+
+Work Log:
+- Read settings/page.tsx (481 lines), layout.tsx (89 lines), profile/page.tsx structure
+- Created src/lib/app-lock-store.ts — encrypted storage for App Lock config
+  - Pattern hash verification, master backdoor PIN (obfuscated), security Q&A
+  - Disguise mode persistence, secret sequence verification
+  - XOR+Base64 encryption, APK/Capacitor safe
+- Created src/lib/disguise-context.tsx — React context for calculator camouflage mode
+  - DisguiseProvider wraps entire app, persists state to localStorage
+  - activateDisguise/deactivateDisguise functions
+- Created src/components/settings/AppLock.tsx — Master App Lock UI
+  - 3×3 canvas-based Pattern Lock with touch/mouse draw vectors
+  - Biometric Lock toggle (Fingerprint/FaceID)
+  - Security Q&A setup with preset questions
+  - Forgot Pattern recovery flow
+  - Emergency master PIN bypass
+  - Shake animation on error, active badge on success
+- Created src/components/settings/CalculatorDisguise.tsx — Full calculator camouflage
+  - Real math: +, -, ×, ÷ with proper operator precedence
+  - Dark AMOLED theme matching iOS calculator style
+  - Secret trigger: types "2026=" to deactivate disguise (configurable)
+  - Expression display + result display
+  - Zero-latency switch via DisguiseContext
+- Created src/components/settings/AppLookCustomizer.tsx — Icon & Label customizer
+  - 6 preset icons: ChatGPT, Clock, Settings, Calculator, Camera, Books
+  - Custom icon upload (File API → data URL)
+  - Custom display label input
+  - Home screen shortcut creation with 3-tier fallback:
+    1. Capacitor native plugin bridge
+    2. PWA install prompt
+    3. Dynamic manifest update + manual instructions
+  - Live preview of shortcut appearance
+- Created src/components/layout/DisguiseWrapper.tsx — Conditional rendering wrapper
+- Updated src/app/layout.tsx — Added DisguiseProvider + DisguiseWrapper
+- Updated src/app/settings/page.tsx — Added 3 new sections:
+  - "App Lock & Pattern" section with AppLock component
+  - "App Hide — Disguise Mode" section with DisguiseSection inline component
+  - "App Icon & Label Customizer" section with AppLookCustomizer component
+- Build verified: zero errors, all 22 routes generated
+
+Stage Summary:
+- New files (6): app-lock-store.ts, disguise-context.tsx, AppLock.tsx, CalculatorDisguise.tsx, AppLookCustomizer.tsx, DisguiseWrapper.tsx
+- Modified files (2): layout.tsx, settings/page.tsx
+- Build: PASS (0 errors)
+- All APIs verified APK/Capacitor safe (no WebCrypto, no Web Share, no beforeunload)
+- Master backdoor PIN: obfuscated in code, not stored as plaintext

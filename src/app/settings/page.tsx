@@ -5,7 +5,7 @@ import {
   ChevronLeft, Palette, Zap,
   Globe, Shield, HardDrive,
   Moon, Cpu, Trash2,
-  RotateCcw, Settings2
+  RotateCcw, Settings2, Eye, Paintbrush
 } from 'lucide-react'
 import {
   getSettings, saveSettings,
@@ -16,6 +16,10 @@ import {
   Theme
 } from '@/lib/theme'
 import { getStorageInfo } from '@/lib/db'
+import AppLock from '@/components/settings/AppLock'
+import AppLookCustomizer from '@/components/settings/AppLookCustomizer'
+import { useDisguise } from '@/lib/disguise-context'
+import { loadLockConfig, saveLockConfig } from '@/lib/app-lock-store'
 
 export default function SettingsPage() {
   const router = useRouter()
@@ -295,6 +299,24 @@ export default function SettingsPage() {
           </div>
         </Section>
 
+        {/* ── APP LOCK ── */}
+        <Section icon={<Shield size={16} />}
+                 title="App Lock & Pattern">
+          <AppLock />
+        </Section>
+
+        {/* ── DISGUISE MODE ── */}
+        <Section icon={<Eye size={16} />}
+                 title="App Hide — Disguise Mode">
+          <DisguiseSection />
+        </Section>
+
+        {/* ── APP LOOK CUSTOMIZER ── */}
+        <Section icon={<Paintbrush size={16} />}
+                 title="App Icon & Label Customizer">
+          <AppLookCustomizer />
+        </Section>
+
         {/* ── STORAGE ── */}
         <Section icon={<HardDrive size={16} />}
                  title="Storage">
@@ -433,6 +455,56 @@ function Section({
         </p>
       </div>
       {children}
+    </div>
+  )
+}
+
+// Disguise Mode Section
+function DisguiseSection() {
+  const { disguised, activateDisguise, deactivateDisguise } = useDisguise()
+  const [lockCfg, setLockCfg] = useState(loadLockConfig())
+
+  const handleToggle = () => {
+    if (disguised) {
+      deactivateDisguise()
+    } else {
+      saveLockConfig({ disguiseEnabled: true })
+      setLockCfg(loadLockConfig())
+      activateDisguise()
+    }
+  }
+
+  return (
+    <div className="space-y-0">
+      <div className="flex items-center gap-4 px-4 py-3.5">
+        <div className="flex-1">
+          <p className="text-white text-sm font-medium">Activate Disguise Mode</p>
+          <p className="text-[#94A3B8] text-xs mt-0.5">
+            Hides app behind a working calculator. Enter <span className="text-[#7C5CFF] font-mono font-bold">{lockCfg.secretSequence || '2026='}</span> to unlock.
+          </p>
+        </div>
+        <button
+          onClick={handleToggle}
+          className={`w-12 h-6 rounded-full relative flex-shrink-0 transition-colors duration-200
+                     ${disguised ? 'bg-[#7C5CFF]' : 'bg-[#1E293B]'}`}>
+          <div className={`absolute top-0.5 w-5 h-5 rounded-full bg-white transition-transform duration-200
+                          ${disguised ? 'translate-x-6' : 'translate-x-0.5'}`} />
+        </button>
+      </div>
+      {disguised && (
+        <div className="flex items-center gap-2 px-4 py-2 mx-4 mb-2 rounded-lg bg-[#7C5CFF]/5 border border-[#7C5CFF]/15">
+          <Eye size={12} className="text-[#7C5CFF]" />
+          <p className="text-[#7C5CFF]/80 text-[10px] font-medium">
+            Disguise active — Calculator mode enabled
+          </p>
+        </div>
+      )}
+      <div className="px-4 py-3 border-t border-[#1E293B]">
+        <p className="text-[#94A3B8] text-[10px] leading-relaxed">
+          When enabled, opening the app shows a fully functional dark calculator.
+          Type your secret sequence to switch back to Play Nexa instantly.
+        </p>
+      </div>
     </div>
   )
 }
