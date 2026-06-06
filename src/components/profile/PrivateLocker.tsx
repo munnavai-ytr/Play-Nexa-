@@ -4,29 +4,37 @@
 // Videmate-style private folder inside Profile
 // State 1: Set Password (neon-teal lock + crimson button)
 // State 2: Enter Passcode (4-dot dial pad with auto-validate)
-// State 3: Unlocked Vault (Videos/Audio tabs + Add File + Unhide)
+// State 3: Unlocked Vault (All/Videos/Audio/Images tabs + Add + Unhide)
 // 2GB RAM safe: content-visibility: auto · no backdrop-blur · GPU transforms only
-// Encrypted localStorage via safe-store.ts
+// Metadata: encrypted localStorage via safe-store.ts
+// Media blobs: IndexedDB via idb-store.ts (localStorage crashes with video)
 
 import { useState, useCallback, useRef, useEffect } from 'react'
 import {
   Lock, ShieldCheck, Delete, Video, Music,
   Plus, Trash2, EyeOff, X, FolderLock,
-  Play, Pause, ChevronLeft, ShieldAlert
+  Play, Pause, ChevronLeft, ShieldAlert, Image
 } from 'lucide-react'
 import {
   hasPin, setPin, verifyPin,
   loadSafeEntries, addToSafe, removeFromSafe,
   type SafeEntry, safeId
 } from '@/lib/safe-store'
+import { saveBlob, getBlob, deleteBlob } from '@/lib/idb-store'
 
 type LockerState = 'set-password' | 'enter-pin' | 'unlocked'
-type VaultTab = 'videos' | 'audio'
+type VaultTab = 'all' | 'videos' | 'audio' | 'images'
 
 // ── Vault file with session blob URL ──
 interface VaultFile extends SafeEntry {
   blobUrl?: string
-  file?: File
+}
+
+// ── Toast state ──
+interface ToastState {
+  visible: boolean
+  message: string
+  type: 'success' | 'error'
 }
 
 export default function PrivateLocker({ onClose }: { onClose: () => void }) {
@@ -35,28 +43,54 @@ export default function PrivateLocker({ onClose }: { onClose: () => void }) {
   )
   const [pin, setPinValue] = useState('')
   const [confirmPin, setConfirmPin] = useState('')
-  const [setupStep, setSetupStep] = useState<'enter' | 'confirm' | null>(
-    hasPin() ? null : null
-  )
+  const [setupStep, setSetupStep] = useState<'enter' | 'confirm' | null>(null)
   const [error, setError] = useState('')
   const [shake, setShake] = useState(false)
   const [successFlash, setSuccessFlash] = useState(false)
 
   // Vault state
-  const [vaultTab, setVaultTab] = useState<VaultTab>('videos')
+  const [vaultTab, setVaultTab] = useState<VaultTab>('all')
   const [vaultFiles, setVaultFiles] = useState<VaultFile[]>([])
   const [activeMedia, setActiveMedia] = useState<VaultFile | null>(null)
   const [isMediaPlaying, setIsMediaPlaying] = useState(false)
+  const [toast, setToast] = useState<ToastState>({ visible: false, message: '', type: 'success' })
+  const [isImporting, setIsImporting] = useState(false)
+
   const videoRef = useRef<HTMLVideoElement>(null)
   const audioRef = useRef<HTMLAudioElement>(null)
-  const fileInputRef = useRef<HTMLInputElement>(null)
+  const videoInputRef = useRef<HTMLInputElement>(null)
+  const audioInputRef = useRef<HTMLInputElement>(null)
+  const imageInputRef = useRef<HTMLInputElement>(null)
   const pinInputRef = useRef<HTMLInputElement>(null)
+
+  // ── Toast helper ──
+  const showToast = useCallback((message: string, type: 'success' | 'error' = 'success') => {
+    setToast({ visible: true, message, type })
+    setTimeout(() => setToast(prev => ({ ...prev, visible: false })), 3500)
+  }, [])
 
   // ── Load vault files when unlocked ──
   useEffect(() => {
     if (state === 'unlocked' && pin) {
       const entries = loadSafeEntries(pin)
-      setVaultFiles(entries.map(e => ({ ...e, blobUrl: undefined, file: undefined })))
+      // Rebuild blob URLs from IndexedDB
+      const withBlobs: VaultFile[] = entries.map(e => ({ ...e, blobUrl: undefined }))
+      setVaultFiles(withBlobs)
+
+      // Lazily load blob URLs from IndexedDB
+      entries.forEach(async (entry) => {
+        try {
+          const stored = await getBlob(entry.id)
+          if (stored) {
+            const url = URL.createObjectURL(stored.blob)
+            setVaultFiles(prev =>
+              prev.map(f => f.id === entry.id ? { ...f, blobUrl: url } : f)
+            )
+          }
+        } catch {
+          // Blob not found in IDB — metadata-only entry
+        }
+      })
     }
   }, [state, pin])
 
@@ -66,6 +100,16 @@ export default function PrivateLocker({ onClose }: { onClose: () => void }) {
       setTimeout(() => pinInputRef.current?.focus(), 50)
     }
   }, [state, setupStep])
+
+  // ── Cleanup blob URLs on unmount ──
+  useEffect(() => {
+    return () => {
+      vaultFiles.forEach(f => {
+        if (f.blobUrl) try { URL.revokeObjectURL(f.blobUrl) } catch {}
+      })
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // ═══════════════════════════════════════════════════════════
   // PIN SETUP FLOW
@@ -81,7 +125,6 @@ export default function PrivateLocker({ onClose }: { onClose: () => void }) {
   const handleConfirmPin = useCallback((enteredConfirm: string) => {
     if (enteredConfirm.length !== 4) return
     if (enteredConfirm === pin) {
-      // PIN confirmed — save and unlock
       setPin(enteredConfirm)
       setPinValue(enteredConfirm)
       setSuccessFlash(true)
@@ -167,57 +210,111 @@ export default function PrivateLocker({ onClose }: { onClose: () => void }) {
   }, [state, setupStep, handleSetupPin, handleConfirmPin, handleUnlock, setCurrentPinValue])
 
   // ═══════════════════════════════════════════════════════════
-  // VAULT FILE MANAGEMENT
+  // VAULT FILE MANAGEMENT (IndexedDB + localStorage metadata)
   // ═══════════════════════════════════════════════════════════
-  const handleAddFiles = useCallback(() => {
-    fileInputRef.current?.click()
-  }, [])
 
-  const handleFileImport = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+  // ── Determine which file input to open based on active tab ──
+  const handleAddFiles = useCallback(() => {
+    if (vaultTab === 'videos') videoInputRef.current?.click()
+    else if (vaultTab === 'audio') audioInputRef.current?.click()
+    else if (vaultTab === 'images') imageInputRef.current?.click()
+    else {
+      // "All" tab — open video input as default
+      videoInputRef.current?.click()
+    }
+  }, [vaultTab])
+
+  // ── Generic file import handler ──
+  const handleFileImport = useCallback(async (
+    e: React.ChangeEvent<HTMLInputElement>,
+    mediaType: 'video' | 'audio' | 'image'
+  ) => {
     const files = Array.from(e.target.files || []) as File[]
     if (!files.length || !pin) return
 
-    const newFiles: VaultFile[] = files.map(file => {
-      const isVideo = file.type.startsWith('video/')
-      const blobUrl = URL.createObjectURL(file)
-      return {
-        id: safeId(),
-        name: file.name.replace(/\.[^.]+$/, ''),
-        type: isVideo ? 'video' as const : 'audio' as const,
-        addedAt: Date.now(),
-        size: file.size,
-        blobUrl,
-        file,
+    setIsImporting(true)
+
+    try {
+      const newFiles: VaultFile[] = []
+
+      for (const file of files) {
+        const id = safeId()
+        const blobUrl = URL.createObjectURL(file)
+
+        // Store metadata in encrypted localStorage
+        addToSafe({
+          id,
+          name: file.name.replace(/\.[^.]+$/, ''),
+          type: mediaType,
+          addedAt: Date.now(),
+          size: file.size,
+        }, pin)
+
+        // Store blob in IndexedDB
+        try {
+          await saveBlob(id, file, file.type)
+        } catch {
+          // If IDB fails, we still have the in-memory blobUrl for this session
+        }
+
+        newFiles.push({
+          id,
+          name: file.name.replace(/\.[^.]+$/, ''),
+          type: mediaType,
+          addedAt: Date.now(),
+          size: file.size,
+          blobUrl,
+        })
       }
-    })
 
-    // Save metadata to encrypted store
-    newFiles.forEach(f => {
-      addToSafe({ id: f.id, name: f.name, type: f.type, addedAt: f.addedAt, size: f.size }, pin)
-    })
+      setVaultFiles(prev => [...newFiles, ...prev])
+      showToast(`✅ ${newFiles.length} file${newFiles.length > 1 ? 's' : ''} secured in Locker! Please delete the original file from your device gallery to hide it completely.`, 'success')
+    } catch {
+      showToast('Failed to import some files. Please try again.', 'error')
+    }
 
-    setVaultFiles(prev => [...newFiles, ...prev])
+    setIsImporting(false)
     e.target.value = ''
-  }, [pin])
+  }, [pin, showToast])
 
+  // ── Video file import ──
+  const handleVideoImport = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    handleFileImport(e, 'video')
+  }, [handleFileImport])
+
+  // ── Audio file import ──
+  const handleAudioImport = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    handleFileImport(e, 'audio')
+  }, [handleFileImport])
+
+  // ── Image file import ──
+  const handleImageImport = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    handleFileImport(e, 'image')
+  }, [handleFileImport])
+
+  // ── Unhide: move file back to public local media ──
   const handleUnhide = useCallback((id: string) => {
     if (!pin) return
     const file = vaultFiles.find(f => f.id === id)
     if (!file) return
 
     // Add back to public local media
-    const storageKey = file.type === 'video' ? 'pn_local_videos_v2' : 'pn_local_tracks_v2'
+    const storageKey = file.type === 'video'
+      ? 'pn_local_videos_v2'
+      : file.type === 'audio'
+        ? 'pn_local_tracks_v2'
+        : 'pn_local_images_v2'
+
     try {
       const saved = localStorage.getItem(storageKey)
       const existing = saved ? JSON.parse(saved) : []
+      const prefix = file.type === 'video' ? 'lv' : file.type === 'audio' ? 'lt' : 'li'
       const publicEntry = {
-        id: file.type === 'video'
-          ? `lv_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`
-          : `lt_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        id: `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
         name: file.name,
         size: file.size || 0,
         duration: 0,
-        folder: file.type === 'video' ? 'Unhidden' : undefined,
+        folder: 'Unhidden',
         addedAt: Date.now(),
         lastPlayed: undefined,
       }
@@ -225,27 +322,42 @@ export default function PrivateLocker({ onClose }: { onClose: () => void }) {
       localStorage.setItem(storageKey, JSON.stringify(existing))
     } catch {}
 
-    // Remove from vault
+    // Remove from vault metadata
     removeFromSafe(id, pin)
+    // Remove from IndexedDB
+    deleteBlob(id).catch(() => {})
     if (file.blobUrl) try { URL.revokeObjectURL(file.blobUrl) } catch {}
     setVaultFiles(prev => prev.filter(f => f.id !== id))
-  }, [pin, vaultFiles])
+    showToast('File moved back to public view.', 'success')
+  }, [pin, vaultFiles, showToast])
 
+  // ── Delete: permanently remove from locker ──
   const handleRemove = useCallback((id: string) => {
     if (!pin) return
     const file = vaultFiles.find(f => f.id === id)
     removeFromSafe(id, pin)
+    deleteBlob(id).catch(() => {})
     if (file?.blobUrl) try { URL.revokeObjectURL(file.blobUrl) } catch {}
     setVaultFiles(prev => prev.filter(f => f.id !== id))
   }, [pin, vaultFiles])
 
   // ── Media playback ──
-  const handlePlayFile = useCallback((file: VaultFile) => {
+  const handlePlayFile = useCallback(async (file: VaultFile) => {
     let playUrl = file.blobUrl
-    if (!playUrl && file.file) {
-      playUrl = URL.createObjectURL(file.file)
-      setVaultFiles(prev => prev.map(f => f.id === file.id ? { ...f, blobUrl: playUrl } : f))
+
+    // If no blobUrl yet, try loading from IndexedDB
+    if (!playUrl) {
+      try {
+        const stored = await getBlob(file.id)
+        if (stored) {
+          playUrl = URL.createObjectURL(stored.blob)
+          setVaultFiles(prev =>
+            prev.map(f => f.id === file.id ? { ...f, blobUrl: playUrl } : f)
+          )
+        }
+      } catch {}
     }
+
     if (playUrl) {
       setActiveMedia({ ...file, blobUrl: playUrl })
       setIsMediaPlaying(true)
@@ -266,11 +378,32 @@ export default function PrivateLocker({ onClose }: { onClose: () => void }) {
   }
 
   // ── Vault files filtered by tab ──
-  const filteredFiles = vaultFiles.filter(f =>
-    vaultTab === 'videos' ? f.type === 'video' : f.type === 'audio'
-  )
+  const filteredFiles = vaultTab === 'all'
+    ? vaultFiles
+    : vaultFiles.filter(f => {
+        if (vaultTab === 'videos') return f.type === 'video'
+        if (vaultTab === 'audio') return f.type === 'audio'
+        if (vaultTab === 'images') return f.type === 'image'
+        return true
+      })
+
+  // ── Count per tab ──
+  const tabCounts = {
+    all: vaultFiles.length,
+    videos: vaultFiles.filter(f => f.type === 'video').length,
+    audio: vaultFiles.filter(f => f.type === 'audio').length,
+    images: vaultFiles.filter(f => f.type === 'image').length,
+  }
 
   const digits = ['1','2','3','4','5','6','7','8','9','','0','del']
+
+  // ── Tab config ──
+  const tabs: { key: VaultTab; label: string; Icon: typeof Video }[] = [
+    { key: 'all', label: 'All', Icon: FolderLock },
+    { key: 'videos', label: 'Videos', Icon: Video },
+    { key: 'audio', label: 'Audio', Icon: Music },
+    { key: 'images', label: 'Images', Icon: Image },
+  ]
 
   return (
     <div className="fixed inset-0 z-[9999] bg-black animate-[fade-in_200ms_ease-out]">
@@ -301,7 +434,7 @@ export default function PrivateLocker({ onClose }: { onClose: () => void }) {
 
           <h2 className="text-white text-xl font-bold mb-2">Set Password</h2>
           <p className="text-neutral-500 text-xs text-center mb-8 max-w-[260px] leading-relaxed">
-            Lock videos as private with a 4-digit passcode, only you can access
+            Lock videos, audio &amp; photos as private with a 4-digit passcode. Only you can access them.
           </p>
 
           {/* Crimson red SET PASSWORD button */}
@@ -520,16 +653,33 @@ export default function PrivateLocker({ onClose }: { onClose: () => void }) {
 
       {/* ════════════════════════════════════════════════════════
           STATE 3: UNLOCKED PRIVATE VAULT
-          Videos/Audio micro-tabs · + Add File · Unhide · Play
+          All / Videos / Audio / Images tabs · + Add · Unhide · Play
           ════════════════════════════════════════════════════════ */}
       {state === 'unlocked' && (
         <div className="min-h-screen bg-black pb-24">
+          {/* Hidden file inputs — one per media type */}
           <input
-            ref={fileInputRef}
+            ref={videoInputRef}
             type="file"
-            accept="video/*,audio/*"
+            accept="video/*"
             multiple
-            onChange={handleFileImport}
+            onChange={handleVideoImport}
+            className="hidden"
+          />
+          <input
+            ref={audioInputRef}
+            type="file"
+            accept="audio/*"
+            multiple
+            onChange={handleAudioImport}
+            className="hidden"
+          />
+          <input
+            ref={imageInputRef}
+            type="file"
+            accept="image/*"
+            multiple
+            onChange={handleImageImport}
             className="hidden"
           />
 
@@ -559,27 +709,30 @@ export default function PrivateLocker({ onClose }: { onClose: () => void }) {
               </button>
             </div>
 
-            {/* Micro-tabs: Videos / Audio + Add button */}
+            {/* 4-tab pill navigation: All / Videos / Audio / Images */}
             <div className="px-3 pb-2 flex items-center gap-2">
               <div className="flex-1 flex bg-neutral-900/80 rounded-lg p-[2px] border border-neutral-800/50">
-                {([
-                  { key: 'videos' as VaultTab, label: 'Videos', Icon: Video },
-                  { key: 'audio' as VaultTab, label: 'Audio', Icon: Music },
-                ]).map(tab => {
+                {tabs.map(tab => {
                   const isActive = vaultTab === tab.key
+                  const count = tabCounts[tab.key]
                   return (
                     <button
                       key={tab.key}
                       onClick={() => setVaultTab(tab.key)}
-                      className={`flex-1 h-7 rounded-md flex items-center justify-center gap-1.5
-                                 text-[11px] font-semibold transition-all duration-150
+                      className={`flex-1 h-7 rounded-md flex items-center justify-center gap-1
+                                 text-[10px] font-semibold transition-all duration-150
                                  ${isActive
                                    ? 'bg-[#7C5CFF] text-white'
                                    : 'text-neutral-500 active:text-neutral-300'
                                  }`}
                     >
-                      <tab.Icon size={12} />
+                      <tab.Icon size={11} />
                       {tab.label}
+                      {count > 0 && (
+                        <span className={`text-[8px] ${isActive ? 'text-white/60' : 'text-neutral-600'}`}>
+                          {count}
+                        </span>
+                      )}
                     </button>
                   )
                 })}
@@ -588,13 +741,15 @@ export default function PrivateLocker({ onClose }: { onClose: () => void }) {
               {/* + Add File button */}
               <button
                 onClick={handleAddFiles}
-                className="flex items-center gap-1 px-3 h-7 rounded-md
+                disabled={isImporting}
+                className={`flex items-center gap-1 px-3 h-7 rounded-md
                            bg-[#7C5CFF]/10 border border-[#7C5CFF]/20
                            text-[#7C5CFF] text-[10px] font-semibold
-                           active:scale-95 transition-transform duration-100"
+                           active:scale-95 transition-all duration-100
+                           ${isImporting ? 'opacity-50 pointer-events-none' : ''}`}
               >
                 <Plus size={12} />
-                Add
+                {isImporting ? 'Adding...' : 'Add'}
               </button>
             </div>
           </div>
@@ -604,7 +759,7 @@ export default function PrivateLocker({ onClose }: { onClose: () => void }) {
             <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-[#22C55E]/5 border border-[#22C55E]/15">
               <ShieldCheck size={12} className="text-[#22C55E]" />
               <p className="text-[#22C55E]/80 text-[10px] font-medium">
-                Encrypted · Never leaves your device
+                Encrypted · Files stored in secure sandbox · Never leaves your device
               </p>
             </div>
           </div>
@@ -615,14 +770,107 @@ export default function PrivateLocker({ onClose }: { onClose: () => void }) {
             {filteredFiles.length === 0 && (
               <div className="flex flex-col items-center justify-center py-16">
                 <div className="w-14 h-14 rounded-2xl bg-neutral-900 flex items-center justify-center mb-3">
-                  <FolderLock size={24} className="text-neutral-700" />
+                  {vaultTab === 'videos' ? <Video size={24} className="text-neutral-700" /> :
+                   vaultTab === 'audio' ? <Music size={24} className="text-neutral-700" /> :
+                   vaultTab === 'images' ? <Image size={24} className="text-neutral-700" /> :
+                   <FolderLock size={24} className="text-neutral-700" />}
                 </div>
-                <p className="text-neutral-600 text-sm font-medium">No {vaultTab} in vault</p>
+                <p className="text-neutral-600 text-sm font-medium">
+                  No {vaultTab === 'all' ? 'files' : vaultTab.slice(0, -1)} in vault
+                </p>
                 <p className="text-neutral-800 text-xs mt-1">Tap &quot;+ Add&quot; to import files</p>
               </div>
             )}
 
-            {/* Video grid */}
+            {/* ── Mixed "All" view ── */}
+            {vaultTab === 'all' && filteredFiles.length > 0 && (
+              <div className="space-y-0.5">
+                {filteredFiles.map(file => (
+                  <div
+                    key={file.id}
+                    className="flex items-center gap-3 px-2 py-2.5 rounded-xl
+                               active:bg-neutral-900/50 transition-all duration-150"
+                    style={{ contentVisibility: 'auto', containIntrinsicSize: '0 48px' }}
+                  >
+                    {/* Type icon / thumbnail */}
+                    {file.type === 'video' ? (
+                      <div className="w-11 h-11 rounded-lg bg-neutral-800/80 flex items-center justify-center flex-shrink-0 relative overflow-hidden">
+                        {file.blobUrl ? (
+                          <video
+                            src={file.blobUrl}
+                            className="absolute inset-0 w-full h-full object-cover"
+                            preload="metadata"
+                            muted
+                          />
+                        ) : (
+                          <Video size={16} className="text-neutral-600" />
+                        )}
+                        {/* Play micro-icon */}
+                        <div className="absolute inset-0 flex items-center justify-center">
+                          <div className="w-5 h-5 rounded-full bg-white/15 flex items-center justify-center border border-white/20">
+                            <Play size={7} className="text-white ml-[1px]" fill="white" />
+                          </div>
+                        </div>
+                      </div>
+                    ) : file.type === 'audio' ? (
+                      <button
+                        onClick={() => handlePlayFile(file)}
+                        className="w-11 h-11 rounded-lg bg-neutral-800/80 flex items-center justify-center flex-shrink-0
+                                   active:scale-90 transition-transform duration-100"
+                      >
+                        {activeMedia?.id === file.id && isMediaPlaying
+                          ? <Pause size={14} className="text-white" />
+                          : <Music size={14} className="text-neutral-500" />
+                        }
+                      </button>
+                    ) : (
+                      <div className="w-11 h-11 rounded-lg bg-neutral-800/80 flex items-center justify-center flex-shrink-0 overflow-hidden">
+                        {file.blobUrl ? (
+                          <img
+                            src={file.blobUrl}
+                            alt=""
+                            className="w-full h-full object-cover"
+                            loading="lazy"
+                          />
+                        ) : (
+                          <Image size={16} className="text-neutral-600" />
+                        )}
+                      </div>
+                    )}
+
+                    {/* File info */}
+                    <div className="flex-1 min-w-0">
+                      <p className="text-white text-[12px] font-semibold truncate leading-tight">
+                        {file.name}
+                      </p>
+                      <p className="text-neutral-500 text-[9px] mt-0.5">
+                        {file.size ? fmtSize(file.size) : 'Unknown size'} · {file.type}
+                      </p>
+                    </div>
+
+                    {/* Actions */}
+                    <div className="flex items-center gap-0.5 flex-shrink-0">
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleUnhide(file.id) }}
+                        className="p-1.5 active:scale-90 transition-transform duration-100"
+                        title="Unhide"
+                      >
+                        <EyeOff size={12} className="text-[#00D4FF]/60" />
+                      </button>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleRemove(file.id) }}
+                        className="p-1.5 active:scale-90 transition-transform duration-100"
+                        title="Delete"
+                      >
+                        <Trash2 size={12} className="text-red-400/60" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* ── Videos grid ── */}
             {vaultTab === 'videos' && filteredFiles.length > 0 && (
               <div className="grid grid-cols-3 gap-1.5">
                 {filteredFiles.map(file => (
@@ -692,7 +940,7 @@ export default function PrivateLocker({ onClose }: { onClose: () => void }) {
               </div>
             )}
 
-            {/* Audio list */}
+            {/* ── Audio list ── */}
             {vaultTab === 'audio' && filteredFiles.length > 0 && (
               <div className="space-y-0.5">
                 {filteredFiles.map(file => (
@@ -740,6 +988,64 @@ export default function PrivateLocker({ onClose }: { onClose: () => void }) {
                       >
                         <Trash2 size={12} className="text-red-400/60" />
                       </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* ── Images grid ── */}
+            {vaultTab === 'images' && filteredFiles.length > 0 && (
+              <div className="grid grid-cols-3 gap-1.5">
+                {filteredFiles.map(file => (
+                  <div
+                    key={file.id}
+                    className="relative rounded-lg overflow-hidden
+                               active:scale-[0.97] transition-transform duration-150"
+                    style={{ contentVisibility: 'auto', containIntrinsicSize: '0 160px' }}
+                  >
+                    <div className="relative w-full aspect-square bg-neutral-900 flex items-center justify-center overflow-hidden">
+                      {file.blobUrl ? (
+                        <img
+                          src={file.blobUrl}
+                          alt={file.name}
+                          className="w-full h-full object-cover"
+                          loading="lazy"
+                        />
+                      ) : (
+                        <Image size={18} className="text-neutral-700" />
+                      )}
+
+                      {/* Size badge */}
+                      {file.size ? (
+                        <span className="absolute top-1 right-1 bg-black/65 text-neutral-200
+                                       text-[7px] font-semibold px-1 py-0.5 rounded leading-none">
+                          {fmtSize(file.size)}
+                        </span>
+                      ) : null}
+                    </div>
+
+                    {/* File name + actions */}
+                    <div className="px-1 pt-1 pb-1.5 flex items-center justify-between">
+                      <p className="text-white text-[9px] font-medium truncate flex-1 mr-1">
+                        {file.name}
+                      </p>
+                      <div className="flex items-center gap-0.5 flex-shrink-0">
+                        <button
+                          onClick={(e) => { e.stopPropagation(); handleUnhide(file.id) }}
+                          className="p-1 active:scale-90 transition-transform duration-100"
+                          title="Unhide"
+                        >
+                          <EyeOff size={9} className="text-[#00D4FF]" />
+                        </button>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); handleRemove(file.id) }}
+                          className="p-1 active:scale-90 transition-transform duration-100"
+                          title="Delete"
+                        >
+                          <Trash2 size={9} className="text-red-400" />
+                        </button>
+                      </div>
                     </div>
                   </div>
                 ))}
@@ -809,6 +1115,61 @@ export default function PrivateLocker({ onClose }: { onClose: () => void }) {
             >
               <X size={14} className="text-neutral-400" />
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Image viewer overlay */}
+      {activeMedia && activeMedia.type === 'image' && activeMedia.blobUrl && (
+        <div className="fixed inset-0 z-[10000] bg-black flex flex-col animate-[fade-in_200ms_ease-out]">
+          <div className="flex items-center justify-between px-3 h-12">
+            <button
+              onClick={handleCloseMedia}
+              className="flex items-center gap-1 active:scale-95 transition-transform duration-100"
+            >
+              <ChevronLeft size={18} className="text-white" />
+              <span className="text-white text-xs font-medium">Back</span>
+            </button>
+            <p className="text-neutral-400 text-[10px] flex-1 text-center truncate mx-2">
+              {activeMedia.name}
+            </p>
+            <div className="w-12" />
+          </div>
+          <div className="flex-1 flex items-center justify-center bg-black overflow-hidden">
+            <img
+              src={activeMedia.blobUrl}
+              alt={activeMedia.name}
+              className="max-w-full max-h-full object-contain"
+            />
+          </div>
+        </div>
+      )}
+
+      {/* ════════════════════════════════════════════════════════
+          TOAST NOTIFICATION
+          Premium glass-style toast with slide-up animation
+          ════════════════════════════════════════════════════════ */}
+      {toast.visible && (
+        <div className="fixed bottom-6 left-4 right-4 z-[10001]
+                        animate-[slide-up_300ms_ease-out]">
+          <div className={`flex items-start gap-2.5 px-4 py-3 rounded-xl
+                          border shadow-lg
+                          ${toast.type === 'success'
+                            ? 'bg-[#111827] border-[#22C55E]/20 shadow-[0_4px_20px_rgba(34,197,94,0.1)]'
+                            : 'bg-[#111827] border-red-500/20 shadow-[0_4px_20px_rgba(239,68,68,0.1)]'
+                          }`}>
+            <div className={`w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5
+                            ${toast.type === 'success' ? 'bg-[#22C55E]/15' : 'bg-red-500/15'}`}>
+              {toast.type === 'success' ? (
+                <ShieldCheck size={12} className="text-[#22C55E]" />
+              ) : (
+                <ShieldAlert size={12} className="text-red-400" />
+              )}
+            </div>
+            <p className={`text-[11px] leading-relaxed font-medium
+                          ${toast.type === 'success' ? 'text-[#22C55E]/90' : 'text-red-400/90'}`}>
+              {toast.message}
+            </p>
           </div>
         </div>
       )}

@@ -143,3 +143,31 @@ Stage Summary:
 - Real file import via <input type="file" accept="video/*,audio/*">
 - Real HTML5 playback in vault (video controls, audio player)
 - Unhide action moves files from encrypted vault back to public local media
+---
+Task ID: locker-refactor
+Agent: Main
+Task: Fix Locker tabs, file inputs & hide logic — Add 4-tab navigation, IndexedDB blob storage, per-type file inputs, import toast
+
+Work Log:
+- Read existing PrivateLocker.tsx (817 lines), safe-store.ts (123 lines), profile/page.tsx, globals.css
+- Created new /src/lib/idb-store.ts — IndexedDB wrapper for heavy media blobs (saveBlob, getBlob, deleteBlob, getAllBlobs, clearAllBlobs)
+- Rewrote PrivateLocker.tsx with these changes:
+  - VaultTab expanded from 'videos'|'audio' to 'all'|'videos'|'audio'|'images'
+  - 4-tab pill navigation: All (mixed list), Videos (3-col grid), Audio (list), Images (3-col grid)
+  - Tab counts displayed as tiny badges
+  - 3 separate hidden <input type="file"> with correct accept attributes: video/*, audio/*, image/*
+  - "+ Add" button routes to correct input based on active tab
+  - File import stores Blobs in IndexedDB via idb-store.ts (metadata still in safe-store.ts encrypted localStorage)
+  - Premium toast notification after successful import: "File secured in Locker! Please delete the original..."
+  - Lazy blob URL loading from IndexedDB on vault unlock
+  - Image viewer overlay (full-screen with Back button)
+  - Unhide for images writes to 'pn_local_images_v2' localStorage key
+  - isImporting state disables Add button during async import
+  - content-visibility: auto on all list items for 2GB RAM optimization
+- Build verified: zero errors, all 22 routes generated successfully
+
+Stage Summary:
+- New file: src/lib/idb-store.ts (IndexedDB blob storage)
+- Updated: src/components/profile/PrivateLocker.tsx (complete rewrite of vault section)
+- No changes to: safe-store.ts, profile/page.tsx, globals.css
+- Build: PASS (0 errors)
