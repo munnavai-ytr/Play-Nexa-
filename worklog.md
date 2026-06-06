@@ -171,3 +171,36 @@ Stage Summary:
 - Updated: src/components/profile/PrivateLocker.tsx (complete rewrite of vault section)
 - No changes to: safe-store.ts, profile/page.tsx, globals.css
 - Build: PASS (0 errors)
+
+---
+Task ID: locker-apk-refactor
+Agent: Main
+Task: Complete refactor of Private Vault with APK-ready protocol, multi-media inputs, IndexedDB engine
+
+Work Log:
+- Read current PrivateLocker.tsx (817→truncated), idb-store.ts (111 lines), safe-store.ts (123 lines), globals.css
+- Complete rewrite of PrivateLocker.tsx with production-grade APK/Capacitor-compatible code
+- Key architecture decisions:
+  - IndexedDB for all media blobs (survives APK compilation, no localStorage quota crashes)
+  - Encrypted localStorage only for lightweight metadata (PIN + file index)
+  - Canvas thumbnail generation for videos (200x200 JPEG, APK-safe)
+  - URL.createObjectURL() for streaming playback from IDB blobs
+  - No Web Share API, no beforeunload, no Clipboard API (all crash in WebView)
+- UI improvements:
+  - 4-tab pill navigation: All / Videos / Audio / Images with count badges
+  - Premium purple "Add" button with glow shadow in header
+  - "All" tab has chronological sectioning (Today, Yesterday, date headers)
+  - Videos/Images: strict 3-col GG-style grid with glassmorphism play icon + size overlay
+  - Audio: vertical list rows with title, file size, and timestamp
+  - Empty states include inline CTA "Add" button
+  - Toast uses exact requested message: "🔒 Asset successfully encrypted inside Vault! To complete the hide process, please manually delete the original file from your phone gallery."
+  - Toast has smooth CSS transition (opacity + translateY) instead of abrupt show/hide
+- idb-store.ts unchanged (already APK-compatible)
+- safe-store.ts unchanged (metadata only, under localStorage quota)
+- Build verified: zero errors, all 22 routes generated
+
+Stage Summary:
+- Updated: src/components/profile/PrivateLocker.tsx (complete rewrite, ~550 lines)
+- Unchanged: src/lib/idb-store.ts, src/lib/safe-store.ts, globals.css
+- Build: PASS (0 errors)
+- APK compatibility: All APIs verified safe for Capacitor WebView
