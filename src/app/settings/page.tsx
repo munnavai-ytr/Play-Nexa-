@@ -5,7 +5,8 @@ import {
   ChevronLeft, Palette, Zap,
   Globe, Shield, HardDrive,
   Moon, Cpu, Trash2,
-  RotateCcw, Settings2, Eye, Paintbrush
+  RotateCcw, Settings2, Eye, Paintbrush,
+  Smartphone
 } from 'lucide-react'
 import {
   getSettings, saveSettings,
@@ -296,6 +297,41 @@ export default function SettingsPage() {
               value={settings.secureBrowser}
               onChange={v => update('secureBrowser', v)}
             />
+          </div>
+        </Section>
+
+        {/* ── SYSTEM APPS MANAGER ── */}
+        <Section icon={<Smartphone size={16} />}
+                 title="System Apps Manager">
+          <button
+            onClick={() => router.push('/security')}
+            className="w-full flex items-center gap-4 px-4 py-4
+                       active:bg-[#1E293B]/30 transition-colors duration-150">
+            <div className="flex-1 text-left">
+              <p className="text-white text-sm font-medium">
+                Global App Lock, Hide & Icon Changer
+              </p>
+              <p className="text-[#94A3B8] text-xs mt-0.5">
+                Lock, hide, and disguise any installed app on your device
+              </p>
+            </div>
+            <ChevronLeft size={16} className="text-[#94A3B8] -rotate-90" />
+          </button>
+          <div className="px-4 pb-3">
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-[#7C5CFF]/10 border border-[#7C5CFF]/20">
+                <Shield size={10} className="text-[#7C5CFF]" />
+                <span className="text-[9px] font-semibold text-[#7C5CFF]">Lock</span>
+              </div>
+              <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-[#EF4444]/10 border border-[#EF4444]/20">
+                <Eye size={10} className="text-[#EF4444]" />
+                <span className="text-[9px] font-semibold text-[#EF4444]">Hide</span>
+              </div>
+              <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-[#00D4FF]/10 border border-[#00D4FF]/20">
+                <Paintbrush size={10} className="text-[#00D4FF]" />
+                <span className="text-[9px] font-semibold text-[#00D4FF]">Disguise</span>
+              </div>
+            </div>
           </div>
         </Section>
 
