@@ -1,9 +1,10 @@
 'use client'
 
-// ── Play Nexa Disguise Wrapper ──────────────────────────────────
+// ── Play Nexa Disguise Wrapper ───────────────────────────────
 // Conditionally renders CalculatorDisguise over the entire app
 // when disguise mode is active
-// Uses DisguiseContext — zero-latency switch
+// Seamless mount/unmount — zero-latency switch
+// Uses DisguiseContext with robust localStorage persistence
 
 import { useDisguise } from '@/lib/disguise-context'
 import CalculatorDisguise from '@/components/settings/CalculatorDisguise'

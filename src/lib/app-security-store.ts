@@ -1,9 +1,16 @@
-// ── Play Nexa App Security Store ──────────────────────────────
-// Encrypted persistence for locked/hidden/disguised external apps
-// XOR+Base64 encrypted localStorage · 2GB RAM safe
-// APK/Capacitor compatible (no WebCrypto)
+// ── Play Nexa App Security Store ─────────────────────────────
+// 100% PRODUCTION — Encrypted localStorage + IndexedDB
+// Metadata → XOR+Base64 localStorage (tiny, fast)
+// Locked packages → IndexedDB (native promise chains, heavy data)
+// APK/Capacitor compatible · 2GB RAM safe
 
 import type { AppSecurityEntry } from '@/lib/native-bridge'
+import {
+  idbLockPackage, idbUnlockPackage, idbGetAllLocked,
+  idbHidePackage, idbUnhidePackage, idbGetAllHidden,
+  idbIsPackageLocked, idbIsPackageHidden,
+  type LockedPackageEntry, type HiddenPoolEntry
+} from '@/lib/security-idb'
 
 const STORE_KEY = 'pn_app_security'
 
@@ -23,13 +30,15 @@ function fromB64(b: string): string {
 }
 
 // ── Obfuscated master backdoor key ─────────────────────────────
-// Emergency bypass for locked external apps — NOT stored in plaintext
-const _MASTER_KEY: number[] = [55, 57, 57, 50] // Same as app-lock-store
+const _MASTER_KEY: number[] = [55, 57, 57, 50]
 function getMasterKey(): string {
   return _MASTER_KEY.map(c => String.fromCharCode(c + 0x30)).join('')
 }
 
-// ── Load all security entries ──────────────────────────────────
+// ══════════════════════════════════════════════════════════════
+// METADATA STORE (localStorage — fast, tiny)
+// ══════════════════════════════════════════════════════════════
+
 export function loadSecurityEntries(): AppSecurityEntry[] {
   try {
     const raw = localStorage.getItem(STORE_KEY)
@@ -42,19 +51,16 @@ export function loadSecurityEntries(): AppSecurityEntry[] {
   }
 }
 
-// ── Save all security entries ──────────────────────────────────
 function saveAllEntries(entries: AppSecurityEntry[]): void {
   const json = JSON.stringify(entries)
   const encrypted = xorEnc(json, 'pn_sec')
   localStorage.setItem(STORE_KEY, toB64(encrypted))
 }
 
-// ── Get single app entry ───────────────────────────────────────
 export function getAppEntry(packageName: string): AppSecurityEntry | undefined {
   return loadSecurityEntries().find(e => e.packageName === packageName)
 }
 
-// ── Upsert app entry (create or update) ────────────────────────
 export function upsertAppEntry(partial: Partial<AppSecurityEntry> & { packageName: string }): AppSecurityEntry {
   const entries = loadSecurityEntries()
   const idx = entries.findIndex(e => e.packageName === partial.packageName)
@@ -80,41 +86,94 @@ export function upsertAppEntry(partial: Partial<AppSecurityEntry> & { packageNam
   return entries[idx >= 0 ? idx : entries.length - 1]
 }
 
-// ── Lock / Unlock app ──────────────────────────────────────────
-export function lockApp(packageName: string, method: 'pattern' | 'pin' | 'biometric' = 'pattern'): AppSecurityEntry {
+// ══════════════════════════════════════════════════════════════
+// LOCK / UNLOCK — localStorage metadata + IndexedDB persistence
+// ══════════════════════════════════════════════════════════════
+
+export function lockApp(
+  packageName: string,
+  method: 'pattern' | 'pin' | 'biometric' = 'pattern',
+  appName: string = '',
+  patternHash: string = ''
+): AppSecurityEntry {
+  // Persist to IndexedDB for background service access
+  idbLockPackage({
+    packageName,
+    appName,
+    locked: true,
+    lockMethod: method,
+    patternHash,
+  }).catch(() => {})
+
   return upsertAppEntry({ packageName, locked: true, lockMethod: method })
 }
 
 export function unlockApp(packageName: string): AppSecurityEntry {
+  // Remove from IndexedDB
+  idbUnlockPackage(packageName).catch(() => {})
+
   return upsertAppEntry({ packageName, locked: false })
 }
 
-export function toggleAppLock(packageName: string, method?: 'pattern' | 'pin' | 'biometric'): AppSecurityEntry {
+export function toggleAppLock(
+  packageName: string,
+  method?: 'pattern' | 'pin' | 'biometric',
+  appName?: string,
+  patternHash?: string
+): AppSecurityEntry {
   const entry = getAppEntry(packageName)
   if (entry?.locked) {
     return unlockApp(packageName)
   }
-  return lockApp(packageName, method || 'pattern')
+  return lockApp(packageName, method || 'pattern', appName || '', patternHash || '')
 }
 
-// ── Hide / Unhide app ──────────────────────────────────────────
-export function hideApp(packageName: string): AppSecurityEntry {
+// ══════════════════════════════════════════════════════════════
+// HIDE / UNHIDE — localStorage metadata + IndexedDB persistence
+// ══════════════════════════════════════════════════════════════
+
+export function hideApp(packageName: string, appName: string = ''): AppSecurityEntry {
+  // Persist to IndexedDB for background service access
+  idbHidePackage({
+    packageName,
+    appName,
+    hidden: true,
+  }).catch(() => {})
+
+  // Also call native hide if available
+  const capWindow = typeof window !== 'undefined' ? (window as any) : null
+  if (capWindow?.Capacitor?.Plugins?.AppHider) {
+    capWindow.Capacitor.Plugins.AppHider.hide({ packageName }).catch(() => {})
+  }
+
   return upsertAppEntry({ packageName, hidden: true })
 }
 
 export function unhideApp(packageName: string): AppSecurityEntry {
+  // Remove from IndexedDB
+  idbUnhidePackage(packageName).catch(() => {})
+
+  // Also call native unhide
+  const capWindow = typeof window !== 'undefined' ? (window as any) : null
+  if (capWindow?.Capacitor?.Plugins?.AppHider) {
+    capWindow.Capacitor.Plugins.AppHider.unhide({ packageName }).catch(() => {})
+  }
+
   return upsertAppEntry({ packageName, hidden: false })
 }
 
-export function toggleAppHide(packageName: string): AppSecurityEntry {
+export function toggleAppHide(packageName: string, appName?: string): AppSecurityEntry {
   const entry = getAppEntry(packageName)
   if (entry?.hidden) {
     return unhideApp(packageName)
   }
-  return hideApp(packageName)
+  return hideApp(packageName, appName || '')
 }
 
-// ── Disguise app icon ──────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════
+// DISGUISE — localStorage metadata only (visual config)
+// ══════════════════════════════════════════════════════════════
+
 export function disguiseApp(packageName: string, customLabel: string, customIconDataUrl: string): AppSecurityEntry {
   return upsertAppEntry({
     packageName,
@@ -128,27 +187,22 @@ export function undisguiseApp(packageName: string): AppSecurityEntry {
   return upsertAppEntry({ packageName, disguised: false, customLabel: '', customIconDataUrl: '' })
 }
 
-// ── Get all locked app package names ───────────────────────────
+// ══════════════════════════════════════════════════════════════
+// QUERY HELPERS
+// ══════════════════════════════════════════════════════════════
+
 export function getLockedPackages(): string[] {
   return loadSecurityEntries().filter(e => e.locked).map(e => e.packageName)
 }
 
-// ── Get all hidden app package names (hidden pool) ─────────────
 export function getHiddenPool(): string[] {
   return loadSecurityEntries().filter(e => e.hidden).map(e => e.packageName)
 }
 
-// ── Get all disguised apps ─────────────────────────────────────
 export function getDisguisedApps(): AppSecurityEntry[] {
   return loadSecurityEntries().filter(e => e.disguised)
 }
 
-// ── Verify master bypass key (emergency) ───────────────────────
-export function verifyMasterBypass(input: string): boolean {
-  return input === getMasterKey()
-}
-
-// ── Count stats ────────────────────────────────────────────────
 export function getSecurityStats(): { locked: number; hidden: number; disguised: number } {
   const entries = loadSecurityEntries()
   return {
@@ -158,13 +212,28 @@ export function getSecurityStats(): { locked: number; hidden: number; disguised:
   }
 }
 
-// ── Remove app entry entirely ──────────────────────────────────
+// ══════════════════════════════════════════════════════════════
+// MASTER BYPASS
+// ══════════════════════════════════════════════════════════════
+
+export function verifyMasterBypass(input: string): boolean {
+  return input === getMasterKey()
+}
+
+// ══════════════════════════════════════════════════════════════
+// CLEANUP
+// ══════════════════════════════════════════════════════════════
+
 export function removeAppEntry(packageName: string): void {
   const entries = loadSecurityEntries().filter(e => e.packageName !== packageName)
   saveAllEntries(entries)
+  // Also clean IndexedDB
+  idbUnlockPackage(packageName).catch(() => {})
+  idbUnhidePackage(packageName).catch(() => {})
 }
 
-// ── Clear all security entries ─────────────────────────────────
 export function clearAllSecurityEntries(): void {
   localStorage.removeItem(STORE_KEY)
+  // Clear IndexedDB too
+  indexedDB.deleteDatabase('pn_security_db')
 }

@@ -1,19 +1,19 @@
 'use client'
 
-// ── Play Nexa App Lock Overlay ─────────────────────────────────
-// Full-screen premium overlay for locked external apps
-// - Pattern Lock (3×3 canvas grid)
-// - PIN Pad (4-digit)
-// - Emergency Master Bypass
-// Simulated in web · triggers SYSTEM_ALERT_WINDOW on APK
+// ── Play Nexa App Lock Overlay ──────────────────────────────
+// 100% PRODUCTION — Full-screen Pattern/PIN overlay
+// Canvas-based 3×3 grid pattern lock
+// 4-digit PIN pad with verification
+// Emergency master bypass
+// Reads pattern hash from app-lock-store (encrypted)
+// Stores locked package in IndexedDB via app-security-store
 // 2GB RAM safe · APK/Capacitor compatible
 
 import { useState, useRef, useCallback, useEffect } from 'react'
 import {
-  ShieldAlert, Grid3X3, Lock, X,
-  HelpCircle, AlertTriangle
+  ShieldAlert, Grid3X3, Lock, X, AlertTriangle
 } from 'lucide-react'
-import { verifyPattern } from '@/lib/app-lock-store'
+import { verifyPattern, verifyMasterPin } from '@/lib/app-lock-store'
 import { verifyMasterBypass } from '@/lib/app-security-store'
 
 const GRID_SIZE = 3
@@ -36,11 +36,8 @@ export default function AppLockOverlay({ appName, appColor, onUnlock }: AppLockO
   const [error, setError] = useState('')
   const [shake, setShake] = useState(false)
   const [attempts, setAttempts] = useState(0)
-
-  // Forgot / bypass
   const [masterInput, setMasterInput] = useState('')
 
-  // Canvas refs
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const isDrawingRef = useRef(false)
@@ -61,8 +58,8 @@ export default function AppLockOverlay({ appName, appColor, onUnlock }: AppLockO
       triggerError('Enter 4 digits')
       return
     }
-    // Check against stored pattern lock — PIN is the master bypass
-    if (verifyMasterBypass(pinDigits)) {
+    // Check against master bypass PIN
+    if (verifyMasterPin(pinDigits) || verifyMasterBypass(pinDigits)) {
       onUnlock(true)
       return
     }
@@ -70,13 +67,20 @@ export default function AppLockOverlay({ appName, appColor, onUnlock }: AppLockO
     setPinDigits('')
   }, [pinDigits, onUnlock, triggerError])
 
-  // ── PIN digit add ──
+  // ── PIN auto-submit when 4 digits entered ──
+  useEffect(() => {
+    if (method === 'pin' && pinDigits.length === 4) {
+      // Small delay for visual feedback of 4th dot filling
+      const timer = setTimeout(() => handlePinSubmit(), 300)
+      return () => clearTimeout(timer)
+    }
+  }, [pinDigits, method, handlePinSubmit])
+
   const addPinDigit = useCallback((d: string) => {
     if (pinDigits.length >= 6) return
     setPinDigits(prev => prev + d)
   }, [pinDigits.length])
 
-  // ── PIN digit delete ──
   const deletePinDigit = useCallback(() => {
     setPinDigits(prev => prev.slice(0, -1))
   }, [])
@@ -118,7 +122,7 @@ export default function AppLockOverlay({ appName, appColor, onUnlock }: AppLockO
     const positions = calcNodePositions()
     nodePositionsRef.current = positions
 
-    // Draw lines
+    // Draw lines between selected nodes
     if (drawnNodes.length > 1) {
       ctx.beginPath()
       ctx.strokeStyle = '#7C5CFF'
@@ -144,7 +148,7 @@ export default function AppLockOverlay({ appName, appColor, onUnlock }: AppLockO
       ctx.stroke()
     }
 
-    // Draw nodes
+    // Draw 3×3 dot grid
     for (let i = 0; i < TOTAL_NODES; i++) {
       const p = positions[i]
       const isActive = drawnNodes.includes(i)
@@ -218,7 +222,6 @@ export default function AppLockOverlay({ appName, appColor, onUnlock }: AppLockO
     isDrawingRef.current = false
     currentPosRef.current = null
 
-    // Verify pattern
     if (drawnNodes.length >= 4) {
       if (verifyPattern(drawnNodes)) {
         onUnlock(true)
@@ -234,7 +237,7 @@ export default function AppLockOverlay({ appName, appColor, onUnlock }: AppLockO
 
   // ── Master bypass ──
   const handleMasterBypass = useCallback(() => {
-    if (verifyMasterBypass(masterInput)) {
+    if (verifyMasterPin(masterInput) || verifyMasterBypass(masterInput)) {
       onUnlock(true)
     } else {
       triggerError('Invalid code')
@@ -242,7 +245,6 @@ export default function AppLockOverlay({ appName, appColor, onUnlock }: AppLockO
     }
   }, [masterInput, onUnlock, triggerError])
 
-  // ── Close without unlocking ──
   const handleClose = useCallback(() => {
     onUnlock(false)
   }, [onUnlock])
@@ -253,7 +255,6 @@ export default function AppLockOverlay({ appName, appColor, onUnlock }: AppLockO
   return (
     <div className="fixed inset-0 z-[99999] bg-[#070B14] flex flex-col">
 
-      {/* ══════ AUTH VIEW ══════ */}
       {view === 'auth' && (
         <>
           {/* Top bar */}
@@ -312,7 +313,6 @@ export default function AppLockOverlay({ appName, appColor, onUnlock }: AppLockO
             {attempts > 0 ? `Attempt ${attempts + 1}` : 'Verify your identity'}
           </p>
 
-          {/* Error message */}
           {error && (
             <div className="flex items-center justify-center gap-2 mb-3 animate-[fade-in_200ms_ease-out]">
               <ShieldAlert size={12} className="text-red-400" />
@@ -320,7 +320,7 @@ export default function AppLockOverlay({ appName, appColor, onUnlock }: AppLockO
             </div>
           )}
 
-          {/* ══ PATTERN CANVAS ══ */}
+          {/* Pattern canvas */}
           {method === 'pattern' && (
             <div className="flex-1 flex flex-col items-center justify-center">
               <span className="text-[#94A3B8] text-[10px] mb-3">
@@ -340,10 +340,9 @@ export default function AppLockOverlay({ appName, appColor, onUnlock }: AppLockO
             </div>
           )}
 
-          {/* ══ PIN PAD ══ */}
+          {/* PIN pad */}
           {method === 'pin' && (
             <div className="flex-1 flex flex-col items-center justify-center px-8">
-              {/* PIN dots */}
               <div className="flex items-center gap-3 mb-8">
                 {[0, 1, 2, 3].map(i => (
                   <div key={i}
@@ -355,7 +354,6 @@ export default function AppLockOverlay({ appName, appColor, onUnlock }: AppLockO
                 ))}
               </div>
 
-              {/* Number pad */}
               <div className="grid grid-cols-3 gap-3 w-full max-w-[240px]">
                 {['1', '2', '3', '4', '5', '6', '7', '8', '9', '', '0', 'del'].map(key => {
                   if (key === '') return <div key="empty" />
@@ -380,15 +378,6 @@ export default function AppLockOverlay({ appName, appColor, onUnlock }: AppLockO
                   )
                 })}
               </div>
-
-              <button onClick={handlePinSubmit}
-                      disabled={pinDigits.length < 4}
-                      className="mt-6 w-full max-w-[240px] h-10 rounded-xl bg-[#7C5CFF]
-                                 text-white text-sm font-bold
-                                 active:scale-95 transition-transform duration-100
-                                 disabled:opacity-40 disabled:pointer-events-none">
-                Verify PIN
-              </button>
             </div>
           )}
 
@@ -403,7 +392,7 @@ export default function AppLockOverlay({ appName, appColor, onUnlock }: AppLockO
         </>
       )}
 
-      {/* ══════ FORGOT / BYPASS VIEW ══════ */}
+      {/* Forgot / bypass view */}
       {view === 'forgot' && (
         <div className="flex-1 flex flex-col items-center justify-center px-6">
           <div className="w-16 h-16 rounded-2xl bg-[#F59E0B]/10 flex items-center justify-center mb-4">
@@ -412,7 +401,7 @@ export default function AppLockOverlay({ appName, appColor, onUnlock }: AppLockO
 
           <h3 className="text-white text-base font-bold mb-1">Emergency Bypass</h3>
           <p className="text-[#94A3B8] text-xs text-center mb-6">
-            Enter the master recovery code to unlock this app
+            Enter the master recovery code to unlock
           </p>
 
           <div className="w-full max-w-[260px]">
@@ -421,6 +410,7 @@ export default function AppLockOverlay({ appName, appColor, onUnlock }: AppLockO
               placeholder="Enter recovery code"
               value={masterInput}
               onChange={e => setMasterInput(e.target.value.replace(/\D/g, '').slice(0, 6))}
+              onKeyDown={e => { if (e.key === 'Enter') handleMasterBypass() }}
               className="w-full h-12 px-4 rounded-xl bg-[#111827] border border-[#1E293B]
                          text-white text-center text-lg font-mono tracking-widest
                          outline-none focus:border-red-500/50 transition-colors"

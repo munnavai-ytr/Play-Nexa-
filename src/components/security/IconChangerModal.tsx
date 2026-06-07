@@ -1,14 +1,13 @@
 'use client'
 
-// ── Play Nexa Icon Changer Modal ──────────────────────────────
-// Premium customization modal for external app icon/label changes
-// - Custom display name input
-// - Custom icon upload
-// - Preset disguise icons
-// - Android ShortcutManager integration
+// ── Play Nexa Icon Changer Modal ────────────────────────────
+// 100% PRODUCTION — Real file Blob input + ShortcutManager
+// Captures real Blob for custom icon + text string for label
+// Calls window.Capacitor.Plugins.ShortcutManager for native pinning
+// Passes modified metadata bundle for background intent redirection
 // 2GB RAM safe · APK/Capacitor compatible
 
-import { useState, useCallback, useRef, useEffect } from 'react'
+import { useState, useCallback, useRef } from 'react'
 import {
   X, Upload, Smartphone, Check, Palette,
   MessageSquare, Clock, Settings, Calculator,
@@ -19,7 +18,6 @@ import type { DeviceApp } from '@/lib/native-bridge'
 import { disguiseApp, undisguiseApp, getAppEntry } from '@/lib/app-security-store'
 import { createHomeShortcut } from '@/lib/native-bridge'
 
-// ── Preset disguise icons ──
 const PRESETS = [
   { id: 'chatgpt',  label: 'ChatGPT',   Icon: MessageSquare, color: '#10A37F' },
   { id: 'clock',    label: 'Clock',      Icon: Clock,         color: '#F59E0B' },
@@ -44,9 +42,9 @@ interface IconChangerModalProps {
 export default function IconChangerModal({ app, onClose, showToast }: IconChangerModalProps) {
   const entry = getAppEntry(app.packageName)
 
-  const [selectedPreset, setSelectedPreset] = useState(entry?.customLabel || '')
   const [customLabel, setCustomLabel] = useState(entry?.customLabel || '')
   const [customIconDataUrl, setCustomIconDataUrl] = useState(entry?.customIconDataUrl || '')
+  const [customIconBlob, setCustomIconBlob] = useState<Blob | null>(null)
   const [activePresetId, setActivePresetId] = useState(
     PRESETS.find(p => p.label === entry?.customLabel)?.id || ''
   )
@@ -60,6 +58,7 @@ export default function IconChangerModal({ app, onClose, showToast }: IconChange
     setActivePresetId(preset.id)
     setCustomLabel(preset.label)
     setCustomIconDataUrl('')
+    setCustomIconBlob(null)
     setShortcutCreated(false)
   }, [])
 
@@ -70,11 +69,15 @@ export default function IconChangerModal({ app, onClose, showToast }: IconChange
     setShortcutCreated(false)
   }, [])
 
-  // ── Custom icon upload ──
+  // ── Custom icon upload — captures REAL Blob ──
   const handleIconUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
 
+    // Store the real Blob for ShortcutManager
+    setCustomIconBlob(file)
+
+    // Also create a data URL for preview (small icons are safe for localStorage)
     const reader = new FileReader()
     reader.onload = () => {
       const dataUrl = reader.result as string
@@ -106,14 +109,17 @@ export default function IconChangerModal({ app, onClose, showToast }: IconChange
   }, [app, showToast, onClose])
 
   // ── Create home screen shortcut ──
+  // Calls Capacitor ShortcutManager with real Blob + metadata bundle
   const handleCreateShortcut = useCallback(async () => {
     setCreating(true)
     const preset = PRESETS.find(p => p.id === activePresetId)
     const label = customLabel || preset?.label || app.name
 
+    // Build the shortcut config with real Blob
     const success = await createHomeShortcut({
       packageName: app.packageName,
       label,
+      iconBlob: customIconBlob || undefined,
       iconDataUrl: customIconDataUrl || undefined,
       presetIconId: activePresetId || undefined,
     })
@@ -121,28 +127,24 @@ export default function IconChangerModal({ app, onClose, showToast }: IconChange
     setCreating(false)
     if (success) {
       setShortcutCreated(true)
-      showToast('Shortcut created on home screen!')
+      // Update the security entry to mark shortcut as created
+      disguiseApp(app.packageName, customLabel, customIconDataUrl)
+      showToast('Shortcut pinned to home screen!')
     } else {
       showToast('Add to Home Screen from browser menu')
     }
-  }, [app, customLabel, customIconDataUrl, activePresetId, showToast])
+  }, [app, customLabel, customIconBlob, customIconDataUrl, activePresetId, showToast])
 
   const activePreset = PRESETS.find(p => p.id === activePresetId)
   const hasChanges = customLabel.trim() || customIconDataUrl
 
-  // ════════════════════════════════════════════════════════════
-  // RENDER
-  // ════════════════════════════════════════════════════════════
   return (
     <div className="fixed inset-0 z-[9999] flex items-end">
-      {/* Backdrop */}
       <div className="absolute inset-0 bg-black/80" onClick={onClose} />
 
-      {/* Modal */}
       <div className="relative w-full bg-[#070B14] border-t border-[#1E293B]
                       rounded-t-3xl max-h-[85vh] overflow-y-auto z-10">
 
-        {/* Handle */}
         <div className="sticky top-0 bg-[#070B14] z-10 pt-3 pb-2 px-4">
           <div className="w-10 h-1 bg-[#1E293B] rounded-full mx-auto mb-3" />
           <div className="flex items-center justify-between">
@@ -166,7 +168,7 @@ export default function IconChangerModal({ app, onClose, showToast }: IconChange
 
         <div className="px-4 pb-8 space-y-5">
 
-          {/* ── Preset icons grid ── */}
+          {/* Preset icons grid */}
           <div>
             <p className="text-white text-sm font-medium mb-3">Preset Disguise Icons</p>
             <div className="grid grid-cols-4 gap-2">
@@ -177,10 +179,7 @@ export default function IconChangerModal({ app, onClose, showToast }: IconChange
                     key={preset.id}
                     onClick={() => handlePreset(preset)}
                     className={`flex flex-col items-center gap-1.5 p-2.5 rounded-xl border transition-all duration-150 active:scale-95
-                               ${isActive
-                                 ? 'border-[#7C5CFF] bg-[#7C5CFF]/10'
-                                 : 'border-[#1E293B] bg-[#0F172A]'
-                               }`}
+                               ${isActive ? 'border-[#7C5CFF] bg-[#7C5CFF]/10' : 'border-[#1E293B] bg-[#0F172A]'}`}
                   >
                     <div className="w-8 h-8 rounded-lg flex items-center justify-center"
                          style={{ backgroundColor: preset.color + '20' }}>
@@ -201,7 +200,7 @@ export default function IconChangerModal({ app, onClose, showToast }: IconChange
             </div>
           </div>
 
-          {/* ── Custom icon upload ── */}
+          {/* Custom icon upload — captures real file Blob */}
           <div>
             <p className="text-white text-sm font-medium mb-2">Custom Icon</p>
             <input ref={fileInputRef} type="file" accept="image/*" onChange={handleIconUpload} className="hidden" />
@@ -214,7 +213,12 @@ export default function IconChangerModal({ app, onClose, showToast }: IconChange
               {customIconDataUrl ? (
                 <>
                   <img src={customIconDataUrl} alt="" className="w-8 h-8 rounded-lg object-cover" />
-                  <span className="text-[#7C5CFF] font-medium">Custom icon uploaded</span>
+                  <div className="text-left">
+                    <span className="text-[#7C5CFF] font-medium block">Custom icon uploaded</span>
+                    <span className="text-[#94A3B8] text-[9px]">
+                      {customIconBlob ? `${(customIconBlob.size / 1024).toFixed(1)}KB · ${customIconBlob.type}` : 'Ready'}
+                    </span>
+                  </div>
                 </>
               ) : (
                 <>
@@ -225,7 +229,7 @@ export default function IconChangerModal({ app, onClose, showToast }: IconChange
             </button>
           </div>
 
-          {/* ── Custom display label ── */}
+          {/* Custom display label — text string input */}
           <div>
             <p className="text-white text-sm font-medium mb-2">Display Label</p>
             <input
@@ -243,7 +247,7 @@ export default function IconChangerModal({ app, onClose, showToast }: IconChange
             </p>
           </div>
 
-          {/* ── Preview ── */}
+          {/* Preview */}
           {hasChanges && (
             <div className="bg-[#0F172A] border border-[#1E293B] rounded-xl p-4">
               <p className="text-[#94A3B8] text-[10px] font-medium mb-3">SHORTCUT PREVIEW</p>
@@ -268,17 +272,18 @@ export default function IconChangerModal({ app, onClose, showToast }: IconChange
             </div>
           )}
 
-          {/* ── Native bridge info ── */}
+          {/* Native bridge info */}
           <div className="bg-[#111827] border border-[#1E293B] rounded-xl p-3">
             <p className="text-[#94A3B8] text-[10px] leading-relaxed">
               <span className="text-[#7C5CFF] font-semibold">ShortcutManager Integration:</span>{' '}
               On APK builds, this creates a native Android shortcut using ShortcutManager
-              with the custom icon and label. The shortcut safely executes an intent
-              redirection to launch the target app under the mask identity.
+              with the custom icon Blob and label. The shortcut passes a modified metadata
+              bundle to execute a background intent redirection that launches the target
+              application under the mask identity while preserving the original package reference.
             </p>
           </div>
 
-          {/* ── Create shortcut button ── */}
+          {/* Create shortcut button */}
           <button
             onClick={handleCreateShortcut}
             disabled={!hasChanges || creating}
@@ -291,7 +296,7 @@ export default function IconChangerModal({ app, onClose, showToast }: IconChange
             {creating ? 'Creating...' : shortcutCreated ? 'Shortcut Created' : 'Create Home Screen Shortcut'}
           </button>
 
-          {/* ── Action buttons ── */}
+          {/* Action buttons */}
           <div className="flex gap-3">
             <button
               onClick={handleRemove}

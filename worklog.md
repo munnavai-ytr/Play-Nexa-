@@ -3,23 +3,26 @@
 ---
 Task ID: 1
 Agent: Main Agent
-Task: Build Play Nexa Advanced Security & Icon Disguise Suite — System Apps Manager Dashboard
+Task: FIX Calculator Lock + Build Real OS App Controller Code (Production Rewrite)
 
 Work Log:
-- Explored full project structure and read all existing security files (app-lock-store.ts, disguise-context.tsx, AppLock.tsx, CalculatorDisguise.tsx, AppLookCustomizer.tsx, DisguiseWrapper.tsx, settings/page.tsx, profile/page.tsx)
-- Created `src/lib/native-bridge.ts` — TypeScript interfaces for DeviceApp, PermissionState, LockOverlayConfig, ShortcutConfig, AppSecurityEntry; simulated device apps array (24 popular apps); native bridge stubs for Capacitor plugins (getInstalledApps, checkPermissions, requestPermission, startLockOverlay, stopLockOverlay, createHomeShortcut, hideAppNative, unhideAppNative, shouldInterceptApp)
-- Created `src/lib/app-security-store.ts` — XOR+Base64 encrypted localStorage store for locked/hidden/disguised external apps; functions for lock/unlock, hide/unhide, disguise/undisguise, master bypass verification, stats counting
-- Created `src/components/security/SystemAppsManager.tsx` — Main dashboard component with: permission status bar (PACKAGE_USAGE_STATS, SYSTEM_ALERT_WINDOW, BIOMETRIC, INSTALL_SHORTCUT), stats cards (Locked/Hidden/Disguised), search bar, tab filters (All/Locked/Hidden/Disguised), sort toggle (A-Z/Category), app list with icon placeholder + name + package + status badges + action buttons (Lock/Hide/Disguise), Hidden Pool warning with Calculator Disguise integration note, empty states
-- Created `src/components/security/AppLockOverlay.tsx` — Full-screen premium overlay with: Pattern Lock (3×3 canvas grid with draw vectors), PIN Pad (4+ digit with dial), method switcher, emergency master bypass, attempt counter, error shake animation
-- Created `src/components/security/IconChangerModal.tsx` — Bottom sheet modal with: 12 preset disguise icons (ChatGPT, Clock, Settings, Calculator, Camera, Books, Music, Maps, Mail, Notes, Shopping, Gallery), custom icon upload, custom display label, shortcut preview, Android ShortcutManager integration bridge, Create Home Screen Shortcut button
-- Created `src/app/security/page.tsx` — Page route for System Apps Manager dashboard
-- Updated `src/app/settings/page.tsx` — Added "System Apps Manager" section with link to /security, feature badges (Lock/Hide/Disguise), additive only (no existing code modified)
-- Build passed with zero errors
+- Read all existing security files to identify bugs: Calculator freeze on unlock, state persistence failures, stub-only native bridge code
+- Created `src/lib/security-idb.ts` — Full IndexedDB store with native promise chains for locked_packages and hidden_pool object stores, indexes on locked/hidden booleans, CRUD operations (idbLockPackage, idbUnlockPackage, idbGetAllLocked, idbIsPackageLocked, idbHidePackage, idbUnhidePackage, idbGetAllHidden, idbIsPackageHidden, idbGetHiddenPoolNames, idbClearAll)
+- Rewrote `src/components/settings/CalculatorDisguise.tsx` — Complete rewrite: safe math useReducer (NO eval()), tight useEffect PIN validator monitoring inputBuffer for exact string match, emergency backdoor "99887766=" that clears ALL localStorage + IndexedDB and force-reloads, seamless deactivation via React context + localStorage.removeItem
+- Rewrote `src/lib/disguise-context.tsx` — Added interceptAppLaunch() for Hidden Pool enforcement, refreshHiddenPool() loading from IndexedDB, redundant localStorage write (pn_disguise_active + legacy key), hiddenPool state array
+- Rewrote `src/lib/native-bridge.ts` — Added isNativePlatform() detection, getPlatform(), real Capacitor plugin detection (Capacitor.isNativePlatform, getPlatform, Plugins), startBackgroundMonitor() for native UsageStatsManager polling loop, blobToBase64() utility for ShortcutManager, real Blob support in createHomeShortcut()
+- Rewrote `src/lib/app-security-store.ts` — Integrated with security-idb.ts: lockApp/unlockApp write to BOTH localStorage metadata AND IndexedDB, hideApp/unhideApp call BOTH idb + native AppHider plugin, async IndexedDB operations with .catch() for resilience
+- Rewrote `src/components/security/SystemAppsManager.tsx` — Real onLockToggle/onHideToggle event handlers with IndexedDB persistence, useEffect background monitor start/stop tied to stats.locked, useDisguise() integration for refreshHiddenPool
+- Rewrote `src/components/security/AppLockOverlay.tsx` — Auto-submit PIN on 4 digits, Enter key support on master bypass, dual verification (verifyMasterPin + verifyMasterBypass)
+- Rewrote `src/components/security/IconChangerModal.tsx` — Real file Blob capture (customIconBlob state), blob size/type display, Blob passed to createHomeShortcut for native ShortcutManager
+- Updated `src/components/layout/DisguiseWrapper.tsx` — Clean, minimal, uses updated disguise-context
 
 Stage Summary:
-- 5 new files created, 1 file modified (additive only)
-- All existing code preserved 100% intact
+- 1 new file: security-idb.ts (IndexedDB)
+- 8 files rewritten with production code
 - Zero build errors
-- Full native bridge architecture ready for Capacitor plugin swap post-APK compilation
-- Master bypass emergency key: same obfuscated [55,57,57,50] as app-lock-store
-- localStorage key: `pn_app_security` (XOR+Base64 encrypted)
+- Calculator: safe useReducer math + tight useEffect PIN validation + emergency "99887766=" backdoor
+- App Lock: IndexedDB persistence + background monitor service + pattern/PIN overlay
+- App Hide: Hidden Pool → Calculator interceptor via useDisguise().interceptAppLaunch()
+- Icon Changer: Real Blob file input + ShortcutManager integration
+- Native Bridge: isNativePlatform() detection + Capacitor plugin detection + fallback states
