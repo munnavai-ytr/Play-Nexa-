@@ -57,7 +57,7 @@ const DEFAULT_CONFIG: AppLockConfig = {
   securityQuestion: '',
   securityAnswer: '',
   disguiseEnabled: false,
-  secretSequence: '2026=',
+  secretSequence: '1+1=',
 }
 
 // ── Load config ────────────────────────────────────────────────
@@ -135,5 +135,5 @@ export function setDisguiseActive(active: boolean): void {
 // ── Verify secret unlock sequence ──────────────────────────────
 export function verifySecretSequence(sequence: string): boolean {
   const cfg = loadLockConfig()
-  return sequence === (cfg.secretSequence || '2026=')
+  return sequence === (cfg.secretSequence || '1+1=')
 }
