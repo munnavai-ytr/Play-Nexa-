@@ -198,6 +198,105 @@ input[type="range"]::-moz-range-thumb {
   animation: eq-bar 0.8s ease-in-out infinite;
 }
 
+/* Page enter animation for Now Playing */
+@keyframes pn-page-enter {
+  0% { opacity: 0; transform: translateY(30px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+.pn-page-enter {
+  animation: pn-page-enter 300ms ease-out;
+}
+
+/* Vinyl disc spin animation */
+@keyframes music-vinyl-spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.music-vinyl-spin {
+  animation: music-vinyl-spin 4s linear infinite;
+  animation-play-state: var(--vinyl-state, paused);
+}
+
+/* Equalizer bar animation */
+@keyframes music-eq-bar {
+  0%, 100% { height: 3px; }
+  25% { height: 14px; }
+  50% { height: 20px; }
+  75% { height: 8px; }
+}
+
+.music-eq-bar {
+  width: 3px;
+  border-radius: 2px;
+  background: linear-gradient(to top, #7C3AED, #06B6D4);
+  animation: music-eq-bar 0.6s ease-in-out infinite;
+  animation-play-state: var(--eq-state, paused);
+}
+
+/* Now Playing seekbar styling */
+.np-seekbar::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 2px;
+}
+
+.np-seekbar::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 16px;
+  width: 16px;
+  border-radius: 50%;
+  background: #7C3AED;
+  margin-top: -6px;
+  border: 2px solid #0D0D0D;
+  box-shadow: 0 0 6px rgba(124, 58, 237, 0.5);
+}
+
+.np-seekbar::-moz-range-track {
+  height: 4px;
+  border-radius: 2px;
+}
+
+.np-seekbar::-moz-range-thumb {
+  height: 16px;
+  width: 16px;
+  border-radius: 50%;
+  background: #7C3AED;
+  border: 2px solid #0D0D0D;
+  box-shadow: 0 0 6px rgba(124, 58, 237, 0.5);
+}
+
+/* Now Playing volume slider styling */
+.np-volume::-webkit-slider-runnable-track {
+  height: 3px;
+  border-radius: 2px;
+}
+
+.np-volume::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 14px;
+  width: 14px;
+  border-radius: 50%;
+  background: #FFFFFF;
+  margin-top: -5.5px;
+  border: none;
+}
+
+.np-volume::-moz-range-track {
+  height: 3px;
+  border-radius: 2px;
+}
+
+.np-volume::-moz-range-thumb {
+  height: 14px;
+  width: 14px;
+  border-radius: 50%;
+  background: #FFFFFF;
+  border: none;
+}
+
 /* Slide up animation for bottom sheets */
 @keyframes slide-up {
   0% { opacity: 0; transform: translateY(40px); }
@@ -229,6 +328,72 @@ input[type="range"]::-moz-range-thumb {
 
 .animate-shake {
   animation: shake 0.5s ease-in-out;
+}
+
+/* Music EQ bar nth-child timing variants */
+.music-eq-bar:nth-child(1) { animation-duration: 0.4s; }
+.music-eq-bar:nth-child(2) { animation-duration: 0.6s; }
+.music-eq-bar:nth-child(3) { animation-duration: 0.5s; }
+.music-eq-bar:nth-child(4) { animation-duration: 0.7s; }
+.music-eq-bar:nth-child(5) { animation-duration: 0.45s; }
+
+/* Video seekbar thumb styling */
+.video-seek-thumb::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 2px;
+}
+
+.video-seek-thumb::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #7C3AED;
+  cursor: pointer;
+  border: 2px solid #000000;
+  box-shadow: 0 0 8px rgba(124, 58, 237, 0.5);
+  margin-top: -6px;
+  transition: transform 100ms ease;
+}
+
+.video-seek-thumb:active::-webkit-slider-thumb {
+  transform: scale(1.3);
+}
+
+.video-seek-thumb::-moz-range-track {
+  height: 4px;
+  border-radius: 2px;
+}
+
+.video-seek-thumb::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #7C3AED;
+  cursor: pointer;
+  border: 2px solid #000000;
+  box-shadow: 0 0 8px rgba(124, 58, 237, 0.5);
+}
+
+/* Video double-tap ripple */
+@keyframes video-ripple {
+  0% { transform: scale(0); opacity: 0.6; }
+  100% { transform: scale(2.5); opacity: 0; }
+}
+
+.video-ripple {
+  animation: video-ripple 0.4s ease-out forwards;
+}
+
+/* Video speed badge pulse */
+@keyframes video-speed-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+.video-speed-badge {
+  animation: video-speed-pulse 0.8s ease-in-out infinite;
 }
 
 @layer base {

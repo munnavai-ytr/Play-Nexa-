@@ -1,212 +1,459 @@
-"use client"
-import {
-  useState, useRef,
-  useCallback, useEffect
-} from 'react'
+'use client';
 
-export interface VideoFile {
-  id: string
-  name: string
-  url: string          // blob URL
-  size: number
-  duration: number
-  thumbnail?: string
-  lastPlayed?: number
-  progress?: number    // seconds watched
+import { useState, useRef, useCallback, useEffect } from 'react';
+import {
+  formatDuration,
+  lsGet,
+  lsSet,
+  isNativePlatform,
+  type VideoFile,
+  type SubCue,
+  parseSubtitle,
+} from '@/lib/mediaUtils';
+
+const STORAGE_KEYS = {
+  volume: 'pn_video_volume',
+  speed: 'pn_video_speed',
+  brightness: 'pn_video_brightness',
+  aspect: 'pn_video_aspect',
+  repeat: 'pn_video_repeat',
+  history: 'pn_video_history',
+} as const;
+
+interface HistoryEntry {
+  position: number;
+  updatedAt: number;
 }
 
-const STORAGE_KEY = 'playnexa_videos'
-const HISTORY_KEY = 'playnexa_video_history'
+type AspectRatio = 'fit' | 'fill' | '16:9' | '4:3' | 'zoom';
+type RepeatMode = 'off' | 'one';
 
-export const useVideoPlayer = () => {
-  const [videos, setVideos]         = useState<VideoFile[]>([])
-  const [current, setCurrent]       = useState<VideoFile|null>(null)
-  const [playing, setPlaying]       = useState(false)
-  const [progress, setProgress]     = useState(0)
-  const [duration, setDuration]     = useState(0)
-  const [speed, setSpeed]           = useState(1)
-  const [volume, setVolume]         = useState(1)
-  const [fullscreen, setFullscreen] = useState(false)
-  const [showControls, setShowControls] = useState(true)
-  const videoRef = useRef<HTMLVideoElement>(null)
-  const hideTimer = useRef<NodeJS.Timeout>()
+export function useVideoPlayer() {
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Load saved videos from localStorage
-  useEffect(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY)
-      if (saved) {
-        const list = JSON.parse(saved) as VideoFile[]
-        // Blob URLs expire — mark as needing re-pick
-        setVideos(list.map(v => ({
-          ...v, url: '' // cleared on reload
-        })))
-      }
-    } catch {}
-  }, [])
+  const [isPlaying, setIsPlaying] = useState<boolean>(false);
+  const [currentTime, setCurrentTime] = useState<number>(0);
+  const [duration, setDuration] = useState<number>(0);
+  const [volume, setVolumeState] = useState<number>(() => {
+    const saved = lsGet(STORAGE_KEYS.volume);
+    return saved !== null ? parseFloat(saved) : 0.75;
+  });
+  const [isMuted, setIsMuted] = useState<boolean>(false);
+  const [brightness, setBrightnessState] = useState<number>(() => {
+    const saved = lsGet(STORAGE_KEYS.brightness);
+    return saved !== null ? parseFloat(saved) : 1;
+  });
+  const [playbackSpeed, setPlaybackSpeedState] = useState<number>(() => {
+    const saved = lsGet(STORAGE_KEYS.speed);
+    return saved !== null ? parseFloat(saved) : 1.0;
+  });
+  const [aspectRatio, setAspectRatioState] = useState<AspectRatio>(() => {
+    const saved = lsGet(STORAGE_KEYS.aspect);
+    return (saved as AspectRatio) || 'fit';
+  });
+  const [isLocked, setIsLocked] = useState<boolean>(false);
+  const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
+  const [subtitleTrack, setSubtitleTrack] = useState<SubCue[] | null>(null);
+  const [audioTrack, setAudioTrackState] = useState<number>(0);
+  const [repeatMode, setRepeatModeState] = useState<RepeatMode>(() => {
+    const saved = lsGet(STORAGE_KEYS.repeat);
+    return (saved as RepeatMode) || 'off';
+  });
+  const [pipMode, setPipMode] = useState<boolean>(false);
+  const [showControls, setShowControls] = useState<boolean>(true);
+  const [currentVideo, setCurrentVideo] = useState<VideoFile | null>(null);
+  const [resumePosition, setResumePosition] = useState<number | null>(null);
 
-  // Save video metadata (not blob URL)
-  const saveMetadata = useCallback((
-    list: VideoFile[]
-  ) => {
-    const meta = list.map(v => ({
-      ...v, url: '' // don't save blob URLs
-    }))
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(meta))
-  }, [])
-
-  // Pick videos from device
-  const pickVideos = useCallback(async () => {
-    return new Promise<void>((resolve) => {
-      const input = document.createElement('input')
-      input.type = 'file'
-      input.accept = 'video/*'
-      input.multiple = true
-      // APK_READY: Replace with Capacitor FilePicker
-      // for auto device scan
-
-      input.onchange = async (e: any) => {
-        const files: File[] = Array.from(
-          e.target.files || []
-        )
-        const newVideos: VideoFile[] = files.map(file => ({
-          id: `v_${Date.now()}_${Math.random()
-            .toString(36).slice(2)}`,
-          name: file.name.replace(/\.[^.]+$/, ''),
-          url: URL.createObjectURL(file),
-          size: file.size,
-          duration: 0,
-          lastPlayed: undefined,
-          progress: 0
-        }))
-
-        setVideos(prev => {
-          const updated = [...prev, ...newVideos]
-          saveMetadata(updated)
-          return updated
-        })
-        resolve()
-      }
-      input.click()
-    })
-  }, [saveMetadata])
-
-  // Play a video
-  const playVideo = useCallback((video: VideoFile) => {
-    setCurrent(video)
-    setProgress(0)
-    setPlaying(true)
-    // Save to history
-    const history: string[] = JSON.parse(
-      localStorage.getItem(HISTORY_KEY) || '[]'
-    )
-    const updated = [
-      video.id,
-      ...history.filter(id => id !== video.id)
-    ].slice(0, 20)
-    localStorage.setItem(
-      HISTORY_KEY, JSON.stringify(updated)
-    )
-  }, [])
-
-  // Remove video
-  const removeVideo = useCallback((id: string) => {
-    setVideos(prev => {
-      const updated = prev.filter(v => v.id !== id)
-      saveMetadata(updated)
-      return updated
-    })
-    if (current?.id === id) {
-      setCurrent(null)
-      setPlaying(false)
+  // ── Controls auto-hide ──────────────────────────────────────────────
+  const resetHideTimer = useCallback(() => {
+    setShowControls(true);
+    if (hideTimerRef.current) {
+      clearTimeout(hideTimerRef.current);
     }
-  }, [current, saveMetadata])
+    hideTimerRef.current = setTimeout(() => {
+      setShowControls(false);
+    }, 3000);
+  }, []);
 
-  // Player controls
-  const togglePlay = useCallback(() => {
-    const v = videoRef.current
-    if (!v) return
-    if (playing) { v.pause(); setPlaying(false) }
-    else { v.play(); setPlaying(true) }
-    resetHideTimer()
-  }, [playing])
+  // ── Video event listeners ───────────────────────────────────────────
+  const attachVideoListeners = useCallback(
+    (el: HTMLVideoElement) => {
+      const onTimeUpdate = () => {
+        setCurrentTime(el.currentTime);
+      };
 
-  const seek = useCallback((time: number) => {
-    const v = videoRef.current
-    if (!v) return
-    v.currentTime = time
-    setProgress(time)
-  }, [])
+      const onLoadedMetadata = () => {
+        setDuration(el.duration);
+        el.volume = volume;
+        el.playbackRate = playbackSpeed;
+        el.muted = isMuted;
 
-  const changeSpeed = useCallback((s: number) => {
-    const v = videoRef.current
-    if (!v) return
-    v.playbackRate = s
-    setSpeed(s)
-  }, [])
+        if (resumePosition !== null && resumePosition > 0) {
+          el.currentTime = resumePosition;
+          setResumePosition(null);
+        }
+      };
 
-  const changeVolume = useCallback((vol: number) => {
-    const v = videoRef.current
-    if (!v) return
-    v.volume = vol
-    setVolume(vol)
-  }, [])
+      const onEnded = () => {
+        if (repeatMode === 'one') {
+          el.currentTime = 0;
+          el.play();
+        } else {
+          setIsPlaying(false);
+        }
+      };
+
+      const onPlay = () => {
+        setIsPlaying(true);
+        resetHideTimer();
+      };
+
+      const onPause = () => {
+        setIsPlaying(false);
+      };
+
+      el.addEventListener('timeupdate', onTimeUpdate);
+      el.addEventListener('loadedmetadata', onLoadedMetadata);
+      el.addEventListener('ended', onEnded);
+      el.addEventListener('play', onPlay);
+      el.addEventListener('pause', onPause);
+
+      return () => {
+        el.removeEventListener('timeupdate', onTimeUpdate);
+        el.removeEventListener('loadedmetadata', onLoadedMetadata);
+        el.removeEventListener('ended', onEnded);
+        el.removeEventListener('play', onPlay);
+        el.removeEventListener('pause', onPause);
+      };
+    },
+    [resumePosition, repeatMode, resetHideTimer, volume, playbackSpeed, isMuted]
+  );
+
+  // ── Sync video ref listeners when ref changes ───────────────────────
+  useEffect(() => {
+    const el = videoRef.current;
+    if (!el) return;
+    const cleanup = attachVideoListeners(el);
+    return cleanup;
+  }, [attachVideoListeners]);
+
+  // ── Sync volume to element ──────────────────────────────────────────
+  useEffect(() => {
+    const el = videoRef.current;
+    if (el) {
+      el.volume = volume;
+    }
+    lsSet(STORAGE_KEYS.volume, String(volume));
+  }, [volume]);
+
+  // ── Sync muted to element ───────────────────────────────────────────
+  useEffect(() => {
+    const el = videoRef.current;
+    if (el) {
+      el.muted = isMuted;
+    }
+  }, [isMuted]);
+
+  // ── Sync speed to element ───────────────────────────────────────────
+  useEffect(() => {
+    const el = videoRef.current;
+    if (el) {
+      el.playbackRate = playbackSpeed;
+    }
+    lsSet(STORAGE_KEYS.speed, String(playbackSpeed));
+  }, [playbackSpeed]);
+
+  // ── Sync brightness (CSS filter on container is handled by consumer) ─
+  useEffect(() => {
+    lsSet(STORAGE_KEYS.brightness, String(brightness));
+  }, [brightness]);
+
+  // ── Persist aspect ratio ────────────────────────────────────────────
+  useEffect(() => {
+    lsSet(STORAGE_KEYS.aspect, aspectRatio);
+  }, [aspectRatio]);
+
+  // ── Persist repeat mode ─────────────────────────────────────────────
+  useEffect(() => {
+    lsSet(STORAGE_KEYS.repeat, repeatMode);
+  }, [repeatMode]);
+
+  // ── Fullscreen change listener ──────────────────────────────────────
+  useEffect(() => {
+    const onFullscreenChange = () => {
+      setIsFullscreen(!!document.fullscreenElement);
+    };
+    document.addEventListener('fullscreenchange', onFullscreenChange);
+    return () => {
+      document.removeEventListener('fullscreenchange', onFullscreenChange);
+    };
+  }, []);
+
+  // ── PiP events ──────────────────────────────────────────────────────
+  useEffect(() => {
+    const onEnterPip = () => setPipMode(true);
+    const onLeavePip = () => setPipMode(false);
+
+    const el = videoRef.current;
+    if (el) {
+      el.addEventListener('enterpictureinpicture', onEnterPip);
+      el.addEventListener('leavepictureinpicture', onLeavePip);
+    }
+    return () => {
+      if (el) {
+        el.removeEventListener('enterpictureinpicture', onEnterPip);
+        el.removeEventListener('leavepictureinpicture', onLeavePip);
+      }
+    };
+  }, [currentVideo]);
+
+  // ── Save position on unmount ────────────────────────────────────────
+  useEffect(() => {
+    return () => {
+      const el = videoRef.current;
+      if (!el || !currentVideo) return;
+      try {
+        const raw = lsGet(STORAGE_KEYS.history);
+        const history: Record<string, HistoryEntry> = raw
+          ? JSON.parse(raw)
+          : {};
+        history[currentVideo.id] = {
+          position: el.currentTime,
+          updatedAt: Date.now(),
+        };
+        lsSet(STORAGE_KEYS.history, JSON.stringify(history));
+      } catch {
+        // silently ignore storage errors
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentVideo]);
+
+  // ── Controls ────────────────────────────────────────────────────────
+  const play = useCallback(() => {
+    const el = videoRef.current;
+    if (el) {
+      el.play().catch(() => {
+        // autoplay may be blocked
+      });
+    }
+  }, []);
+
+  const pause = useCallback(() => {
+    const el = videoRef.current;
+    if (el) {
+      el.pause();
+    }
+  }, []);
+
+  const seek = useCallback((seconds: number) => {
+    const el = videoRef.current;
+    if (el) {
+      el.currentTime = Math.max(0, Math.min(seconds, el.duration || 0));
+    }
+    resetHideTimer();
+  }, [resetHideTimer]);
+
+  const skip = useCallback(
+    (seconds: number) => {
+      const el = videoRef.current;
+      if (el) {
+        el.currentTime = Math.max(
+          0,
+          Math.min(el.currentTime + seconds, el.duration || 0)
+        );
+      }
+      resetHideTimer();
+    },
+    [resetHideTimer]
+  );
+
+  const setVolume = useCallback((vol: number) => {
+    const clamped = Math.max(0, Math.min(1, vol));
+    setVolumeState(clamped);
+    if (clamped > 0) {
+      setIsMuted(false);
+    }
+  }, []);
+
+  const setSpeed = useCallback((rate: number) => {
+    setPlaybackSpeedState(rate);
+  }, []);
+
+  const setAspectRatio = useCallback((ratio: AspectRatio) => {
+    setAspectRatioState(ratio);
+  }, []);
+
+  const toggleLock = useCallback(() => {
+    setIsLocked((prev) => !prev);
+  }, []);
+
+  const togglePip = useCallback(async () => {
+    const el = videoRef.current;
+    if (!el) return;
+    try {
+      if (document.pictureInPictureElement) {
+        await document.exitPictureInPicture();
+      } else {
+        await el.requestPictureInPicture();
+      }
+    } catch {
+      // PiP not supported or blocked
+    }
+    resetHideTimer();
+  }, [resetHideTimer]);
+
+  const loadSubtitle = useCallback(async (file: File): Promise<void> => {
+    try {
+      const text = await file.text();
+      const cues = parseSubtitle(text);
+      setSubtitleTrack(cues);
+    } catch {
+      setSubtitleTrack(null);
+    }
+  }, []);
+
+  const setAudioTrack = useCallback((index: number) => {
+    const el = videoRef.current;
+    if (!el) return;
+
+    const audioTracks = (el as HTMLVideoElement & { audioTracks?: AudioTrackList }).audioTracks;
+    if (audioTracks && audioTracks.length > 0) {
+      for (let i = 0; i < audioTracks.length; i++) {
+        audioTracks[i].enabled = i === index;
+      }
+    }
+    setAudioTrackState(index);
+  }, []);
+
+  const setBrightness = useCallback((val: number) => {
+    setBrightnessState(Math.max(0, Math.min(1, val)));
+  }, []);
 
   const toggleFullscreen = useCallback(async () => {
-    const el = document.documentElement
-    if (!fullscreen) {
-      await el.requestFullscreen?.()
-      setFullscreen(true)
-    } else {
-      await document.exitFullscreen?.()
-      setFullscreen(false)
+    const el = videoRef.current;
+    if (!el) return;
+
+    try {
+      if (document.fullscreenElement) {
+        await document.exitFullscreen();
+      } else {
+        const container = el.parentElement || el;
+        await container.requestFullscreen();
+      }
+    } catch {
+      // fullscreen not supported
     }
-  }, [fullscreen])
+    resetHideTimer();
+  }, [resetHideTimer]);
 
-  const resetHideTimer = useCallback(() => {
-    setShowControls(true)
-    if (hideTimer.current) clearTimeout(hideTimer.current)
-    hideTimer.current = setTimeout(() => {
-      if (playing) setShowControls(false)
-    }, 3000)
-  }, [playing])
+  const toggleMute = useCallback(() => {
+    setIsMuted((prev) => !prev);
+  }, []);
 
-  // Skip forward/backward
-  const skip = useCallback((seconds: number) => {
-    const v = videoRef.current
-    if (!v) return
-    v.currentTime = Math.max(
-      0, Math.min(v.duration, v.currentTime + seconds)
-    )
-    resetHideTimer()
-  }, [resetHideTimer])
+  const loadVideo = useCallback(
+    (video: VideoFile) => {
+      const el = videoRef.current;
 
-  const formatTime = (sec: number) => {
-    const h = Math.floor(sec / 3600)
-    const m = Math.floor((sec % 3600) / 60)
-    const s = Math.floor(sec % 60)
-    if (h > 0)
-      return `${h}:${m.toString().padStart(2,'0')}:${s.toString().padStart(2,'0')}`
-    return `${m}:${s.toString().padStart(2,'0')}`
-  }
+      // Save current video position before switching
+      if (el && currentVideo) {
+        try {
+          const raw = lsGet(STORAGE_KEYS.history);
+          const history: Record<string, HistoryEntry> = raw
+            ? JSON.parse(raw)
+            : {};
+          history[currentVideo.id] = {
+            position: el.currentTime,
+            updatedAt: Date.now(),
+          };
+          lsSet(STORAGE_KEYS.history, JSON.stringify(history));
+        } catch {
+          // silently ignore
+        }
+      }
 
-  const formatSize = (bytes: number) => {
-    if (bytes > 1024*1024*1024)
-      return `${(bytes/1024/1024/1024).toFixed(1)} GB`
-    return `${(bytes/1024/1024).toFixed(0)} MB`
-  }
+      setCurrentVideo(video);
+      setCurrentTime(0);
+      setDuration(0);
+      setSubtitleTrack(null);
+      setAudioTrackState(0);
+      setResumePosition(null);
+
+      if (el) {
+        el.src = video.url;
+        el.load();
+      }
+
+      // Check for saved position (resume logic)
+      try {
+        const raw = lsGet(STORAGE_KEYS.history);
+        if (raw) {
+          const history: Record<string, HistoryEntry> = JSON.parse(raw);
+          const entry = history[video.id];
+          if (entry && entry.position > 5) {
+            setResumePosition(entry.position);
+          }
+        }
+      } catch {
+        // silently ignore
+      }
+
+      resetHideTimer();
+    },
+    [currentVideo, resetHideTimer]
+  );
+
+  const cycleRepeat = useCallback(() => {
+    setRepeatModeState((prev) => {
+      if (prev === 'off') return 'one';
+      return 'off';
+    });
+  }, []);
 
   return {
-    videos, current, playing,
-    progress, duration, speed,
-    volume, fullscreen, showControls,
+    // Ref
     videoRef,
-    pickVideos, playVideo, removeVideo,
-    togglePlay, seek, skip,
-    changeSpeed, changeVolume,
-    toggleFullscreen, resetHideTimer,
-    setProgress, setDuration,
-    setPlaying, setShowControls,
-    formatTime, formatSize
-  }
+
+    // State
+    isPlaying,
+    currentTime,
+    duration,
+    volume,
+    isMuted,
+    brightness,
+    playbackSpeed,
+    aspectRatio,
+    isLocked,
+    isFullscreen,
+    subtitleTrack,
+    audioTrack,
+    repeatMode,
+    pipMode,
+    showControls,
+    currentVideo,
+    resumePosition,
+
+    // Functions
+    play,
+    pause,
+    seek,
+    skip,
+    setVolume,
+    setSpeed,
+    setAspectRatio,
+    toggleLock,
+    togglePip,
+    loadSubtitle,
+    setAudioTrack,
+    setBrightness,
+    toggleFullscreen,
+    toggleMute,
+    loadVideo,
+    cycleRepeat,
+    resetHideTimer,
+
+    // Utility
+    formatDuration,
+  };
 }
