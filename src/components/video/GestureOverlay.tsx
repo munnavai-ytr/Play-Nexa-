@@ -1,9 +1,10 @@
 'use client'
 
 import { useState, useRef, useCallback, useEffect } from 'react'
-import { useVideoPlayer } from '@/hooks/useVideoPlayer'
+import type { VideoPlayerState } from '@/hooks/useVideoPlayer'
 
 interface GestureOverlayProps {
+  player: VideoPlayerState
   onToggleControls: () => void
   isLocked: boolean
 }
@@ -21,10 +22,10 @@ const RIPPLE_ANIMATION = `@keyframes ripple-expand {
 }`
 
 export default function GestureOverlay({
+  player,
   onToggleControls,
   isLocked,
 }: GestureOverlayProps) {
-  const player = useVideoPlayer()
   const containerRef = useRef<HTMLDivElement>(null)
 
   // ── Gesture state ──
@@ -160,7 +161,7 @@ export default function GestureOverlay({
       } else if (zone === 'right') {
         volumeStartRef.current = player.isMuted ? 0 : player.volume
       } else if (zone === 'center') {
-        // Long press for 2× speed
+        // Long press for 2x speed
         longPressTimerRef.current = setTimeout(() => {
           isLongPressingRef.current = true
           player.setSpeed(2)

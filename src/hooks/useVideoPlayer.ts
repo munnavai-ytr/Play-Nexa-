@@ -11,6 +11,18 @@ import {
   parseSubtitle,
 } from '@/lib/mediaUtils';
 
+// ══════════════════════════════════════════════════════════════
+// TYPES
+// ══════════════════════════════════════════════════════════════
+
+export type AspectRatio = 'fit' | 'fill' | '16:9' | '4:3' | 'zoom';
+type RepeatMode = 'off' | 'one';
+
+interface HistoryEntry {
+  position: number;
+  updatedAt: number;
+}
+
 const STORAGE_KEYS = {
   volume: 'pn_video_volume',
   speed: 'pn_video_speed',
@@ -20,13 +32,39 @@ const STORAGE_KEYS = {
   history: 'pn_video_history',
 } as const;
 
-interface HistoryEntry {
-  position: number;
-  updatedAt: number;
+const MAX_HISTORY_ENTRIES = 50;
+
+// ══════════════════════════════════════════════════════════════
+// HISTORY HELPERS (with 50-entry cap)
+// ══════════════════════════════════════════════════════════════
+
+function readHistory(): Record<string, HistoryEntry> {
+  try {
+    const raw = lsGet<string>(STORAGE_KEYS.history, '');
+    if (!raw) return {};
+    return JSON.parse(raw) as Record<string, HistoryEntry>;
+  } catch {
+    return {};
+  }
 }
 
-type AspectRatio = 'fit' | 'fill' | '16:9' | '4:3' | 'zoom';
-type RepeatMode = 'off' | 'one';
+function writeHistory(history: Record<string, HistoryEntry>): void {
+  const entries = Object.entries(history);
+  if (entries.length > MAX_HISTORY_ENTRIES) {
+    entries.sort((a, b) => b[1].updatedAt - a[1].updatedAt);
+    const trimmed: Record<string, HistoryEntry> = {};
+    for (let i = 0; i < MAX_HISTORY_ENTRIES; i++) {
+      trimmed[entries[i][0]] = entries[i][1];
+    }
+    lsSet(STORAGE_KEYS.history, JSON.stringify(trimmed));
+  } else {
+    lsSet(STORAGE_KEYS.history, JSON.stringify(history));
+  }
+}
+
+// ══════════════════════════════════════════════════════════════
+// HOOK
+// ══════════════════════════════════════════════════════════════
 
 export function useVideoPlayer() {
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -35,30 +73,28 @@ export function useVideoPlayer() {
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [currentTime, setCurrentTime] = useState<number>(0);
   const [duration, setDuration] = useState<number>(0);
-  const [volume, setVolumeState] = useState<number>(() => {
-    const saved = lsGet(STORAGE_KEYS.volume);
-    return saved !== null ? parseFloat(saved) : 0.75;
-  });
+  const [volume, setVolumeState] = useState<number>(() =>
+    lsGet<number>(STORAGE_KEYS.volume, 0.75)
+  );
   const [isMuted, setIsMuted] = useState<boolean>(false);
-  const [brightness, setBrightnessState] = useState<number>(() => {
-    const saved = lsGet(STORAGE_KEYS.brightness);
-    return saved !== null ? parseFloat(saved) : 1;
-  });
-  const [playbackSpeed, setPlaybackSpeedState] = useState<number>(() => {
-    const saved = lsGet(STORAGE_KEYS.speed);
-    return saved !== null ? parseFloat(saved) : 1.0;
-  });
+  const [brightness, setBrightnessState] = useState<number>(() =>
+    lsGet<number>(STORAGE_KEYS.brightness, 1)
+  );
+  const [playbackSpeed, setPlaybackSpeedState] = useState<number>(() =>
+    lsGet<number>(STORAGE_KEYS.speed, 1.0)
+  );
   const [aspectRatio, setAspectRatioState] = useState<AspectRatio>(() => {
-    const saved = lsGet(STORAGE_KEYS.aspect);
-    return (saved as AspectRatio) || 'fit';
+    const saved = lsGet<string>(STORAGE_KEYS.aspect, 'fit');
+    const valid: AspectRatio[] = ['fit', 'fill', '16:9', '4:3', 'zoom'];
+    return valid.includes(saved as AspectRatio) ? (saved as AspectRatio) : 'fit';
   });
   const [isLocked, setIsLocked] = useState<boolean>(false);
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
   const [subtitleTrack, setSubtitleTrack] = useState<SubCue[] | null>(null);
   const [audioTrack, setAudioTrackState] = useState<number>(0);
   const [repeatMode, setRepeatModeState] = useState<RepeatMode>(() => {
-    const saved = lsGet(STORAGE_KEYS.repeat);
-    return (saved as RepeatMode) || 'off';
+    const saved = lsGet<string>(STORAGE_KEYS.repeat, 'off');
+    return saved === 'one' ? 'one' : 'off';
   });
   const [pipMode, setPipMode] = useState<boolean>(false);
   const [showControls, setShowControls] = useState<boolean>(true);
@@ -98,7 +134,7 @@ export function useVideoPlayer() {
       const onEnded = () => {
         if (repeatMode === 'one') {
           el.currentTime = 0;
-          el.play();
+          el.play().catch(() => setIsPlaying(false));
         } else {
           setIsPlaying(false);
         }
@@ -144,7 +180,7 @@ export function useVideoPlayer() {
     if (el) {
       el.volume = volume;
     }
-    lsSet(STORAGE_KEYS.volume, String(volume));
+    lsSet(STORAGE_KEYS.volume, volume);
   }, [volume]);
 
   // ── Sync muted to element ───────────────────────────────────────────
@@ -161,12 +197,12 @@ export function useVideoPlayer() {
     if (el) {
       el.playbackRate = playbackSpeed;
     }
-    lsSet(STORAGE_KEYS.speed, String(playbackSpeed));
+    lsSet(STORAGE_KEYS.speed, playbackSpeed);
   }, [playbackSpeed]);
 
-  // ── Sync brightness (CSS filter on container is handled by consumer) ─
+  // ── Sync brightness ─────────────────────────────────────────────────
   useEffect(() => {
-    lsSet(STORAGE_KEYS.brightness, String(brightness));
+    lsSet(STORAGE_KEYS.brightness, brightness);
   }, [brightness]);
 
   // ── Persist aspect ratio ────────────────────────────────────────────
@@ -214,15 +250,12 @@ export function useVideoPlayer() {
       const el = videoRef.current;
       if (!el || !currentVideo) return;
       try {
-        const raw = lsGet(STORAGE_KEYS.history);
-        const history: Record<string, HistoryEntry> = raw
-          ? JSON.parse(raw)
-          : {};
+        const history = readHistory();
         history[currentVideo.id] = {
           position: el.currentTime,
           updatedAt: Date.now(),
         };
-        lsSet(STORAGE_KEYS.history, JSON.stringify(history));
+        writeHistory(history);
       } catch {
         // silently ignore storage errors
       }
@@ -293,21 +326,41 @@ export function useVideoPlayer() {
     const el = videoRef.current;
     if (!el) return;
     try {
-      if (document.pictureInPictureElement) {
-        await document.exitPictureInPicture();
+      if (isNativePlatform()) {
+        // On native, use Capacitor PiP if available
+        const w = window as unknown as {
+          Capacitor?: {
+            Plugins?: {
+              PictureInPicture?: { enter: () => Promise<void>; exit: () => Promise<void> }
+            }
+          }
+        };
+        const pipPlugin = w.Capacitor?.Plugins?.PictureInPicture;
+        if (pipMode && pipPlugin) {
+          await pipPlugin.exit();
+        } else if (pipPlugin) {
+          await pipPlugin.enter();
+        }
       } else {
-        await el.requestPictureInPicture();
+        // Web PiP API
+        if (document.pictureInPictureElement) {
+          await document.exitPictureInPicture();
+        } else {
+          await el.requestPictureInPicture();
+        }
       }
     } catch {
       // PiP not supported or blocked
     }
     resetHideTimer();
-  }, [resetHideTimer]);
+  }, [resetHideTimer, pipMode]);
 
   const loadSubtitle = useCallback(async (file: File): Promise<void> => {
     try {
       const text = await file.text();
-      const cues = parseSubtitle(text);
+      const ext = file.name.split('.').pop()?.toLowerCase() || 'srt';
+      const format: 'srt' | 'ass' = ext === 'ass' || ext === 'ssa' ? 'ass' : 'srt';
+      const cues = parseSubtitle(text, format);
       setSubtitleTrack(cues);
     } catch {
       setSubtitleTrack(null);
@@ -318,7 +371,8 @@ export function useVideoPlayer() {
     const el = videoRef.current;
     if (!el) return;
 
-    const audioTracks = (el as HTMLVideoElement & { audioTracks?: AudioTrackList }).audioTracks;
+    // AudioTrackList is a non-standard API available in some browsers
+    const audioTracks = (el as HTMLVideoElement & { audioTracks?: { length: number; [i: number]: { enabled: boolean } } }).audioTracks;
     if (audioTracks && audioTracks.length > 0) {
       for (let i = 0; i < audioTracks.length; i++) {
         audioTracks[i].enabled = i === index;
@@ -359,15 +413,12 @@ export function useVideoPlayer() {
       // Save current video position before switching
       if (el && currentVideo) {
         try {
-          const raw = lsGet(STORAGE_KEYS.history);
-          const history: Record<string, HistoryEntry> = raw
-            ? JSON.parse(raw)
-            : {};
+          const history = readHistory();
           history[currentVideo.id] = {
             position: el.currentTime,
             updatedAt: Date.now(),
           };
-          lsSet(STORAGE_KEYS.history, JSON.stringify(history));
+          writeHistory(history);
         } catch {
           // silently ignore
         }
@@ -387,13 +438,10 @@ export function useVideoPlayer() {
 
       // Check for saved position (resume logic)
       try {
-        const raw = lsGet(STORAGE_KEYS.history);
-        if (raw) {
-          const history: Record<string, HistoryEntry> = JSON.parse(raw);
-          const entry = history[video.id];
-          if (entry && entry.position > 5) {
-            setResumePosition(entry.position);
-          }
+        const history = readHistory();
+        const entry = history[video.id];
+        if (entry && entry.position > 5) {
+          setResumePosition(entry.position);
         }
       } catch {
         // silently ignore
@@ -457,3 +505,9 @@ export function useVideoPlayer() {
     formatDuration,
   };
 }
+
+// ══════════════════════════════════════════════════════════════
+// EXPORT TYPE FOR PROPS PASSING
+// ══════════════════════════════════════════════════════════════
+
+export type VideoPlayerState = ReturnType<typeof useVideoPlayer>;

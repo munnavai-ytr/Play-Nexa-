@@ -165,7 +165,7 @@ export function useMediaLibrary() {
         return sorted
       }
     } catch (err) {
-      console.warn('Music scan failed:', err)
+      // Music scan failed — return empty
       return []
     } finally {
       setScanning(false)
@@ -274,7 +274,7 @@ export function useMediaLibrary() {
         return result
       }
     } catch (err) {
-      console.warn('Video scan failed:', err)
+      // Video scan failed — return empty
       return []
     } finally {
       setScanning(false)

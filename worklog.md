@@ -59,3 +59,35 @@ Stage Summary:
 - content-visibility: auto on scrollable lists
 - Max transition 200ms (except vinyl spin 4s and EQ bars which are ambient)
 - Next.js build: PASS (all 23 routes compile successfully)
+---
+Task ID: audit-music-video
+Agent: Super Z (Main)
+Task: Complete audit, debug, and fix of Music Player + Video Player features
+
+Work Log:
+- Read all 13 target files + globals.css completely
+- Ran comprehensive checklist audit per spec
+- Found 11 issues ranging from critical to minor
+- Fixed CRITICAL: GestureOverlay + PlayerControls creating separate useVideoPlayer() instances — refactored to pass shared player state as props
+- Fixed CRITICAL: parseSubtitle() called with 1 arg instead of 2 in useVideoPlayer.ts loadSubtitle — now detects format from file extension
+- Fixed MAJOR: .pn-page-enter CSS animation used translateY(30px) instead of translateX(100%) for page slide-in
+- Fixed MAJOR: Video history had no 50-entry max limit — added writeHistory() helper with cap
+- Fixed MODERATE: useVideoPlayer stored volume/speed/brightness as strings — now stores as numbers consistently
+- Fixed MODERATE: NowPlaying.tsx used touch events instead of pointer events — converted to onPointerDown/Move/Up
+- Fixed MODERATE: console.warn left in useMediaLibrary.ts — removed for production
+- Fixed MODERATE: PlayerControls prev/next buttons were skipping time — now properly labeled with skip -30/+30 for prev/next
+- Fixed MINOR: Long song title now uses CSS marquee animation instead of scrollable overflow
+- Added music-marquee CSS animation to globals.css
+- Fixed .video-seek-thumb to include transform: scale(1) base state for proper transition
+- Fixed VideoLibrary.tsx thumbnailCache type to Record<string, string | null>
+- Exported VideoPlayerState type from useVideoPlayer for props passing
+- Exported AspectRatio type from useVideoPlayer
+- Added isNativePlatform() check in togglePip for Capacitor PiP API
+- TypeScript check: zero errors in modified files
+- Next.js build: successful compilation
+
+Stage Summary:
+- 11 issues found, 11 fixed
+- All 13 files audited and updated where needed
+- Build passes with zero new errors
+- Key architectural fix: shared player state via props instead of multiple hook instances

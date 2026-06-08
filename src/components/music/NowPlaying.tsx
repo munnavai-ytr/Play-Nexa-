@@ -96,9 +96,9 @@ export default function NowPlaying({ onCollapse }: NowPlayingProps) {
   const [isSwiping, setIsSwiping] = useState(false)
   const [swipeOffset, setSwipeOffset] = useState(0)
 
-  // ── Touch refs for swipe-down ───────────────────────────────
-  const touchStartY = useRef(0)
-  const touchCurrentY = useRef(0)
+  // ── Pointer refs for swipe-down ───────────────────────────────
+  const pointerStartY = useRef(0)
+  const pointerCurrentY = useRef(0)
   const rootRef = useRef<HTMLDivElement>(null)
 
   // ── Toggle play/pause ───────────────────────────────────────
@@ -177,25 +177,25 @@ export default function NowPlaying({ onCollapse }: NowPlayingProps) {
     [currentSong, sleepTimer, setSleepTimer, addToPlaylist]
   )
 
-  // ── Swipe-down touch handlers ───────────────────────────────
-  const handleTouchStart = useCallback((e: React.TouchEvent) => {
-    touchStartY.current = e.touches[0].clientY
-    touchCurrentY.current = e.touches[0].clientY
+  // ── Swipe-down pointer handlers (pointer events for compatibility)
+  const handlePointerDown = useCallback((e: React.PointerEvent) => {
+    pointerStartY.current = e.clientY
+    pointerCurrentY.current = e.clientY
     setIsSwiping(true)
     setSwipeOffset(0)
   }, [])
 
-  const handleTouchMove = useCallback((e: React.TouchEvent) => {
-    const deltaY = e.touches[0].clientY - touchStartY.current
-    touchCurrentY.current = e.touches[0].clientY
+  const handlePointerMove = useCallback((e: React.PointerEvent) => {
+    const deltaY = e.clientY - pointerStartY.current
+    pointerCurrentY.current = e.clientY
     // Only allow downward swipe with elastic resistance
     if (deltaY > 0) {
       setSwipeOffset(deltaY * 0.5)
     }
   }, [])
 
-  const handleTouchEnd = useCallback(() => {
-    const deltaY = touchCurrentY.current - touchStartY.current
+  const handlePointerUp = useCallback(() => {
+    const deltaY = pointerCurrentY.current - pointerStartY.current
     setIsSwiping(false)
     setSwipeOffset(0)
 
@@ -224,14 +224,14 @@ export default function NowPlaying({ onCollapse }: NowPlayingProps) {
   return (
     <div
       ref={rootRef}
-      className="pn-page-enter fixed inset-0 z-50 flex flex-col bg-[#0D0D0D] overflow-hidden select-none"
+      className="pn-page-enter fixed inset-0 z-50 flex flex-col bg-[#0D0D0D] overflow-hidden select-none touch-none"
       style={{
         transform: isSwiping ? `translateY(${swipeOffset}px)` : undefined,
         transition: isSwiping ? 'none' : 'transform 150ms ease-out',
       }}
-      onTouchStart={handleTouchStart}
-      onTouchMove={handleTouchMove}
-      onTouchEnd={handleTouchEnd}
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerUp}
     >
       {/* ═══════════════════════════════════════════════════════════
           TOP BAR
@@ -315,16 +315,25 @@ export default function NowPlaying({ onCollapse }: NowPlayingProps) {
 
         {/* ── Song Info ─────────────────────────────────────────── */}
         <div className="w-full max-w-[320px] mb-5">
-          {/* Title */}
-          <h2
-            className={`text-[20px] font-bold text-white leading-tight ${
-              (currentSong?.name?.length ?? 0) > 20
-                ? 'overflow-x-auto whitespace-nowrap scrollbar-hide'
-                : 'truncate'
-            }`}
-          >
-            {currentSong?.name ?? 'No Song Playing'}
-          </h2>
+          {/* Title — marquee animation for long titles */}
+          <div className="overflow-hidden max-w-[320px]">
+            <h2
+              className={`text-[20px] font-bold text-white leading-tight ${
+                (currentSong?.name?.length ?? 0) > 22
+                  ? 'music-marquee inline-block'
+                  : 'truncate'
+              }`}
+              style={
+                (currentSong?.name?.length ?? 0) > 22
+                  ? { width: 'max-content' }
+                  : undefined
+              }
+            >
+              {(currentSong?.name?.length ?? 0) > 22
+                ? `${currentSong?.name ?? 'No Song Playing'}\u00A0\u00A0\u00A0${currentSong?.name ?? 'No Song Playing'}\u00A0\u00A0\u00A0`
+                : (currentSong?.name ?? 'No Song Playing')}
+            </h2>
+          </div>
 
           {/* Artist */}
           <p className="text-[14px] text-[#9CA3AF] mt-1 truncate">

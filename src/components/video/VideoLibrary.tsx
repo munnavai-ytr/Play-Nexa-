@@ -138,7 +138,7 @@ export default function VideoLibrary({ onVideoSelect, onBack }: VideoLibraryProp
   const [contextSheetOpen, setContextSheetOpen] = useState(false)
   const [headerMenuOpen, setHeaderMenuOpen] = useState(false)
   const [videoHistory, setVideoHistory] = useState<VideoHistoryEntry[]>([])
-  const [thumbnailCache, setThumbnailCache] = useState<Record<string, string>>({})
+  const [thumbnailCache, setThumbnailCache] = useState<Record<string, string | null>>({})
   const [generatingThumbs, setGeneratingThumbs] = useState<Set<string>>(new Set())
 
   // ── Refs ──
@@ -502,7 +502,7 @@ export default function VideoLibrary({ onVideoSelect, onBack }: VideoLibraryProp
 
   const renderThumbnail = useCallback(
     (video: VideoFile, size: 'grid' | 'list') => {
-      const thumb = video.thumbnail || thumbnailCache[video.id]
+      const thumb = video.thumbnail || thumbnailCache[video.id] || null
       const isGenerating = generatingThumbs.has(video.id)
 
       if (thumb) {
@@ -761,7 +761,7 @@ export default function VideoLibrary({ onVideoSelect, onBack }: VideoLibraryProp
       <div className="px-3 space-y-1">
         {videoHistory.map((entry) => {
           const video = videos.find((v) => v.id === entry.id)
-          const thumb = video?.thumbnail || thumbnailCache[entry.id]
+          const thumb = video?.thumbnail || thumbnailCache[entry.id] || null
 
           return (
             <div

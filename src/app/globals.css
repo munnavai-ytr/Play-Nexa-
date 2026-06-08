@@ -198,14 +198,14 @@ input[type="range"]::-moz-range-thumb {
   animation: eq-bar 0.8s ease-in-out infinite;
 }
 
-/* Page enter animation for Now Playing */
+/* Page enter animation — slide in from right */
 @keyframes pn-page-enter {
-  0% { opacity: 0; transform: translateY(30px); }
-  100% { opacity: 1; transform: translateY(0); }
+  0% { opacity: 0; transform: translateX(100%); }
+  100% { opacity: 1; transform: translateX(0); }
 }
 
 .pn-page-enter {
-  animation: pn-page-enter 300ms ease-out;
+  animation: pn-page-enter 150ms ease-out forwards;
 }
 
 /* Vinyl disc spin animation */
@@ -337,6 +337,18 @@ input[type="range"]::-moz-range-thumb {
 .music-eq-bar:nth-child(4) { animation-duration: 0.7s; }
 .music-eq-bar:nth-child(5) { animation-duration: 0.45s; }
 
+/* Marquee animation for long song titles */
+@keyframes music-marquee {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+
+.music-marquee {
+  overflow: visible;
+  white-space: nowrap;
+  animation: music-marquee 8s linear infinite;
+}
+
 /* Video seekbar thumb styling */
 .video-seek-thumb::-webkit-slider-runnable-track {
   height: 4px;
@@ -354,6 +366,7 @@ input[type="range"]::-moz-range-thumb {
   border: 2px solid #000000;
   box-shadow: 0 0 8px rgba(124, 58, 237, 0.5);
   margin-top: -6px;
+  transform: scale(1);
   transition: transform 100ms ease;
 }
 

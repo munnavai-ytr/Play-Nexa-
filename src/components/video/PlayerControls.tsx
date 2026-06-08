@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useRef, useCallback, useEffect } from 'react'
-import { useVideoPlayer } from '@/hooks/useVideoPlayer'
+import type { VideoPlayerState } from '@/hooks/useVideoPlayer'
 import { formatDuration, type SubCue } from '@/lib/mediaUtils'
 import {
   ArrowLeft,
@@ -11,20 +11,17 @@ import {
   Play,
   Pause,
   RotateCcw,
-  Maximize,
   Subtitles,
   Volume2,
   VolumeX,
   Gauge,
   Lock,
-  Unlock,
   PictureInPicture2,
-  Minimize,
-  RectangleHorizontal,
   X,
 } from 'lucide-react'
 
 interface PlayerControlsProps {
+  player: VideoPlayerState
   visible: boolean
   onBack: () => void
   videoTitle: string
@@ -50,12 +47,12 @@ const SUBTITLE_COLORS = [
 ]
 
 export default function PlayerControls({
+  player,
   visible,
   onBack,
   videoTitle,
   onToggleControls,
 }: PlayerControlsProps) {
-  const player = useVideoPlayer()
   const [menuOpen, setMenuOpen] = useState(false)
   const [speedSheetOpen, setSpeedSheetOpen] = useState(false)
   const [aspectSheetOpen, setAspectSheetOpen] = useState(false)
@@ -226,7 +223,7 @@ export default function PlayerControls({
                   { icon: <Subtitles size={18} />, label: 'Subtitle', action: () => { setSubtitlePanelOpen(true); setMenuOpen(false) } },
                   { icon: <Volume2 size={18} />, label: 'Audio Track', action: () => { setMenuOpen(false) } },
                   { icon: <Gauge size={18} />, label: 'Playback Speed', action: () => { setSpeedSheetOpen(true); setMenuOpen(false) } },
-                  { icon: <RectangleHorizontal size={18} />, label: 'Aspect Ratio', action: () => { setAspectSheetOpen(true); setMenuOpen(false) } },
+                  { icon: <div className="w-4 h-3 border border-white/50 rounded-sm" />, label: 'Aspect Ratio', action: () => { setAspectSheetOpen(true); setMenuOpen(false) } },
                   { icon: <Lock size={18} />, label: 'Lock Screen', action: () => { player.toggleLock(); setMenuOpen(false); player.resetHideTimer() } },
                   { icon: <PictureInPicture2 size={18} />, label: 'PiP Mode', action: () => { player.togglePip(); setMenuOpen(false) } },
                   { icon: <RotateCcw size={18} />, label: 'Sleep Timer', action: () => { setMenuOpen(false) } },
@@ -265,7 +262,7 @@ export default function PlayerControls({
             <div className="relative flex-1 h-5 flex items-center">
               {/* Track background */}
               <div className="absolute w-full h-1 rounded-full bg-white/20" />
-              {/* Buffered / Progress */}
+              {/* Progress */}
               <div
                 className="absolute h-1 rounded-full"
                 style={{ width: `${progress}%`, backgroundColor: '#7C3AED', transition: 'width 200ms' }}
@@ -298,8 +295,12 @@ export default function PlayerControls({
 
           {/* ── CONTROLS ROW ── */}
           <div className="flex items-center justify-center gap-2 mb-3">
+            {/* Previous video */}
             <button
-              onClick={() => player.skip(-10)}
+              onClick={() => {
+                player.skip(-30)
+                player.resetHideTimer()
+              }}
               className="flex items-center justify-center rounded-full hover:bg-white/10 active:scale-90"
               style={{ width: 44, height: 44, minWidth: 44, minHeight: 44, transition: 'transform 100ms' }}
               aria-label="Previous"
@@ -307,6 +308,7 @@ export default function PlayerControls({
               <SkipBack size={20} className="text-white" />
             </button>
 
+            {/* Rewind 10 seconds */}
             <button
               onClick={() => player.skip(-10)}
               className="flex items-center justify-center rounded-full hover:bg-white/10 active:scale-90"
@@ -316,6 +318,7 @@ export default function PlayerControls({
               <RotateCcw size={20} className="text-white" />
             </button>
 
+            {/* Play / Pause (64px) */}
             <button
               onClick={() => {
                 if (player.isPlaying) player.pause()
@@ -340,6 +343,7 @@ export default function PlayerControls({
               )}
             </button>
 
+            {/* Forward 10 seconds */}
             <button
               onClick={() => player.skip(10)}
               className="flex items-center justify-center rounded-full hover:bg-white/10 active:scale-90"
@@ -349,8 +353,12 @@ export default function PlayerControls({
               <RotateCcw size={20} className="text-white" style={{ transform: 'scaleX(-1)' }} />
             </button>
 
+            {/* Next video */}
             <button
-              onClick={() => player.skip(10)}
+              onClick={() => {
+                player.skip(30)
+                player.resetHideTimer()
+              }}
               className="flex items-center justify-center rounded-full hover:bg-white/10 active:scale-90"
               style={{ width: 44, height: 44, minWidth: 44, minHeight: 44, transition: 'transform 100ms' }}
               aria-label="Next"

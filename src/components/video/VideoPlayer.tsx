@@ -13,46 +13,15 @@ interface VideoPlayerProps {
 type AspectMode = 'fit' | 'fill' | '16:9' | '4:3' | 'zoom'
 
 export default function VideoPlayer({ onBack }: VideoPlayerProps) {
-  const {
-    videoRef,
-    isPlaying,
-    currentTime,
-    duration,
-    volume,
-    isMuted,
-    brightness,
-    playbackSpeed,
-    aspectRatio,
-    isLocked,
-    isFullscreen,
-    subtitleTrack,
-    currentVideo,
-    resumePosition,
-    showControls,
-    play,
-    pause,
-    seek,
-    skip,
-    setVolume,
-    setSpeed,
-    setAspectRatio,
-    toggleLock,
-    togglePip,
-    loadSubtitle,
-    setBrightness,
-    toggleFullscreen,
-    toggleMute,
-    resetHideTimer,
-  } = useVideoPlayer()
-
+  const player = useVideoPlayer()
   const [resumeDismissed, setResumeDismissed] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
 
-  const showResumeSnackbar = !resumeDismissed && resumePosition !== null && resumePosition > 5
+  const showResumeSnackbar = !resumeDismissed && player.resumePosition !== null && player.resumePosition > 5
 
   // ── Compute object-fit and aspect-ratio from current mode ──
   const videoStyle = (() => {
-    const mode = aspectRatio as AspectMode
+    const mode = player.aspectRatio as AspectMode
     switch (mode) {
       case 'fill':
         return { objectFit: 'cover' as const }
@@ -100,15 +69,15 @@ export default function VideoPlayer({ onBack }: VideoPlayerProps) {
   // ── Save position on unmount ──
   useEffect(() => {
     return () => {
-      const el = videoRef.current
-      if (el && currentVideo) {
+      const el = player.videoRef.current
+      if (el && player.currentVideo) {
         try {
           const key = `pn_video_history`
           const raw = localStorage.getItem(key)
           const history: Record<string, { position: number; updatedAt: number }> = raw
             ? JSON.parse(raw)
             : {}
-          history[currentVideo.id] = {
+          history[player.currentVideo.id] = {
             position: el.currentTime,
             updatedAt: Date.now(),
           }
@@ -118,28 +87,29 @@ export default function VideoPlayer({ onBack }: VideoPlayerProps) {
         }
       }
     }
-  }, [currentVideo, videoRef])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [player.currentVideo])
 
   // ── Resume from saved position ──
   const handleResume = useCallback(() => {
-    if (resumePosition !== null) {
-      seek(resumePosition)
+    if (player.resumePosition !== null) {
+      player.seek(player.resumePosition)
     }
     setResumeDismissed(true)
-    play()
-  }, [resumePosition, seek, play])
+    player.play()
+  }, [player])
 
   // ── Start from beginning ──
   const handleStartOver = useCallback(() => {
-    seek(0)
+    player.seek(0)
     setResumeDismissed(true)
-    play()
-  }, [seek, play])
+    player.play()
+  }, [player])
 
   // ── Toggle controls visibility ──
   const handleToggleControls = useCallback(() => {
-    resetHideTimer()
-  }, [resetHideTimer])
+    player.resetHideTimer()
+  }, [player])
 
   // ── Format resume position ──
   const formatResumeTime = (seconds: number): string => {
@@ -148,7 +118,7 @@ export default function VideoPlayer({ onBack }: VideoPlayerProps) {
     return `${m}:${s.toString().padStart(2, '0')}`
   }
 
-  const videoTitle = currentVideo?.name || 'Now Playing'
+  const videoTitle = player.currentVideo?.name || 'Now Playing'
 
   return (
     <div
@@ -159,28 +129,28 @@ export default function VideoPlayer({ onBack }: VideoPlayerProps) {
       {/* ── VIDEO ELEMENT ── */}
       <div className="flex-1 relative flex items-center justify-center overflow-hidden">
         <video
-          ref={videoRef}
+          ref={player.videoRef}
           className="w-full h-full"
           style={{
             ...videoStyle,
-            filter: `brightness(${Math.round(brightness * 100)}%)`,
+            filter: `brightness(${Math.round(player.brightness * 100)}%)`,
           }}
           playsInline
-          // @ts-expect-error webkit-playsinline is non-standard
-          webkit-playsinline=""
           preload="metadata"
           data-video-player-element
         />
 
         {/* ── GESTURE OVERLAY ── */}
         <GestureOverlay
+          player={player}
           onToggleControls={handleToggleControls}
-          isLocked={isLocked}
+          isLocked={player.isLocked}
         />
 
         {/* ── PLAYER CONTROLS ── */}
         <PlayerControls
-          visible={showControls}
+          player={player}
+          visible={player.showControls}
           onBack={onBack}
           videoTitle={videoTitle}
           onToggleControls={handleToggleControls}
@@ -188,7 +158,7 @@ export default function VideoPlayer({ onBack }: VideoPlayerProps) {
       </div>
 
       {/* ── RESUME SNACKBAR ── */}
-      {showResumeSnackbar && resumePosition !== null && (
+      {showResumeSnackbar && player.resumePosition !== null && (
         <div
           className="absolute bottom-20 left-4 right-4 z-50 flex items-center justify-between rounded-xl px-4 py-3"
           style={{
@@ -197,7 +167,7 @@ export default function VideoPlayer({ onBack }: VideoPlayerProps) {
           }}
         >
           <span className="text-white text-sm">
-            Resume from {formatResumeTime(resumePosition)}?
+            Resume from {formatResumeTime(player.resumePosition)}?
           </span>
           <div className="flex items-center gap-2">
             <button
