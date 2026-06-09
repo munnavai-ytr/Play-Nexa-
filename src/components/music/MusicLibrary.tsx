@@ -26,6 +26,8 @@ import {
   Trash2,
   Loader2,
   RefreshCw,
+  Play,
+  SkipForward,
 } from 'lucide-react'
 import type { Song } from '@/lib/mediaUtils'
 import { formatDuration, debounce, lsGet, lsSet } from '@/lib/mediaUtils'
@@ -90,7 +92,8 @@ interface ContextAction {
 }
 
 const CONTEXT_ACTIONS: ContextAction[] = [
-  { id: 'playNext', label: 'Play Next', icon: <Shuffle size={18} />, color: 'text-[#06B6D4]' },
+  { id: 'playNow', label: 'Play Now', icon: <Play size={18} />, color: 'text-[#7C3AED]' },
+  { id: 'playNext', label: 'Play Next', icon: <SkipForward size={18} />, color: 'text-[#06B6D4]' },
   { id: 'addToPlaylist', label: 'Add to Playlist', icon: <Plus size={18} />, color: 'text-[#7C3AED]' },
   { id: 'addToFavorites', label: 'Add to Favorites', icon: <Heart size={18} />, color: 'text-red-400' },
   { id: 'songInfo', label: 'Song Info', icon: <Info size={18} />, color: 'text-[#9CA3AF]' },
@@ -229,17 +232,42 @@ export default function MusicLibrary({ onSongSelect, onBack }: MusicLibraryProps
       )
     }
 
-    // Apply tab filter
+    // Apply tab filter — group by category where applicable
     switch (activeTab) {
-      case 'albums':
-        filtered = filtered.filter((s) => s.album && s.album !== 'Unknown Album')
+      case 'albums': {
+        // Show first song per album
+        const albumMap = new Map<string, Song>()
+        filtered.forEach((song) => {
+          const album = song.album || 'Unknown Album'
+          if (!albumMap.has(album)) albumMap.set(album, song)
+        })
+        filtered = Array.from(albumMap.values())
         break
-      case 'artists':
-        filtered = filtered.filter((s) => s.artist && s.artist !== 'Unknown Artist')
+      }
+      case 'artists': {
+        // Show first song per artist
+        const artistMap = new Map<string, Song>()
+        filtered.forEach((song) => {
+          const artist = song.artist || 'Unknown Artist'
+          if (!artistMap.has(artist)) artistMap.set(artist, song)
+        })
+        filtered = Array.from(artistMap.values())
         break
-      case 'folders':
+      }
+      case 'folders': {
+        // Show first song per folder
+        const folderMap = new Map<string, Song>()
+        filtered.forEach((song) => {
+          const folder = song.path
+            ? song.path.substring(0, song.path.lastIndexOf('/'))
+            : 'Unknown Folder'
+          if (!folderMap.has(folder)) folderMap.set(folder, song)
+        })
+        filtered = Array.from(folderMap.values())
         break
+      }
       case 'recent':
+        // Sort by id descending (proxy for date added), take first 50
         filtered = [...filtered].sort((a, b) => b.id.localeCompare(a.id)).slice(0, 50)
         break
       case 'all':
@@ -294,6 +322,10 @@ export default function MusicLibrary({ onSongSelect, onBack }: MusicLibraryProps
       if (!contextSong) return
 
       switch (actionId) {
+        case 'playNow': {
+          onSongSelect(contextSong)
+          break
+        }
         case 'playNext': {
           try {
             const playNextList = lsGet<Song[]>('pn_music_play_next', [])
@@ -358,7 +390,7 @@ export default function MusicLibrary({ onSongSelect, onBack }: MusicLibraryProps
       setContextSheetOpen(false)
       setContextSong(null)
     },
-    [contextSong, removeSong]
+    [contextSong, removeSong, onSongSelect]
   )
 
   // ── Initial load with hasLoadedRef guard ──
@@ -545,6 +577,10 @@ export default function MusicLibrary({ onSongSelect, onBack }: MusicLibraryProps
           <button
             onClick={() => {
               setHeaderMenuOpen(false)
+              if (displayedSongs.length > 0) {
+                const randomSong = displayedSongs[Math.floor(Math.random() * displayedSongs.length)]
+                onSongSelect(randomSong)
+              }
             }}
             className="flex items-center gap-3 w-full px-4 py-3 text-white text-sm active:bg-[#16213E] transition-colors duration-150 min-h-[44px] cursor-pointer"
           >
