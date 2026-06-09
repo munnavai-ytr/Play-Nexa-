@@ -4,13 +4,21 @@ import {
   useState,
   useRef,
   useCallback,
-  useEffect
+  useEffect,
 } from 'react'
+import {
+  Capacitor,
+} from '@capacitor/core'
+import {
+  CapacitorMusicControls,
+  type CapacitorMusicControlsInfo,
+} from 'capacitor-music-controls-plugin'
 import {
   formatDuration,
   lsGet,
   lsSet,
-  type Song
+  isNativePlatform,
+  type Song,
 } from '@/lib/mediaUtils'
 
 // ══════════════════════════════════════════════════════════════
@@ -53,20 +61,43 @@ export function useMusicPlayer() {
   const [playbackSpeed, setPlaybackSpeed]   = useState<number>(() => lsGet<number>(LS_SPEED, 1.0))
 
   // ── Refs ───────────────────────────────────────────────────
-  const audioRef     = useRef<HTMLAudioElement | null>(null)
-  const sleepRef     = useRef<ReturnType<typeof setInterval> | null>(null)
-  const favoritesRef = useRef<string[]>(lsGet<string[]>(LS_FAVORITES, []))
-  const playlistRef  = useRef<Song[]>([])
+  const audioRef       = useRef<HTMLAudioElement | null>(null)
+  const sleepRef       = useRef<ReturnType<typeof setInterval> | null>(null)
+  const favoritesRef   = useRef<string[]>(lsGet<string[]>(LS_FAVORITES, []))
+  const playlistRef    = useRef<Song[]>([])
   const currentSongRef = useRef<Song | null>(null)
-  const repeatRef    = useRef<RepeatMode>('off')
-  const shuffleRef   = useRef(false)
-  const listenersAttached = useRef(false)
+  const repeatRef      = useRef<RepeatMode>('off')
+  const shuffleRef     = useRef(false)
+  const isPlayingRef   = useRef(false)
+  const playbackSpeedRef = useRef(playbackSpeed)
+  const volumeRef      = useRef(volume)
+
+  // ── Create single Audio element ONCE via ref ───────────────
+  if (!audioRef.current) {
+    audioRef.current = new Audio()
+    audioRef.current.preload = 'metadata'
+  }
 
   // Keep refs in sync with state
   useEffect(() => { playlistRef.current = playlist }, [playlist])
   useEffect(() => { currentSongRef.current = currentSong }, [currentSong])
   useEffect(() => { repeatRef.current = repeatMode }, [repeatMode])
   useEffect(() => { shuffleRef.current = isShuffle }, [isShuffle])
+  useEffect(() => { isPlayingRef.current = isPlaying }, [isPlaying])
+  useEffect(() => { playbackSpeedRef.current = playbackSpeed }, [playbackSpeed])
+  useEffect(() => { volumeRef.current = volume }, [volume])
+
+  // ── Helper: convert file path for Audio src ────────────────
+  const getAudioSrc = useCallback((songPath: string): string => {
+    if (isNativePlatform()) {
+      try {
+        return Capacitor.convertFileSrc(songPath)
+      } catch {
+        return songPath
+      }
+    }
+    return songPath
+  }, [])
 
   // ── Helper: get current song index in playlist ────────────
   const getCurrentIndex = useCallback((): number => {
@@ -85,108 +116,129 @@ export function useMusicPlayer() {
     lsSet(LS_FAVORITES, favoritesRef.current)
   }, [])
 
-  // ── Setup audio event listeners (once) ────────────────────
-  const setupAudioListeners = useCallback((audio: HTMLAudioElement) => {
-    if (listenersAttached.current) return
-    listenersAttached.current = true
+  // ── Forward declaration refs for circular dependencies ─────
+  const playRef = useRef<(song: Song) => void>(() => {})
 
-    audio.addEventListener('timeupdate', () => {
-      const t = audio.currentTime
-      setCurrentTime(t)
-      lsSet(LS_POSITION, t)
-    })
+  // ── Media Session update (stable via ref) ──────────────────
+  const updateMediaSessionRef = useRef<(song: Song) => void>(() => {})
 
-    audio.addEventListener('loadedmetadata', () => {
-      const d = audio.duration
-      if (Number.isFinite(d)) {
-        setDuration(d)
-      }
-    })
+  // ── Native play state update (stable via ref) ──────────────
+  const updateNativePlayStateRef = useRef<(playing: boolean) => void>(() => {})
 
-    audio.addEventListener('ended', () => {
-      const mode = repeatRef.current
-      if (mode === 'one') {
+  // ── handleSongEnd: handles all 3 repeat modes ─────────────
+  const handleSongEnd = useCallback(() => {
+    const mode = repeatRef.current
+    const audio = audioRef.current
+    if (!audio) return
+
+    if (mode === 'one') {
+      // Repeat one: replay current song
+      audio.currentTime = 0
+      audio.play().catch(() => setIsPlaying(false))
+      return
+    }
+
+    const pl = playlistRef.current
+    if (pl.length === 0) {
+      setIsPlaying(false)
+      return
+    }
+
+    const currentIdx = pl.findIndex(
+      s => s.id === currentSongRef.current?.id
+    )
+
+    let nextSong: Song | null = null
+
+    if (shuffleRef.current) {
+      if (pl.length === 1) {
         audio.currentTime = 0
         audio.play().catch(() => setIsPlaying(false))
         return
       }
-
-      const pl = playlistRef.current
-      if (pl.length === 0) {
+      let nextIdx = Math.floor(Math.random() * pl.length)
+      let attempt = 0
+      while (nextIdx === currentIdx && attempt < 10) {
+        nextIdx = Math.floor(Math.random() * pl.length)
+        attempt++
+      }
+      nextSong = pl[nextIdx]
+    } else if (mode === 'all') {
+      const nextIdx = currentIdx < pl.length - 1 ? currentIdx + 1 : 0
+      nextSong = pl[nextIdx]
+    } else {
+      // Repeat off
+      if (currentIdx < pl.length - 1) {
+        nextSong = pl[currentIdx + 1]
+      } else {
+        // Last song and repeat off — stop
         setIsPlaying(false)
+        setCurrentTime(0)
+        lsSet(LS_POSITION, 0)
+        updateNativePlayStateRef.current(false)
         return
       }
+    }
 
-      const currentIdx = pl.findIndex(
-        s => s.id === currentSongRef.current?.id
-      )
+    if (nextSong) {
+      // Use the play() function via ref to ensure all proper setup happens
+      playRef.current(nextSong)
+    }
+  }, [])
 
-      if (shuffleRef.current) {
-        if (pl.length === 1) {
-          audio.currentTime = 0
-          audio.play().catch(() => setIsPlaying(false))
-          return
-        }
-        let nextIdx = Math.floor(Math.random() * pl.length)
-        let attempt = 0
-        while (nextIdx === currentIdx && attempt < 10) {
-          nextIdx = Math.floor(Math.random() * pl.length)
-          attempt++
-        }
-        const nextSong = pl[nextIdx]
-        setCurrentSong(nextSong)
-        currentSongRef.current = nextSong
-        setIsFavorite(checkFavorite(nextSong.id))
-        audio.src = nextSong.url
-        audio.play().catch(() => setIsPlaying(false))
-      } else if (mode === 'all') {
-        const nextIdx = currentIdx < pl.length - 1 ? currentIdx + 1 : 0
-        const nextSong = pl[nextIdx]
-        setCurrentSong(nextSong)
-        currentSongRef.current = nextSong
-        setIsFavorite(checkFavorite(nextSong.id))
-        audio.src = nextSong.url
-        audio.play().catch(() => setIsPlaying(false))
-      } else {
-        if (currentIdx < pl.length - 1) {
-          const nextSong = pl[currentIdx + 1]
-          setCurrentSong(nextSong)
-          currentSongRef.current = nextSong
-          setIsFavorite(checkFavorite(nextSong.id))
-          audio.src = nextSong.url
-          audio.play().catch(() => setIsPlaying(false))
-        } else {
-          setIsPlaying(false)
-          setCurrentTime(0)
-          lsSet(LS_POSITION, 0)
+  // ── Attach audio event listeners ONCE ─────────────────────
+  useEffect(() => {
+    const audio = audioRef.current
+    if (!audio) return
+
+    const onTimeUpdate = () => {
+      const t = audio.currentTime
+      setCurrentTime(t)
+      lsSet(LS_POSITION, t)
+
+      // Update Media Session position state
+      if ('mediaSession' in navigator && Number.isFinite(audio.duration)) {
+        try {
+          navigator.mediaSession.setPositionState({
+            duration: audio.duration,
+            playbackRate: audio.playbackRate,
+            position: audio.currentTime,
+          })
+        } catch {
+          // setPositionState can fail if duration is 0 or position > duration
         }
       }
-    })
+    }
 
-    audio.addEventListener('error', () => {
+    const onDurationChange = () => {
+      const d = audio.duration
+      if (Number.isFinite(d)) {
+        setDuration(d)
+      }
+    }
+
+    const onEnded = () => {
+      handleSongEnd()
+    }
+
+    const onError = () => {
       setIsPlaying(false)
-    })
-  }, [checkFavorite])
+    }
 
-  // ── Ensure audio element exists ───────────────────────────
-  const ensureAudio = useCallback((): HTMLAudioElement => {
-    if (audioRef.current) return audioRef.current
+    audio.addEventListener('timeupdate', onTimeUpdate)
+    audio.addEventListener('durationchange', onDurationChange)
+    audio.addEventListener('ended', onEnded)
+    audio.addEventListener('error', onError)
 
-    const audio = new Audio()
-    audio.preload = 'metadata'
-    audio.volume = volume
-    audio.playbackRate = playbackSpeed
-    audioRef.current = audio
-    setupAudioListeners(audio)
-    return audio
-  }, [volume, playbackSpeed, setupAudioListeners])
+    return () => {
+      audio.removeEventListener('timeupdate', onTimeUpdate)
+      audio.removeEventListener('durationchange', onDurationChange)
+      audio.removeEventListener('ended', onEnded)
+      audio.removeEventListener('error', onError)
+    }
+  }, [handleSongEnd])
 
-  // ── Sync playlist ref on mount ────────────────────────────
-  useEffect(() => {
-    playlistRef.current = playlist
-  }, [playlist])
-
-  // ── Sync volume to audio element when volume state changes ─
+  // ── Sync volume to audio element ─────────────────────────
   useEffect(() => {
     if (audioRef.current) {
       audioRef.current.volume = volume
@@ -212,13 +264,151 @@ export function useMusicPlayer() {
     lsSet(LS_REPEAT, repeatMode)
   }, [repeatMode])
 
-  // ── Cleanup sleep timer interval on unmount ───────────────
+  // ── Cleanup sleep timer + native controls on unmount ──────
   useEffect(() => {
     return () => {
       if (sleepRef.current) {
         clearInterval(sleepRef.current)
         sleepRef.current = null
       }
+      destroyNativeControls()
+    }
+  }, [])
+
+  // ══════════════════════════════════════════════════════════
+  // MEDIA SESSION API (Web / WebView)
+  // ══════════════════════════════════════════════════════════
+
+  const updateMediaSession = useCallback((song: Song) => {
+    if (typeof window === 'undefined' || !('mediaSession' in navigator)) return
+
+    try {
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: song.name || 'Unknown Title',
+        artist: song.artist || 'Unknown Artist',
+        album: song.album || 'Unknown Album',
+        artwork: song.cover
+          ? [{ src: song.cover, sizes: '512x512', type: 'image/jpeg' }]
+          : [{ src: '/icons/music-default.png', sizes: '512x512', type: 'image/png' }],
+      })
+
+      navigator.mediaSession.setActionHandler('play', () => {
+        const audio = audioRef.current
+        if (audio && currentSongRef.current) {
+          audio.play().catch(() => setIsPlaying(false))
+          setIsPlaying(true)
+          navigator.mediaSession.playbackState = 'playing'
+          updateNativePlayStateRef.current(true)
+        }
+      })
+
+      navigator.mediaSession.setActionHandler('pause', () => {
+        const audio = audioRef.current
+        if (audio) {
+          audio.pause()
+        }
+        setIsPlaying(false)
+        navigator.mediaSession.playbackState = 'paused'
+        updateNativePlayStateRef.current(false)
+      })
+
+      navigator.mediaSession.setActionHandler('previoustrack', () => {
+        previousRef.current()
+      })
+
+      navigator.mediaSession.setActionHandler('nexttrack', () => {
+        nextRef.current()
+      })
+
+      navigator.mediaSession.setActionHandler('seekto', (details) => {
+        const audio = audioRef.current
+        if (audio && details.seekTime !== undefined && Number.isFinite(details.seekTime)) {
+          audio.currentTime = details.seekTime
+          setCurrentTime(details.seekTime)
+        }
+      })
+
+      navigator.mediaSession.playbackState = 'playing'
+    } catch {
+      // MediaSession API not available or failed
+    }
+  }, [])
+
+  // Keep ref in sync
+  useEffect(() => { updateMediaSessionRef.current = updateMediaSession }, [updateMediaSession])
+
+  // ══════════════════════════════════════════════════════════
+  // CAPACITOR MUSIC CONTROLS (Native APK)
+  // ══════════════════════════════════════════════════════════
+
+  const initNativeControls = useCallback(async (song: Song) => {
+    if (!isNativePlatform()) return
+
+    try {
+      const options: CapacitorMusicControlsInfo = {
+        track: song.name || 'Unknown Title',
+        artist: song.artist || 'Unknown Artist',
+        album: song.album || 'Unknown Album',
+        cover: song.cover || 'public/icons/music-default.png',
+        isPlaying: true,
+        dismissable: false,
+        hasPrev: true,
+        hasNext: true,
+        hasClose: false,
+        ticker: `Now Playing: ${song.name}`,
+        playIcon: 'media_play',
+        pauseIcon: 'media_pause',
+        prevIcon: 'media_prev',
+        nextIcon: 'media_next',
+        notificationIcon: 'notification_icon',
+      }
+
+      await CapacitorMusicControls.create(options)
+
+      // Listen for native control events
+      await CapacitorMusicControls.addListener('music-controls-action', (info: Record<string, string>) => {
+        const message = info.message || info.action || ''
+        switch (message) {
+          case 'music-controls-next':
+            nextRef.current()
+            break
+          case 'music-controls-previous':
+            previousRef.current()
+            break
+          case 'music-controls-pause':
+            pauseRef.current() // we use a pause helper ref below
+            break
+          case 'music-controls-play':
+            resumeRef.current()
+            break
+          case 'music-controls-destroy':
+            destroyNativeControls()
+            break
+        }
+      })
+    } catch {
+      // Native controls initialization failed
+    }
+  }, [])
+
+  const updateNativePlayState = useCallback(async (playing: boolean) => {
+    if (!isNativePlatform()) return
+    try {
+      CapacitorMusicControls.updateIsPlaying({ isPlaying: playing })
+    } catch {
+      // Native controls update failed
+    }
+  }, [])
+
+  // Keep ref in sync
+  useEffect(() => { updateNativePlayStateRef.current = updateNativePlayState }, [updateNativePlayState])
+
+  const destroyNativeControls = useCallback(async () => {
+    if (!isNativePlatform()) return
+    try {
+      await CapacitorMusicControls.destroy()
+    } catch {
+      // Native controls destroy failed
     }
   }, [])
 
@@ -228,13 +418,31 @@ export function useMusicPlayer() {
 
   // ── Play a specific song ──────────────────────────────────
   const play = useCallback((song: Song) => {
-    const audio = ensureAudio()
-    audio.pause()
-    audio.currentTime = 0
-    audio.src = song.url
-    audio.playbackRate = playbackSpeed
-    audio.volume = volume
+    const audio = audioRef.current
+    if (!audio) return
 
+    // 1. Pause current
+    audio.pause()
+
+    // 2. Set source — convert native path for Capacitor
+    const src = getAudioSrc(song.path || song.url)
+    audio.src = src
+
+    // 3. Load the new source
+    audio.load()
+
+    // 4. Set playback rate
+    audio.playbackRate = playbackSpeedRef.current
+
+    // 5. Set volume
+    audio.volume = volumeRef.current
+
+    // 6. Play (wrap in try/catch for autoplay policy)
+    audio.play().catch(() => {
+      setIsPlaying(false)
+    })
+
+    // 7. Update state
     setCurrentSong(song)
     currentSongRef.current = song
     setCurrentTime(0)
@@ -242,10 +450,15 @@ export function useMusicPlayer() {
     setIsPlaying(true)
     setIsFavorite(checkFavorite(song.id))
 
-    audio.play().catch(() => {
-      setIsPlaying(false)
-    })
-  }, [ensureAudio, checkFavorite, playbackSpeed, volume])
+    // 8. Update media session
+    updateMediaSessionRef.current(song)
+
+    // 9. Init native controls
+    initNativeControls(song)
+  }, [checkFavorite, getAudioSrc, initNativeControls])
+
+  // Keep play ref in sync for circular deps
+  useEffect(() => { playRef.current = play }, [play])
 
   // ── Pause playback ────────────────────────────────────────
   const pause = useCallback(() => {
@@ -254,7 +467,17 @@ export function useMusicPlayer() {
       audio.pause()
     }
     setIsPlaying(false)
+
+    // Update Media Session
+    if (typeof window !== 'undefined' && 'mediaSession' in navigator) {
+      navigator.mediaSession.playbackState = 'paused'
+    }
+    updateNativePlayStateRef.current(false)
   }, [])
+
+  // ── Pause ref for native controls callback ────────────────
+  const pauseRef = useRef(pause)
+  useEffect(() => { pauseRef.current = pause }, [pause])
 
   // ── Resume playback ───────────────────────────────────────
   const resume = useCallback(() => {
@@ -264,8 +487,18 @@ export function useMusicPlayer() {
         setIsPlaying(false)
       })
       setIsPlaying(true)
+
+      // Update Media Session
+      if (typeof window !== 'undefined' && 'mediaSession' in navigator) {
+        navigator.mediaSession.playbackState = 'playing'
+      }
+      updateNativePlayStateRef.current(true)
     }
   }, [])
+
+  // ── Resume ref for native controls callback ───────────────
+  const resumeRef = useRef(resume)
+  useEffect(() => { resumeRef.current = resume }, [resume])
 
   // ── Stop playback and reset ───────────────────────────────
   const stop = useCallback(() => {
@@ -277,6 +510,7 @@ export function useMusicPlayer() {
     setIsPlaying(false)
     setCurrentTime(0)
     lsSet(LS_POSITION, 0)
+    updateNativePlayStateRef.current(false)
   }, [])
 
   // ── Next track ────────────────────────────────────────────
@@ -316,8 +550,12 @@ export function useMusicPlayer() {
     }
 
     const nextSong = pl[nextIdx]
-    play(nextSong)
-  }, [getCurrentIndex, play])
+    playRef.current(nextSong)
+  }, [getCurrentIndex])
+
+  // ── Next ref for Media Session ────────────────────────────
+  const nextRef = useRef(next)
+  useEffect(() => { nextRef.current = next }, [next])
 
   // ── Previous track ────────────────────────────────────────
   const previous = useCallback(() => {
@@ -360,8 +598,12 @@ export function useMusicPlayer() {
     }
 
     const prevSong = pl[prevIdx]
-    play(prevSong)
-  }, [getCurrentIndex, play])
+    playRef.current(prevSong)
+  }, [getCurrentIndex])
+
+  // ── Previous ref for Media Session ────────────────────────
+  const previousRef = useRef(previous)
+  useEffect(() => { previousRef.current = previous }, [previous])
 
   // ── Seek to position ──────────────────────────────────────
   const seekTo = useCallback((seconds: number) => {
@@ -441,6 +683,7 @@ export function useMusicPlayer() {
             audio.pause()
           }
           setIsPlaying(false)
+          updateNativePlayStateRef.current(false)
           if (sleepRef.current) {
             clearInterval(sleepRef.current)
             sleepRef.current = null
@@ -468,10 +711,10 @@ export function useMusicPlayer() {
     if (songs.length > 0) {
       const idx = startIndex !== undefined ? Math.min(startIndex, songs.length - 1) : 0
       if (idx >= 0) {
-        play(songs[idx])
+        playRef.current(songs[idx])
       }
     }
-  }, [play])
+  }, [])
 
   // ── Add a song to the end of the playlist ─────────────────
   const addToPlaylist = useCallback((song: Song) => {
@@ -493,7 +736,7 @@ export function useMusicPlayer() {
       const updated = [
         ...filtered.slice(0, insertIdx),
         song,
-        ...filtered.slice(insertIdx)
+        ...filtered.slice(insertIdx),
       ]
       playlistRef.current = updated
       lsSet(LS_QUEUE, updated)

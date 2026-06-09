@@ -396,10 +396,10 @@ export default function MusicLibrary({ onSongSelect, onBack }: MusicLibraryProps
           ════════════════════════════════════════════════════════ */}
       <header className="sticky top-0 z-40 bg-[#0D0D0D] border-b border-[#2D2D44]">
         <div className="flex items-center justify-between h-14 px-4">
-          {/* Back */}
+          {/* Back — 44px touch target */}
           <button
             onClick={onBack}
-            className="flex items-center justify-center w-11 h-11 rounded-xl active:scale-90 transition-transform duration-150"
+            className="flex items-center justify-center min-h-[44px] min-w-[44px] rounded-xl active:scale-90 transition-transform duration-150 cursor-pointer"
             aria-label="Go back"
           >
             <ArrowLeft size={22} className="text-white" />
@@ -410,11 +410,11 @@ export default function MusicLibrary({ onSongSelect, onBack }: MusicLibraryProps
             Music Player
           </h1>
 
-          {/* Right actions */}
+          {/* Right actions — 44px touch targets */}
           <div className="flex items-center gap-1">
             <button
               onClick={handleSearchToggle}
-              className="flex items-center justify-center w-11 h-11 rounded-xl active:scale-90 transition-transform duration-150"
+              className="flex items-center justify-center min-h-[44px] min-w-[44px] rounded-xl active:scale-90 transition-transform duration-150 cursor-pointer"
               aria-label={searchOpen ? 'Close search' : 'Open search'}
             >
               {searchOpen ? (
@@ -425,7 +425,7 @@ export default function MusicLibrary({ onSongSelect, onBack }: MusicLibraryProps
             </button>
             <button
               onClick={handleHeaderMenuToggle}
-              className="flex items-center justify-center w-11 h-11 rounded-xl active:scale-90 transition-transform duration-150"
+              className="flex items-center justify-center min-h-[44px] min-w-[44px] rounded-xl active:scale-90 transition-transform duration-150 cursor-pointer"
               aria-label="More options"
             >
               <MoreVertical size={20} className="text-white" />
@@ -455,7 +455,7 @@ export default function MusicLibrary({ onSongSelect, onBack }: MusicLibraryProps
               {searchQuery && (
                 <button
                   onClick={clearSearch}
-                  className="flex items-center justify-center w-8 h-8 rounded-lg active:scale-90 transition-transform duration-150"
+                  className="flex items-center justify-center min-h-[44px] min-w-[44px] rounded-lg active:scale-90 transition-transform duration-150 cursor-pointer"
                   aria-label="Clear search"
                 >
                   <X size={14} className="text-[#9CA3AF]" />
@@ -467,49 +467,49 @@ export default function MusicLibrary({ onSongSelect, onBack }: MusicLibraryProps
       </header>
 
       {/* ════════════════════════════════════════════════════════
-          HEADER DROPDOWN MENU (3-dot)
+          HEADER DROPDOWN MENU (3-dot) — pointer-events when closed
           ════════════════════════════════════════════════════════ */}
-      {headerMenuOpen && (
+      <div
+        className={`fixed inset-0 z-50 transition-opacity duration-150 ${
+          headerMenuOpen ? 'pointer-events-auto opacity-100' : 'pointer-events-none opacity-0'
+        }`}
+        onClick={() => setHeaderMenuOpen(false)}
+      >
         <div
-          className="fixed inset-0 z-50"
-          onClick={() => setHeaderMenuOpen(false)}
+          className="absolute top-14 right-4 w-48 bg-[#1A1A2E] border border-[#2D2D44] rounded-xl overflow-hidden shadow-lg shadow-black/60 animate-slide-up"
+          onClick={(e) => e.stopPropagation()}
         >
-          <div
-            className="absolute top-14 right-4 w-48 bg-[#1A1A2E] border border-[#2D2D44] rounded-xl overflow-hidden shadow-lg shadow-black/60 animate-slide-up"
-            onClick={(e) => e.stopPropagation()}
+          <button
+            onClick={() => {
+              handleScan()
+              setHeaderMenuOpen(false)
+            }}
+            className="flex items-center gap-3 w-full px-4 py-3 text-white text-sm active:bg-[#16213E] transition-colors duration-150 min-h-[44px] cursor-pointer"
           >
-            <button
-              onClick={() => {
-                handleScan()
-                setHeaderMenuOpen(false)
-              }}
-              className="flex items-center gap-3 w-full px-4 py-3 text-white text-sm active:bg-[#16213E] transition-colors duration-150"
-            >
-              <Music size={16} className="text-[#7C3AED]" />
-              Scan for Music
-            </button>
-            <button
-              onClick={() => {
-                setSortSheetOpen(true)
-                setHeaderMenuOpen(false)
-              }}
-              className="flex items-center gap-3 w-full px-4 py-3 text-white text-sm active:bg-[#16213E] transition-colors duration-150"
-            >
-              <SortAsc size={16} className="text-[#06B6D4]" />
-              Sort Library
-            </button>
-            <button
-              onClick={() => {
-                setHeaderMenuOpen(false)
-              }}
-              className="flex items-center gap-3 w-full px-4 py-3 text-white text-sm active:bg-[#16213E] transition-colors duration-150"
-            >
-              <Shuffle size={16} className="text-[#7C3AED]" />
-              Shuffle All
-            </button>
-          </div>
+            <Music size={16} className="text-[#7C3AED]" />
+            Scan for Music
+          </button>
+          <button
+            onClick={() => {
+              setSortSheetOpen(true)
+              setHeaderMenuOpen(false)
+            }}
+            className="flex items-center gap-3 w-full px-4 py-3 text-white text-sm active:bg-[#16213E] transition-colors duration-150 min-h-[44px] cursor-pointer"
+          >
+            <SortAsc size={16} className="text-[#06B6D4]" />
+            Sort Library
+          </button>
+          <button
+            onClick={() => {
+              setHeaderMenuOpen(false)
+            }}
+            className="flex items-center gap-3 w-full px-4 py-3 text-white text-sm active:bg-[#16213E] transition-colors duration-150 min-h-[44px] cursor-pointer"
+          >
+            <Shuffle size={16} className="text-[#7C3AED]" />
+            Shuffle All
+          </button>
         </div>
-      )}
+      </div>
 
       {/* ════════════════════════════════════════════════════════
           2. TAB FILTER ROW (horizontal scroll, hide scrollbar)
@@ -528,7 +528,7 @@ export default function MusicLibrary({ onSongSelect, onBack }: MusicLibraryProps
                   tabRefs.current[tab.key] = el
                 }}
                 onClick={() => handleTabChange(tab.key)}
-                className={`flex items-center gap-1.5 px-4 py-1.5 rounded-full text-sm font-medium whitespace-nowrap transition-colors duration-150 active:scale-95 ${
+                className={`flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-colors duration-150 active:scale-95 min-h-[44px] cursor-pointer ${
                   isActive
                     ? 'bg-[#7C3AED] text-white'
                     : 'border border-[#2D2D44] text-[#9CA3AF]'
@@ -551,7 +551,7 @@ export default function MusicLibrary({ onSongSelect, onBack }: MusicLibraryProps
           </span>
           <button
             onClick={() => setSortSheetOpen(true)}
-            className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-[#1A1A2E] border border-[#2D2D44] text-[#9CA3AF] text-xs font-medium active:scale-95 transition-transform duration-150"
+            className="flex items-center gap-1 px-3 py-2 rounded-lg bg-[#1A1A2E] border border-[#2D2D44] text-[#9CA3AF] text-xs font-medium active:scale-95 transition-transform duration-150 min-h-[44px] cursor-pointer"
             aria-label="Sort songs"
           >
             <SortAsc size={12} />
@@ -579,7 +579,7 @@ export default function MusicLibrary({ onSongSelect, onBack }: MusicLibraryProps
             </p>
             <button
               onClick={handleScan}
-              className="flex items-center gap-2 px-8 py-3 rounded-xl bg-[#7C3AED] text-white text-sm font-semibold active:scale-95 transition-transform duration-150"
+              className="flex items-center gap-2 px-8 py-3 rounded-xl bg-[#7C3AED] text-white text-sm font-semibold active:scale-95 transition-transform duration-150 min-h-[44px] cursor-pointer"
             >
               <Music size={16} />
               Scan for Music
@@ -607,18 +607,17 @@ export default function MusicLibrary({ onSongSelect, onBack }: MusicLibraryProps
           </div>
         ) : (
           /* ════════════════════════════════════════════════════════
-              4. SONG LIST — content-visibility: auto
+              4. SONG LIST — content-visibility: auto · 64px rows · onClick on entire row
               ════════════════════════════════════════════════════════ */
           <div className="max-h-[calc(100vh-220px)] overflow-y-auto">
             <div className="space-y-1">
               {displayedSongs.map((song) => (
                 <div
                   key={song.id}
-                  className="flex items-center gap-3 px-2 py-2 rounded-xl active:bg-[#1A1A2E] transition-colors duration-150 cursor-pointer"
+                  className="flex items-center gap-3 px-4 min-h-[64px] rounded-xl active:bg-[#1A1A2E] transition-colors duration-150 cursor-pointer"
                   style={{
                     contentVisibility: 'auto',
                     containIntrinsicSize: '0 64px',
-                    minHeight: '64px',
                   }}
                   onClick={() => handleSongRowTap(song)}
                   role="button"
@@ -647,7 +646,7 @@ export default function MusicLibrary({ onSongSelect, onBack }: MusicLibraryProps
                     )}
                   </div>
 
-                  {/* CENTER: Song title (font-medium text-white truncate) + Artist */}
+                  {/* CENTER: Song title + Artist */}
                   <div className="flex-1 min-w-0">
                     <p className="text-white font-medium text-sm truncate leading-tight">
                       {song.name}
@@ -657,7 +656,7 @@ export default function MusicLibrary({ onSongSelect, onBack }: MusicLibraryProps
                     </p>
                   </div>
 
-                  {/* RIGHT: Duration (text-xs text-[#9CA3AF]) + 3-dot menu 44x44 */}
+                  {/* RIGHT: Duration + 3-dot menu (44x44 touch target) */}
                   <div className="flex items-center gap-1 flex-shrink-0">
                     {song.duration > 0 && (
                       <span className="text-[#9CA3AF] text-xs tabular-nums">
@@ -666,7 +665,7 @@ export default function MusicLibrary({ onSongSelect, onBack }: MusicLibraryProps
                     )}
                     <button
                       onClick={(e) => handleContextMenuOpen(song, e)}
-                      className="flex items-center justify-center w-11 h-11 rounded-lg active:scale-90 transition-transform duration-150"
+                      className="flex items-center justify-center min-h-[44px] min-w-[44px] rounded-lg active:scale-90 transition-transform duration-150 cursor-pointer"
                       aria-label={`More options for ${song.name}`}
                     >
                       <MoreVertical size={16} className="text-[#9CA3AF]" />
@@ -680,126 +679,126 @@ export default function MusicLibrary({ onSongSelect, onBack }: MusicLibraryProps
       </main>
 
       {/* ════════════════════════════════════════════════════════
-          3. SORT BOTTOM SHEET — fixed inset-0 z-50 bg-black/60
+          3. SORT BOTTOM SHEET — pointer-events when closed
           ════════════════════════════════════════════════════════ */}
-      {sortSheetOpen && (
+      <div
+        className={`fixed inset-0 z-50 flex items-end justify-center transition-opacity duration-150 ${
+          sortSheetOpen ? 'pointer-events-auto opacity-100' : 'pointer-events-none opacity-0'
+        }`}
+        onClick={closeSortSheet}
+      >
+        {/* Backdrop */}
+        <div className="absolute inset-0 bg-black/60" />
+
+        {/* Slide-up panel */}
         <div
-          className="fixed inset-0 z-50 flex items-end justify-center"
-          onClick={closeSortSheet}
+          className="relative w-full max-w-lg bg-[#1A1A2E] border-t border-[#2D2D44] rounded-t-2xl animate-slide-up"
+          onClick={(e) => e.stopPropagation()}
         >
-          {/* Backdrop */}
-          <div className="absolute inset-0 bg-black/60" />
+          {/* Handle */}
+          <div className="flex justify-center pt-3 pb-2">
+            <div className="w-10 h-1 rounded-full bg-[#2D2D44]" />
+          </div>
 
-          {/* Slide-up panel */}
-          <div
-            className="relative w-full max-w-lg bg-[#1A1A2E] border-t border-[#2D2D44] rounded-t-2xl animate-slide-up"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* Handle */}
-            <div className="flex justify-center pt-3 pb-2">
-              <div className="w-10 h-1 rounded-full bg-[#2D2D44]" />
-            </div>
+          <h3 className="text-white font-semibold text-base px-5 pb-3">Sort by</h3>
 
-            <h3 className="text-white font-semibold text-base px-5 pb-3">Sort by</h3>
-
-            <div className="pb-6">
-              {SORT_OPTIONS.map((option) => {
-                const isActive = musicSort === option.key
-                return (
-                  <button
-                    key={option.key}
-                    onClick={() => handleSortSelect(option.key)}
-                    className={`flex items-center justify-between w-full px-5 py-3.5 text-sm font-medium transition-colors duration-150 active:bg-[#16213E] ${
-                      isActive ? 'text-[#7C3AED]' : 'text-[#9CA3AF]'
-                    }`}
-                  >
-                    <span>{option.label}</span>
-                    {isActive && (
-                      <div className="w-2 h-2 rounded-full bg-[#7C3AED]" />
-                    )}
-                  </button>
-                )
-              })}
-            </div>
+          <div className="pb-6">
+            {SORT_OPTIONS.map((option) => {
+              const isActive = musicSort === option.key
+              return (
+                <button
+                  key={option.key}
+                  onClick={() => handleSortSelect(option.key)}
+                  className={`flex items-center justify-between w-full px-5 py-3.5 text-sm font-medium transition-colors duration-150 active:bg-[#16213E] min-h-[44px] cursor-pointer ${
+                    isActive ? 'text-[#7C3AED]' : 'text-[#9CA3AF]'
+                  }`}
+                >
+                  <span>{option.label}</span>
+                  {isActive && (
+                    <div className="w-2 h-2 rounded-full bg-[#7C3AED]" />
+                  )}
+                </button>
+              )
+            })}
           </div>
         </div>
-      )}
+      </div>
 
       {/* ════════════════════════════════════════════════════════
-          4. SONG CONTEXT MENU BOTTOM SHEET
+          4. SONG CONTEXT MENU BOTTOM SHEET — pointer-events when closed
           ════════════════════════════════════════════════════════ */}
-      {contextSheetOpen && contextSong && (
+      <div
+        className={`fixed inset-0 z-50 flex items-end justify-center transition-opacity duration-150 ${
+          contextSheetOpen && contextSong ? 'pointer-events-auto opacity-100' : 'pointer-events-none opacity-0'
+        }`}
+        onClick={closeContextSheet}
+      >
+        {/* Backdrop */}
+        <div className="absolute inset-0 bg-black/60" />
+
+        {/* Slide-up panel */}
         <div
-          className="fixed inset-0 z-50 flex items-end justify-center"
-          onClick={closeContextSheet}
+          className="relative w-full max-w-lg bg-[#1A1A2E] border-t border-[#2D2D44] rounded-t-2xl animate-slide-up"
+          onClick={(e) => e.stopPropagation()}
         >
-          {/* Backdrop */}
-          <div className="absolute inset-0 bg-black/60" />
+          {/* Handle */}
+          <div className="flex justify-center pt-3 pb-2">
+            <div className="w-10 h-1 rounded-full bg-[#2D2D44]" />
+          </div>
 
-          {/* Slide-up panel */}
-          <div
-            className="relative w-full max-w-lg bg-[#1A1A2E] border-t border-[#2D2D44] rounded-t-2xl animate-slide-up"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* Handle */}
-            <div className="flex justify-center pt-3 pb-2">
-              <div className="w-10 h-1 rounded-full bg-[#2D2D44]" />
-            </div>
-
-            {/* Song preview in sheet header */}
-            <div className="flex items-center gap-3 px-5 pb-4 border-b border-[#2D2D44]">
-              <div className="w-10 h-10 rounded-lg flex-shrink-0 overflow-hidden">
-                {contextSong.cover ? (
-                  <img
-                    src={contextSong.cover}
-                    alt={`${contextSong.album} artwork`}
-                    className="w-full h-full object-cover"
-                  />
-                ) : (
-                  <div className="w-full h-full bg-gradient-to-br from-[#7C3AED] to-[#16213E] flex items-center justify-center">
-                    <Music size={16} className="text-white/70" />
-                  </div>
-                )}
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-white font-medium text-sm truncate">{contextSong.name}</p>
-                <p className="text-[#9CA3AF] text-xs truncate">{contextSong.artist}</p>
-              </div>
-              {contextSong.duration > 0 && (
-                <span className="text-[#9CA3AF] text-xs flex-shrink-0">
-                  {formatDuration(contextSong.duration)}
-                </span>
+          {/* Song preview in sheet header */}
+          <div className="flex items-center gap-3 px-5 pb-4 border-b border-[#2D2D44]">
+            <div className="w-10 h-10 rounded-lg flex-shrink-0 overflow-hidden">
+              {contextSong?.cover ? (
+                <img
+                  src={contextSong.cover}
+                  alt={`${contextSong.album} artwork`}
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                <div className="w-full h-full bg-gradient-to-br from-[#7C3AED] to-[#16213E] flex items-center justify-center">
+                  <Music size={16} className="text-white/70" />
+                </div>
               )}
             </div>
-
-            {/* Actions: Play Next / Add to Playlist / Add to Favorites / Song Info / Share / Delete */}
-            <div className="pb-6 max-h-96 overflow-y-auto">
-              {CONTEXT_ACTIONS.map((action) => {
-                const isFavAction = action.id === 'addToFavorites'
-                const isFavorited = isFavAction && favorites.has(contextSong.id)
-                return (
-                  <button
-                    key={action.id}
-                    onClick={() => handleContextAction(action.id)}
-                    className="flex items-center gap-4 w-full px-5 py-3.5 text-sm font-medium active:bg-[#16213E] transition-colors duration-150"
-                  >
-                    <span className={isFavorited ? 'text-red-400' : action.color}>
-                      {isFavorited ? (
-                        <Heart size={18} className="fill-current text-red-400" />
-                      ) : (
-                        action.icon
-                      )}
-                    </span>
-                    <span className={isFavorited ? 'text-red-400' : 'text-white'}>
-                      {isFavorited ? 'Remove from Favorites' : action.label}
-                    </span>
-                  </button>
-                )
-              })}
+            <div className="flex-1 min-w-0">
+              <p className="text-white font-medium text-sm truncate">{contextSong?.name}</p>
+              <p className="text-[#9CA3AF] text-xs truncate">{contextSong?.artist}</p>
             </div>
+            {contextSong && contextSong.duration > 0 && (
+              <span className="text-[#9CA3AF] text-xs flex-shrink-0">
+                {formatDuration(contextSong.duration)}
+              </span>
+            )}
+          </div>
+
+          {/* Actions: Play Next / Add to Playlist / Add to Favorites / Song Info / Share / Delete */}
+          <div className="pb-6 max-h-96 overflow-y-auto">
+            {CONTEXT_ACTIONS.map((action) => {
+              const isFavAction = action.id === 'addToFavorites'
+              const isFavorited = isFavAction && contextSong ? favorites.has(contextSong.id) : false
+              return (
+                <button
+                  key={action.id}
+                  onClick={() => handleContextAction(action.id)}
+                  className="flex items-center gap-4 w-full px-5 py-3.5 text-sm font-medium active:bg-[#16213E] transition-colors duration-150 min-h-[44px] cursor-pointer"
+                >
+                  <span className={isFavorited ? 'text-red-400' : action.color}>
+                    {isFavorited ? (
+                      <Heart size={18} className="fill-current text-red-400" />
+                    ) : (
+                      action.icon
+                    )}
+                  </span>
+                  <span className={isFavorited ? 'text-red-400' : 'text-white'}>
+                    {isFavorited ? 'Remove from Favorites' : action.label}
+                  </span>
+                </button>
+              )
+            })}
           </div>
         </div>
-      )}
+      </div>
     </div>
   )
 }

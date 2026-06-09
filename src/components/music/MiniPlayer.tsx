@@ -35,12 +35,9 @@ export default function MiniPlayer({ onExpand, onClose }: MiniPlayerProps) {
 
   useEffect(() => {
     if (currentSong) {
-      // Trigger slide-up on next frame so transition applies
       const frame = requestAnimationFrame(() => setVisible(true))
       return () => cancelAnimationFrame(frame)
     }
-    // Hide immediately when no song — use a micro-task to avoid
-    // calling setState synchronously inside the effect body
     const micro = requestAnimationFrame(() => setVisible(false))
     return () => cancelAnimationFrame(micro)
   }, [currentSong])
@@ -114,7 +111,7 @@ export default function MiniPlayer({ onExpand, onClose }: MiniPlayerProps) {
         {/* LEFT: Album art + song info (tappable → expand) */}
         <button
           onClick={onExpand}
-          className="flex items-center gap-2.5 min-w-0 flex-1 text-left"
+          className="flex items-center gap-2.5 min-w-0 flex-1 text-left cursor-pointer"
           aria-label="Open now playing"
           style={{ minHeight: 44, minWidth: 44 }}
         >
@@ -146,7 +143,7 @@ export default function MiniPlayer({ onExpand, onClose }: MiniPlayerProps) {
         {/* CENTER: Spacer */}
         <div className="flex-1" />
 
-        {/* RIGHT: Controls */}
+        {/* RIGHT: Controls — all min-h/min-w-[44px] with cursor-pointer */}
         <div className="flex items-center gap-0.5 flex-shrink-0">
           {/* Previous */}
           <button
@@ -154,7 +151,7 @@ export default function MiniPlayer({ onExpand, onClose }: MiniPlayerProps) {
               e.stopPropagation()
               previous()
             }}
-            className="flex items-center justify-center w-11 h-11 rounded-full text-[#9CA3AF] active:text-white active:bg-[#2D2D44] transition-colors duration-150"
+            className="flex items-center justify-center min-h-[44px] min-w-[44px] rounded-full text-[#9CA3AF] active:text-white active:bg-[#2D2D44] transition-colors duration-150 cursor-pointer"
             aria-label="Previous track"
           >
             <SkipBack className="w-5 h-5" fill="currentColor" />
@@ -166,7 +163,7 @@ export default function MiniPlayer({ onExpand, onClose }: MiniPlayerProps) {
               e.stopPropagation()
               if (isPlaying) { pause() } else { resume() }
             }}
-            className="flex items-center justify-center w-11 h-11 rounded-full text-white active:bg-[#2D2D44] transition-colors duration-150"
+            className="flex items-center justify-center min-h-[44px] min-w-[44px] rounded-full text-white active:bg-[#2D2D44] transition-colors duration-150 cursor-pointer"
             aria-label={isPlaying ? 'Pause' : 'Play'}
           >
             {isPlaying ? (
@@ -182,7 +179,7 @@ export default function MiniPlayer({ onExpand, onClose }: MiniPlayerProps) {
               e.stopPropagation()
               next()
             }}
-            className="flex items-center justify-center w-11 h-11 rounded-full text-[#9CA3AF] active:text-white active:bg-[#2D2D44] transition-colors duration-150"
+            className="flex items-center justify-center min-h-[44px] min-w-[44px] rounded-full text-[#9CA3AF] active:text-white active:bg-[#2D2D44] transition-colors duration-150 cursor-pointer"
             aria-label="Next track"
           >
             <SkipForward className="w-5 h-5" fill="currentColor" />
@@ -194,7 +191,7 @@ export default function MiniPlayer({ onExpand, onClose }: MiniPlayerProps) {
               e.stopPropagation()
               onClose()
             }}
-            className="flex items-center justify-center w-11 h-11 rounded-full text-[#9CA3AF] active:text-white active:bg-[#2D2D44] transition-colors duration-150"
+            className="flex items-center justify-center min-h-[44px] min-w-[44px] rounded-full text-[#9CA3AF] active:text-white active:bg-[#2D2D44] transition-colors duration-150 cursor-pointer"
             aria-label="Close mini player"
           >
             <X className="w-4 h-4" />

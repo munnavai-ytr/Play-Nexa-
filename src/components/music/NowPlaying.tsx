@@ -110,17 +110,6 @@ export default function NowPlaying({ onCollapse }: NowPlayingProps) {
     }
   }, [isPlaying, pause, resume])
 
-  // ── Seekbar change handler ──────────────────────────────────
-  const handleSeekChange = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      const val = parseFloat(e.target.value)
-      if (Number.isFinite(val)) {
-        seekTo(val)
-      }
-    },
-    [seekTo]
-  )
-
   // ── Volume change handler ───────────────────────────────────
   const handleVolumeChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -160,7 +149,6 @@ export default function NowPlaying({ onCollapse }: NowPlayingProps) {
           break
         case 'timer':
           setShowSpeedSheet(false)
-          // Toggle sleep timer: 15 min or cancel
           if (sleepTimer !== null) {
             setSleepTimer(null)
             toast({ title: 'Sleep timer cancelled' })
@@ -188,7 +176,6 @@ export default function NowPlaying({ onCollapse }: NowPlayingProps) {
   const handlePointerMove = useCallback((e: React.PointerEvent) => {
     const deltaY = e.clientY - pointerStartY.current
     pointerCurrentY.current = e.clientY
-    // Only allow downward swipe with elastic resistance
     if (deltaY > 0) {
       setSwipeOffset(deltaY * 0.5)
     }
@@ -215,10 +202,10 @@ export default function NowPlaying({ onCollapse }: NowPlayingProps) {
     return `${m}m`
   }
 
-  // ── Seekbar progress percentage (for gradient fill) ────────
+  // ── Seekbar progress percentage ─────────────────────────────
   const seekPercent = duration > 0 ? (currentTime / duration) * 100 : 0
 
-  // ── Volume percentage (for gradient fill) ──────────────────
+  // ── Volume percentage ──────────────────────────────────────
   const volumePercent = volume * 100
 
   return (
@@ -240,7 +227,7 @@ export default function NowPlaying({ onCollapse }: NowPlayingProps) {
         {/* Collapse button */}
         <button
           onClick={onCollapse}
-          className="w-11 h-11 flex items-center justify-center text-white/70 active:text-white transition-colors duration-150"
+          className="min-h-[44px] min-w-[44px] flex items-center justify-center text-white/70 active:text-white transition-colors duration-150 cursor-pointer"
           aria-label="Collapse player"
         >
           <ChevronDown size={28} />
@@ -251,7 +238,7 @@ export default function NowPlaying({ onCollapse }: NowPlayingProps) {
           {sleepTimer !== null && (
             <button
               onClick={() => handleMenuAction('timer')}
-              className="flex items-center gap-1.5 bg-[#1A1A2E] border border-[#2D2D44] rounded-full px-3 py-1 text-[11px] text-[#9CA3AF] active:bg-[#2D2D44] transition-colors duration-150"
+              className="flex items-center gap-1.5 bg-[#1A1A2E] border border-[#2D2D44] rounded-full px-3 py-1 text-[11px] text-[#9CA3AF] active:bg-[#2D2D44] transition-colors duration-150 min-h-[36px] cursor-pointer"
               aria-label={`Sleep timer: ${formatSleepTimer(sleepTimer)} remaining`}
             >
               <Timer size={12} className="text-[#7C3AED]" />
@@ -265,37 +252,38 @@ export default function NowPlaying({ onCollapse }: NowPlayingProps) {
         <div className="relative">
           <button
             onClick={() => setShowMenu((v) => !v)}
-            className="w-11 h-11 flex items-center justify-center text-white/70 active:text-white transition-colors duration-150"
+            className="min-h-[44px] min-w-[44px] flex items-center justify-center text-white/70 active:text-white transition-colors duration-150 cursor-pointer"
             aria-label="More options"
           >
             <MoreVertical size={22} />
           </button>
 
-          {/* Dropdown menu */}
-          {showMenu && (
-            <>
-              {/* Backdrop */}
-              <div
-                className="fixed inset-0 z-40"
-                onClick={() => setShowMenu(false)}
-              />
-              <div className="absolute right-0 top-12 z-50 w-52 bg-[#1A1A2E] border border-[#2D2D44] rounded-xl overflow-hidden shadow-lg shadow-black/40 animate-slide-up">
-                {MENU_OPTIONS.map((opt) => {
-                  const Icon = opt.icon
-                  return (
-                    <button
-                      key={opt.key}
-                      onClick={() => handleMenuAction(opt.key)}
-                      className="w-full flex items-center gap-3 px-4 py-3 text-[13px] text-[#9CA3AF] active:bg-[#2D2D44] transition-colors duration-150"
-                    >
-                      <Icon size={16} className="text-[#7C3AED]" />
-                      <span>{opt.label}</span>
-                    </button>
-                  )
-                })}
-              </div>
-            </>
-          )}
+          {/* Dropdown menu — pointer-events-none when closed */}
+          <div
+            className={`fixed inset-0 z-40 transition-opacity duration-150 ${
+              showMenu ? 'pointer-events-auto opacity-100' : 'pointer-events-none opacity-0'
+            }`}
+            onClick={() => setShowMenu(false)}
+          />
+          <div
+            className={`absolute right-0 top-12 z-50 w-52 bg-[#1A1A2E] border border-[#2D2D44] rounded-xl overflow-hidden shadow-lg shadow-black/40 transition-opacity duration-150 ${
+              showMenu ? 'pointer-events-auto opacity-100 animate-slide-up' : 'pointer-events-none opacity-0'
+            }`}
+          >
+            {MENU_OPTIONS.map((opt) => {
+              const Icon = opt.icon
+              return (
+                <button
+                  key={opt.key}
+                  onClick={() => handleMenuAction(opt.key)}
+                  className="w-full flex items-center gap-3 px-4 py-3 text-[13px] text-[#9CA3AF] active:bg-[#2D2D44] transition-colors duration-150 min-h-[44px] cursor-pointer"
+                >
+                  <Icon size={16} className="text-[#7C3AED]" />
+                  <span>{opt.label}</span>
+                </button>
+              )
+            })}
+          </div>
         </div>
       </div>
 
@@ -350,7 +338,7 @@ export default function NowPlaying({ onCollapse }: NowPlayingProps) {
             {/* Favorite */}
             <button
               onClick={toggleFavorite}
-              className="w-11 h-11 flex items-center justify-center rounded-full transition-colors duration-150"
+              className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-full transition-colors duration-150 cursor-pointer"
               aria-label={isFavorite ? 'Remove from favorites' : 'Add to favorites'}
             >
               <Heart
@@ -366,7 +354,7 @@ export default function NowPlaying({ onCollapse }: NowPlayingProps) {
             {/* Lyrics */}
             <button
               onClick={() => toast({ title: 'Lyrics coming soon' })}
-              className="w-11 h-11 flex items-center justify-center text-[#9CA3AF] active:text-white transition-colors duration-150"
+              className="min-h-[44px] min-w-[44px] flex items-center justify-center text-[#9CA3AF] active:text-white transition-colors duration-150 cursor-pointer"
               aria-label="Lyrics"
             >
               <Music size={18} />
@@ -380,7 +368,7 @@ export default function NowPlaying({ onCollapse }: NowPlayingProps) {
                   toast({ title: 'Added to playlist' })
                 }
               }}
-              className="w-11 h-11 flex items-center justify-center text-[#9CA3AF] active:text-white transition-colors duration-150"
+              className="min-h-[44px] min-w-[44px] flex items-center justify-center text-[#9CA3AF] active:text-white transition-colors duration-150 cursor-pointer"
               aria-label="Add to playlist"
             >
               <ListMusic size={18} />
@@ -388,20 +376,38 @@ export default function NowPlaying({ onCollapse }: NowPlayingProps) {
           </div>
         </div>
 
-        {/* ── Seekbar ───────────────────────────────────────────── */}
+        {/* ── Seekbar (custom implementation) ────────────────────── */}
         <div className="w-full max-w-[320px] mb-4">
-          <div className="relative">
+          <div className="relative w-full h-[44px] flex items-center">
+            <div className="relative w-full h-1 bg-[#2D2D44] rounded-full">
+              {/* Progress fill */}
+              <div
+                className="absolute left-0 top-0 h-full rounded-full"
+                style={{
+                  width: `${seekPercent}%`,
+                  background: 'linear-gradient(90deg, #7C3AED, #06B6D4)',
+                }}
+              />
+              {/* Thumb */}
+              <div
+                className="absolute top-1/2 w-4 h-4 rounded-full bg-[#7C3AED] shadow-lg music-seek-thumb"
+                style={{
+                  left: `${seekPercent}%`,
+                  transform: 'translate(-50%, -50%)',
+                  boxShadow: '0 0 8px rgba(124, 58, 237, 0.5)',
+                }}
+              />
+            </div>
+            {/* Invisible range input for interaction */}
             <input
               type="range"
               min={0}
               max={duration > 0 ? duration : 0}
-              step={0.1}
               value={currentTime}
-              onChange={handleSeekChange}
-              className="np-seekbar w-full h-4 cursor-pointer"
-              style={{
-                background: `linear-gradient(to right, #7C3AED 0%, #06B6D4 ${seekPercent}%, #2D2D44 ${seekPercent}%)`,
-              }}
+              step={0.1}
+              onChange={(e) => seekTo(Number(e.target.value))}
+              className="absolute inset-0 w-full opacity-0 cursor-pointer"
+              style={{ height: '44px' }}
               aria-label="Seek"
             />
           </div>
@@ -420,7 +426,7 @@ export default function NowPlaying({ onCollapse }: NowPlayingProps) {
           {/* Shuffle */}
           <button
             onClick={toggleShuffle}
-            className={`w-12 h-12 flex items-center justify-center rounded-full transition-colors duration-150 ${
+            className={`min-h-[44px] min-w-[44px] flex items-center justify-center rounded-full transition-colors duration-150 cursor-pointer ${
               isShuffle
                 ? 'text-[#7C3AED] bg-[#7C3AED]/10'
                 : 'text-[#9CA3AF] active:text-white'
@@ -434,7 +440,7 @@ export default function NowPlaying({ onCollapse }: NowPlayingProps) {
           {/* Previous */}
           <button
             onClick={previous}
-            className="w-12 h-12 flex items-center justify-center text-white active:text-[#7C3AED] transition-colors duration-150"
+            className="min-h-[44px] min-w-[44px] flex items-center justify-center text-white active:text-[#7C3AED] transition-colors duration-150 cursor-pointer"
             aria-label="Previous track"
           >
             <SkipBack size={24} fill="currentColor" />
@@ -443,7 +449,7 @@ export default function NowPlaying({ onCollapse }: NowPlayingProps) {
           {/* Play/Pause */}
           <button
             onClick={handleTogglePlay}
-            className="w-14 h-14 flex items-center justify-center rounded-full bg-[#7C3AED] text-white active:bg-[#7C3AED]/80 transition-colors duration-150 shadow-lg shadow-[#7C3AED]/30"
+            className="w-14 h-14 flex items-center justify-center rounded-full bg-[#7C3AED] text-white active:bg-[#7C3AED]/80 transition-colors duration-150 shadow-lg shadow-[#7C3AED]/30 cursor-pointer"
             aria-label={isPlaying ? 'Pause' : 'Play'}
           >
             {isPlaying ? (
@@ -456,7 +462,7 @@ export default function NowPlaying({ onCollapse }: NowPlayingProps) {
           {/* Next */}
           <button
             onClick={next}
-            className="w-12 h-12 flex items-center justify-center text-white active:text-[#7C3AED] transition-colors duration-150"
+            className="min-h-[44px] min-w-[44px] flex items-center justify-center text-white active:text-[#7C3AED] transition-colors duration-150 cursor-pointer"
             aria-label="Next track"
           >
             <SkipForward size={24} fill="currentColor" />
@@ -465,7 +471,7 @@ export default function NowPlaying({ onCollapse }: NowPlayingProps) {
           {/* Repeat */}
           <button
             onClick={cycleRepeat}
-            className={`w-12 h-12 flex items-center justify-center rounded-full transition-colors duration-150 ${
+            className={`min-h-[44px] min-w-[44px] flex items-center justify-center rounded-full transition-colors duration-150 cursor-pointer ${
               repeatMode !== 'off'
                 ? 'text-[#7C3AED] bg-[#7C3AED]/10'
                 : 'text-[#9CA3AF] active:text-white'
@@ -487,7 +493,7 @@ export default function NowPlaying({ onCollapse }: NowPlayingProps) {
             {/* Volume icon */}
             <button
               onClick={() => setVolume(volume === 0 ? 0.5 : 0)}
-              className="w-10 h-10 flex items-center justify-center text-[#9CA3AF] active:text-white transition-colors duration-150 shrink-0"
+              className="min-h-[44px] min-w-[44px] flex items-center justify-center text-[#9CA3AF] active:text-white transition-colors duration-150 shrink-0 cursor-pointer"
               aria-label={volume === 0 ? 'Unmute' : 'Mute'}
             >
               <VolumeIcon size={18} />
@@ -519,7 +525,7 @@ export default function NowPlaying({ onCollapse }: NowPlayingProps) {
           <div className="flex justify-center mt-3">
             <button
               onClick={() => setShowSpeedSheet(true)}
-              className="flex items-center gap-1.5 bg-[#1A1A2E] border border-[#2D2D44] rounded-full px-4 py-2 text-[12px] text-[#9CA3AF] active:bg-[#2D2D44] active:text-white transition-colors duration-150"
+              className="flex items-center gap-1.5 bg-[#1A1A2E] border border-[#2D2D44] rounded-full px-4 py-2 text-[12px] text-[#9CA3AF] active:bg-[#2D2D44] active:text-white transition-colors duration-150 min-h-[44px] cursor-pointer"
               aria-label="Playback speed"
             >
               <Gauge size={14} className="text-[#7C3AED]" />
@@ -530,64 +536,66 @@ export default function NowPlaying({ onCollapse }: NowPlayingProps) {
 
         {/* ── Equalizer Visualizer ───────────────────────────────── */}
         <div className="flex justify-center mb-6">
-          <EqualizerBars isPlaying={isPlaying} barCount={24} height={28} />
+          <EqualizerBars isPlaying={isPlaying} barCount={5} height={28} />
         </div>
       </div>
 
       {/* ═══════════════════════════════════════════════════════════
           SPEED BOTTOM SHEET
           ═══════════════════════════════════════════════════════════ */}
-      {showSpeedSheet && (
-        <>
-          {/* Backdrop */}
-          <div
-            className="fixed inset-0 z-50 bg-black/60"
-            onClick={() => setShowSpeedSheet(false)}
-          />
-          <div className="fixed bottom-0 left-0 right-0 z-50 bg-[#1A1A2E] border-t border-[#2D2D44] rounded-t-2xl animate-slide-up safe-bottom">
-            {/* Handle bar */}
-            <div className="flex justify-center pt-3 pb-2">
-              <div className="w-10 h-1 rounded-full bg-[#2D2D44]" />
-            </div>
-
-            {/* Title */}
-            <div className="flex items-center justify-between px-6 pb-3">
-              <span className="text-[14px] font-semibold text-white">
-                Playback Speed
-              </span>
-              <button
-                onClick={() => setShowSpeedSheet(false)}
-                className="w-9 h-9 flex items-center justify-center text-[#9CA3AF] active:text-white transition-colors duration-150"
-                aria-label="Close"
-              >
-                <X size={18} />
-              </button>
-            </div>
-
-            {/* Speed options */}
-            <div className="flex items-center justify-center gap-3 px-6 pb-6">
-              {SPEED_OPTIONS.map((speed) => {
-                const isActive = playbackSpeed === speed
-                return (
-                  <button
-                    key={speed}
-                    onClick={() => handleSpeedSelect(speed)}
-                    className={`min-w-[44px] min-h-[44px] flex items-center justify-center rounded-xl text-[13px] font-medium transition-colors duration-150 ${
-                      isActive
-                        ? 'bg-[#7C3AED] text-white'
-                        : 'bg-[#2D2D44] text-[#9CA3AF] active:bg-[#7C3AED]/20 active:text-white'
-                    }`}
-                    aria-label={`Speed ${speed}×`}
-                    aria-pressed={isActive}
-                  >
-                    {speed}×
-                  </button>
-                )
-              })}
-            </div>
+      <div
+        className={`fixed inset-0 z-[60] transition-opacity duration-150 ${
+          showSpeedSheet ? 'pointer-events-auto opacity-100' : 'pointer-events-none opacity-0'
+        }`}
+      >
+        {/* Backdrop */}
+        <div
+          className="absolute inset-0 bg-black/60"
+          onClick={() => setShowSpeedSheet(false)}
+        />
+        <div className="absolute bottom-0 left-0 right-0 bg-[#1A1A2E] border-t border-[#2D2D44] rounded-t-2xl animate-slide-up safe-bottom">
+          {/* Handle bar */}
+          <div className="flex justify-center pt-3 pb-2">
+            <div className="w-10 h-1 rounded-full bg-[#2D2D44]" />
           </div>
-        </>
-      )}
+
+          {/* Title */}
+          <div className="flex items-center justify-between px-6 pb-3">
+            <span className="text-[14px] font-semibold text-white">
+              Playback Speed
+            </span>
+            <button
+              onClick={() => setShowSpeedSheet(false)}
+              className="min-h-[44px] min-w-[44px] flex items-center justify-center text-[#9CA3AF] active:text-white transition-colors duration-150 cursor-pointer"
+              aria-label="Close"
+            >
+              <X size={18} />
+            </button>
+          </div>
+
+          {/* Speed options */}
+          <div className="flex items-center justify-center gap-3 px-6 pb-6">
+            {SPEED_OPTIONS.map((speed) => {
+              const isActive = playbackSpeed === speed
+              return (
+                <button
+                  key={speed}
+                  onClick={() => handleSpeedSelect(speed)}
+                  className={`min-w-[44px] min-h-[44px] flex items-center justify-center rounded-xl text-[13px] font-medium transition-colors duration-150 cursor-pointer ${
+                    isActive
+                      ? 'bg-[#7C3AED] text-white'
+                      : 'bg-[#2D2D44] text-[#9CA3AF] active:bg-[#7C3AED]/20 active:text-white'
+                  }`}
+                  aria-label={`Speed ${speed}x`}
+                  aria-pressed={isActive}
+                >
+                  {speed}x
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      </div>
     </div>
   )
 }

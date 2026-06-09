@@ -409,6 +409,39 @@ input[type="range"]::-moz-range-thumb {
   animation: video-speed-pulse 0.8s ease-in-out infinite;
 }
 
+/* ══════════════════════════════════════════════════════════════
+   MUSIC PLAYER — Additional .music-* / .pn-* classes
+   Only additions — no changes to existing CSS
+   ══════════════════════════════════════════════════════════════ */
+
+/* NowPlayingBanner entrance: slide down from top */
+@keyframes music-banner-enter {
+  0% { transform: translateY(-100%); }
+  100% { transform: translateY(0); }
+}
+
+.music-banner-enter {
+  animation: music-banner-enter 150ms ease-out forwards;
+}
+
+/* Seekbar thumb scale on active */
+.music-seek-thumb {
+  transition: transform 100ms ease;
+}
+
+.music-seek-thumb:active {
+  transform: translate(-50%, -50%) scale(1.3);
+}
+
+/* Button press effect for music controls */
+.music-btn-press {
+  transition: transform 100ms ease;
+}
+
+.music-btn-press:active {
+  transform: scale(0.96);
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;
