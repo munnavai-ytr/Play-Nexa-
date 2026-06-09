@@ -4,14 +4,15 @@
 // Capacitor Filesystem + Web fallback for scanning media files
 // Uses pn_music_ / pn_video_ localStorage prefix
 // 2GB RAM safe · Lazy metadata loading · IntersectionObserver
+// 3-layer cache: Memory → localStorage (5min TTL) → Fresh scan
 
 import { useState, useCallback, useRef, useEffect } from 'react'
+import { Capacitor } from '@capacitor/core'
 import {
   isNativePlatform,
   isAudioFile,
   isVideoFile,
   getFileExtension,
-  generateId,
   extractAudioMetadata,
   generateVideoThumbnail,
   getVideoDimensions,
@@ -26,6 +27,8 @@ import type { Song, VideoFile } from '@/lib/mediaUtils'
 
 const MUSIC_SCAN_CACHE = 'pn_music_scan_cache'
 const VIDEO_SCAN_CACHE = 'pn_video_scan_cache'
+const MUSIC_SCAN_TS = 'pn_music_scan_ts'
+const VIDEO_SCAN_TS = 'pn_video_scan_ts'
 const MUSIC_SORT_KEY = 'pn_music_sort'
 const VIDEO_VIEW_KEY = 'pn_video_view'
 const VIDEO_HISTORY_KEY = 'pn_video_history'
@@ -37,6 +40,17 @@ const MUSIC_PERMISSION_KEY = 'pn_music_permission_granted'
 
 export type MusicSortMode = 'name' | 'date' | 'duration' | 'artist' | 'size'
 export type VideoViewMode = 'grid' | 'list'
+
+// ══════════════════════════════════════════════════════════════
+// MODULE-LEVEL MEMORY CACHE (survives re-renders, lost on app close)
+// ══════════════════════════════════════════════════════════════
+
+let musicCacheMemory: Song[] | null = null
+let videoCacheMemory: VideoFile[] | null = null
+let musicScanTimestamp: number = 0
+let videoScanTimestamp: number = 0
+
+const CACHE_TTL_MS = 5 * 60 * 1000 // 5 minutes
 
 // ══════════════════════════════════════════════════════════════
 // HOOK
@@ -135,84 +149,170 @@ export function useMediaLibrary() {
   }, [])
 
   // ════════════════════════════════════════════════════════════
-  // SCAN MUSIC FILES
+  // SCAN MUSIC FILES — 3-layer cache
   // ════════════════════════════════════════════════════════════
 
-  const scanMusicFiles = useCallback(async (): Promise<Song[]> => {
-    // Check session cache first
-    const cached = lsGet<Song[] | null>(MUSIC_SCAN_CACHE, null)
-    if (cached && cached.length > 0) {
-      setSongs(cached)
-      return sortSongs(cached, musicSort)
+  const scanMusicFiles = useCallback(async (forceRefresh = false): Promise<Song[]> => {
+    const now = Date.now()
+
+    // ── Layer 1: Memory cache (instant, survives re-renders) ──
+    if (
+      !forceRefresh &&
+      musicCacheMemory !== null &&
+      musicCacheMemory.length > 0 &&
+      (now - musicScanTimestamp) < CACHE_TTL_MS
+    ) {
+      setSongs(musicCacheMemory)
+      return sortSongs(musicCacheMemory, musicSort)
     }
 
+    // ── Layer 2: localStorage cache with TTL ──
+    if (!forceRefresh) {
+      try {
+        const stored = lsGet<Song[] | null>(MUSIC_SCAN_CACHE, null)
+        const ts = lsGet<string | null>(MUSIC_SCAN_TS, null)
+        if (stored && stored.length > 0 && ts) {
+          const age = now - parseInt(ts)
+          if (age < CACHE_TTL_MS) {
+            // Populate memory cache from localStorage
+            musicCacheMemory = stored
+            musicScanTimestamp = parseInt(ts)
+            setSongs(stored)
+            return sortSongs(stored, musicSort)
+          }
+        }
+      } catch {
+        // localStorage read failed — proceed to fresh scan
+      }
+    }
+
+    // ── Layer 3: Fresh scan ──
     setScanning(true)
     abortRef.current = false
 
     try {
+      let result: Song[]
+
       if (isNativePlatform()) {
-        const result = await scanNativeMusic()
-        const sorted = sortSongs(result, musicSort)
-        setSongs(sorted)
-        lsSet(MUSIC_SCAN_CACHE, result)
-        return sorted
+        result = await runMusicScan()
       } else {
-        // Web fallback: use file picker
-        const result = await pickMusicFilesWeb()
-        const sorted = sortSongs(result, musicSort)
-        setSongs(sorted)
-        lsSet(MUSIC_SCAN_CACHE, result)
-        return sorted
+        result = await pickMusicFilesWeb()
       }
-    } catch (err) {
-      // Music scan failed — return empty
+
+      // Save to both memory + localStorage caches
+      const previousCount = musicCacheMemory?.length ?? 0
+      musicCacheMemory = result
+      musicScanTimestamp = now
+      try {
+        lsSet(MUSIC_SCAN_CACHE, result)
+        lsSet(MUSIC_SCAN_TS, String(now))
+      } catch {
+        // localStorage quota exceeded
+      }
+
+      // Dispatch event if file count changed
+      const newCount = result.length
+      if (newCount !== previousCount) {
+        window.dispatchEvent(new CustomEvent('pn-library-updated', {
+          detail: {
+            type: 'music',
+            count: newCount,
+            added: newCount - previousCount,
+          }
+        }))
+      }
+
+      const sorted = sortSongs(result, musicSort)
+      setSongs(sorted)
+      return sorted
+    } catch {
       return []
     } finally {
       setScanning(false)
     }
   }, [musicSort, sortSongs])
 
-  // ── Native music scan via Capacitor Filesystem ──
-  async function scanNativeMusic(): Promise<Song[]> {
+  // ════════════════════════════════════════════════════════════
+  // COMPLETE NATIVE MUSIC SCAN
+  // Recursive directory scan with Promise.allSettled
+  // ════════════════════════════════════════════════════════════
+
+  async function runMusicScan(): Promise<Song[]> {
+    if (!Capacitor.isNativePlatform()) return []
+
     const { Filesystem } = (window as any).Capacitor?.Plugins || {}
     if (!Filesystem) return []
 
-    const musicDirs = ['Music', 'Download', 'Downloads', 'WhatsApp/Media/WhatsApp Audio']
-    const foundSongs: Song[] = []
+    const songs: Song[] = []
+    const audioExts = ['.mp3', '.aac', '.flac', '.ogg', '.wav', '.m4a', '.opus']
 
-    for (const dir of musicDirs) {
-      if (abortRef.current) break
+    const scanDir = async (path: string, directory: string, depth = 0) => {
+      if (abortRef.current) return
       try {
-        const result = await Filesystem.readdir({
-          path: dir,
-          directory: 'EXTERNAL_STORAGE',
-        })
-        const files = result?.files || []
-        for (const file of files) {
-          if (abortRef.current) break
-          if (file.type === 'file' && isAudioFile(file.name)) {
-            const filePath = `${dir}/${file.name}`
-            const meta = await extractAudioMetadata(filePath)
-            foundSongs.push({
-              id: generateId('song'),
-              name: meta.title || file.name.replace(/\.[^.]+$/, ''),
-              artist: meta.artist,
-              album: meta.album,
-              url: filePath,
+        const result = await Filesystem.readdir({ path, directory })
+
+        for (const file of result.files) {
+          if (abortRef.current) return
+          const fullPath = `${path}/${file.name}`
+          const nameLower = file.name.toLowerCase()
+
+          if (file.type === 'directory') {
+            // Recurse into subdirectories (max 3 levels deep)
+            if (depth < 3) {
+              await scanDir(fullPath, directory, depth + 1)
+            }
+          } else if (audioExts.some(ext => nameLower.endsWith(ext))) {
+            const nameNoExt = file.name.replace(/\.[^.]+$/, '')
+            const parts = nameNoExt.split(' - ')
+
+            // Try to extract metadata lazily
+            let meta = { title: '', artist: 'Unknown Artist', album: 'Unknown Album', duration: 0, artwork: null as string | null }
+            try {
+              meta = await extractAudioMetadata(fullPath)
+            } catch {
+              // Metadata extraction failed — use filename parsing
+            }
+
+            songs.push({
+              id: `song_${fullPath}`,
+              path: fullPath,
+              name: meta.title || parts[1]?.trim() || parts[0]?.trim() || nameNoExt,
+              artist: meta.artist || parts[0]?.trim() || 'Unknown Artist',
+              album: meta.album || 'Unknown Album',
+              url: fullPath,
               size: file.size || 0,
               duration: meta.duration,
               cover: meta.artwork,
-              path: filePath,
               format: getFileExtension(file.name),
             })
           }
         }
       } catch {
-        // Directory not accessible or doesn't exist — skip
+        // Directory not accessible — skip silently
       }
     }
 
-    return foundSongs
+    // Scan common Android music locations
+    const scanTargets = [
+      { path: 'Music',     dir: 'EXTERNAL_STORAGE' },
+      { path: 'Downloads', dir: 'EXTERNAL_STORAGE' },
+      { path: 'Download',  dir: 'EXTERNAL_STORAGE' },
+      { path: 'DCIM',      dir: 'EXTERNAL_STORAGE' },
+      { path: 'WhatsApp/Media/WhatsApp Audio',   dir: 'EXTERNAL_STORAGE' },
+      { path: 'Telegram/Telegram Audio',          dir: 'EXTERNAL_STORAGE' },
+    ]
+
+    // Use Promise.allSettled so one failing dir won't crash the entire scan
+    await Promise.allSettled(
+      scanTargets.map(t => scanDir(t.path, t.dir, 0))
+    )
+
+    // Remove duplicates by path
+    const unique = songs.filter((song, index, self) =>
+      index === self.findIndex(s => s.path === song.path)
+    )
+
+    return unique.sort((a, b) => a.name.localeCompare(b.name))
   }
 
   // ── Web fallback: file picker ──
@@ -248,68 +348,125 @@ export function useMediaLibrary() {
   }
 
   // ════════════════════════════════════════════════════════════
-  // SCAN VIDEO FILES
+  // SCAN VIDEO FILES — 3-layer cache
   // ════════════════════════════════════════════════════════════
 
-  const scanVideoFiles = useCallback(async (): Promise<VideoFile[]> => {
-    const cached = lsGet<VideoFile[] | null>(VIDEO_SCAN_CACHE, null)
-    if (cached && cached.length > 0) {
-      setVideos(cached)
-      return cached
+  const scanVideoFiles = useCallback(async (forceRefresh = false): Promise<VideoFile[]> => {
+    const now = Date.now()
+
+    // ── Layer 1: Memory cache (instant) ──
+    if (
+      !forceRefresh &&
+      videoCacheMemory !== null &&
+      videoCacheMemory.length > 0 &&
+      (now - videoScanTimestamp) < CACHE_TTL_MS
+    ) {
+      setVideos(videoCacheMemory)
+      return videoCacheMemory
     }
 
+    // ── Layer 2: localStorage cache with TTL ──
+    if (!forceRefresh) {
+      try {
+        const stored = lsGet<VideoFile[] | null>(VIDEO_SCAN_CACHE, null)
+        const ts = lsGet<string | null>(VIDEO_SCAN_TS, null)
+        if (stored && stored.length > 0 && ts) {
+          const age = now - parseInt(ts)
+          if (age < CACHE_TTL_MS) {
+            videoCacheMemory = stored
+            videoScanTimestamp = parseInt(ts)
+            setVideos(stored)
+            return stored
+          }
+        }
+      } catch {
+        // localStorage read failed — proceed to fresh scan
+      }
+    }
+
+    // ── Layer 3: Fresh scan ──
     setScanning(true)
     abortRef.current = false
 
     try {
+      let result: VideoFile[]
+
       if (isNativePlatform()) {
-        const result = await scanNativeVideo()
-        setVideos(result)
-        lsSet(VIDEO_SCAN_CACHE, result)
-        return result
+        result = await runVideoScan()
       } else {
-        const result = await pickVideoFilesWeb()
-        setVideos(result)
-        lsSet(VIDEO_SCAN_CACHE, result)
-        return result
+        result = await pickVideoFilesWeb()
       }
-    } catch (err) {
-      // Video scan failed — return empty
+
+      // Save to both caches
+      const previousCount = videoCacheMemory?.length ?? 0
+      videoCacheMemory = result
+      videoScanTimestamp = now
+      try {
+        lsSet(VIDEO_SCAN_CACHE, result)
+        lsSet(VIDEO_SCAN_TS, String(now))
+      } catch {
+        // localStorage quota exceeded
+      }
+
+      // Dispatch event if file count changed
+      const newCount = result.length
+      if (newCount !== previousCount) {
+        window.dispatchEvent(new CustomEvent('pn-library-updated', {
+          detail: {
+            type: 'video',
+            count: newCount,
+            added: newCount - previousCount,
+          }
+        }))
+      }
+
+      setVideos(result)
+      return result
+    } catch {
       return []
     } finally {
       setScanning(false)
     }
   }, [])
 
-  // ── Native video scan ──
-  async function scanNativeVideo(): Promise<VideoFile[]> {
+  // ════════════════════════════════════════════════════════════
+  // COMPLETE NATIVE VIDEO SCAN
+  // Recursive directory scan with Promise.allSettled
+  // ════════════════════════════════════════════════════════════
+
+  async function runVideoScan(): Promise<VideoFile[]> {
+    if (!Capacitor.isNativePlatform()) return []
+
     const { Filesystem } = (window as any).Capacitor?.Plugins || {}
     if (!Filesystem) return []
 
-    const videoDirs = ['Movies', 'Download', 'Downloads', 'DCIM/Camera', 'WhatsApp/Media/WhatsApp Video']
-    const foundVideos: VideoFile[] = []
+    const videoFiles: VideoFile[] = []
+    const videoExts = ['.mp4', '.mkv', '.avi', '.webm', '.3gp', '.mov', '.m4v', '.ts']
 
-    for (const dir of videoDirs) {
-      if (abortRef.current) break
+    const scanDir = async (path: string, directory: string, depth = 0) => {
+      if (abortRef.current) return
       try {
-        const result = await Filesystem.readdir({
-          path: dir,
-          directory: 'EXTERNAL_STORAGE',
-        })
-        const files = result?.files || []
-        for (const file of files) {
-          if (abortRef.current) break
-          if (file.type === 'file' && isVideoFile(file.name)) {
-            const filePath = `${dir}/${file.name}`
-            // Thumbnail generated lazily, not on initial scan
-            foundVideos.push({
-              id: generateId('vid'),
+        const result = await Filesystem.readdir({ path, directory })
+
+        for (const file of result.files) {
+          if (abortRef.current) return
+          const fullPath = `${path}/${file.name}`
+          const nameLower = file.name.toLowerCase()
+
+          if (file.type === 'directory') {
+            // Recurse into subdirectories (max 3 levels deep)
+            if (depth < 3) {
+              await scanDir(fullPath, directory, depth + 1)
+            }
+          } else if (videoExts.some(ext => nameLower.endsWith(ext))) {
+            videoFiles.push({
+              id: `vid_${fullPath}`,
+              path: fullPath,
               name: file.name.replace(/\.[^.]+$/, ''),
-              url: filePath,
+              url: fullPath,
               size: file.size || 0,
               duration: 0,
               thumbnail: null,
-              path: filePath,
               format: getFileExtension(file.name),
               width: 0,
               height: 0,
@@ -319,11 +476,32 @@ export function useMediaLibrary() {
           }
         }
       } catch {
-        // Directory not accessible
+        // Directory not accessible — skip silently
       }
     }
 
-    return foundVideos
+    // Scan common Android video locations
+    const scanTargets = [
+      { path: 'DCIM',      dir: 'EXTERNAL_STORAGE' },
+      { path: 'Movies',    dir: 'EXTERNAL_STORAGE' },
+      { path: 'Videos',    dir: 'EXTERNAL_STORAGE' },
+      { path: 'Downloads', dir: 'EXTERNAL_STORAGE' },
+      { path: 'Download',  dir: 'EXTERNAL_STORAGE' },
+      { path: 'WhatsApp/Media/WhatsApp Video',   dir: 'EXTERNAL_STORAGE' },
+      { path: 'Telegram/Telegram Video',          dir: 'EXTERNAL_STORAGE' },
+    ]
+
+    // Use Promise.allSettled so one failing dir won't crash the entire scan
+    await Promise.allSettled(
+      scanTargets.map(t => scanDir(t.path, t.dir, 0))
+    )
+
+    // Remove duplicates by path
+    const unique = videoFiles.filter((v, i, self) =>
+      i === self.findIndex(x => x.path === v.path)
+    )
+
+    return unique.sort((a, b) => a.name.localeCompare(b.name))
   }
 
   // ── Web fallback: file picker ──
@@ -426,6 +604,8 @@ export function useMediaLibrary() {
     setSongs((prev) => {
       const updated = [...prev, song]
       lsSet(MUSIC_SCAN_CACHE, updated)
+      // Update memory cache too
+      musicCacheMemory = updated
       return updated
     })
   }, [])
@@ -434,6 +614,7 @@ export function useMediaLibrary() {
     setVideos((prev) => {
       const updated = [...prev, video]
       lsSet(VIDEO_SCAN_CACHE, updated)
+      videoCacheMemory = updated
       return updated
     })
   }, [])
@@ -442,6 +623,7 @@ export function useMediaLibrary() {
     setSongs((prev) => {
       const updated = prev.filter((s) => s.id !== id)
       lsSet(MUSIC_SCAN_CACHE, updated)
+      musicCacheMemory = updated
       return updated
     })
   }, [])
@@ -450,12 +632,25 @@ export function useMediaLibrary() {
     setVideos((prev) => {
       const updated = prev.filter((v) => v.id !== id)
       lsSet(VIDEO_SCAN_CACHE, updated)
+      videoCacheMemory = updated
       return updated
     })
   }, [])
 
   const abortScan = useCallback(() => {
     abortRef.current = true
+  }, [])
+
+  // ── Invalidate memory cache (for external refresh triggers) ──
+  const invalidateCache = useCallback((type: 'music' | 'video' | 'all') => {
+    if (type === 'music' || type === 'all') {
+      musicCacheMemory = null
+      musicScanTimestamp = 0
+    }
+    if (type === 'video' || type === 'all') {
+      videoCacheMemory = null
+      videoScanTimestamp = 0
+    }
   }, [])
 
   return {
@@ -476,8 +671,17 @@ export function useMediaLibrary() {
     removeSong,
     removeVideo,
     abortScan,
+    invalidateCache,
     getVideoHistory,
     saveVideoPosition,
     getVideoPosition,
   }
+}
+
+// ══════════════════════════════════════════════════════════════
+// HELPER: generateId (local, avoids circular import)
+// ══════════════════════════════════════════════════════════════
+
+function generateId(prefix: string): string {
+  return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
 }

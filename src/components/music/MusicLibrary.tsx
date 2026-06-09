@@ -25,6 +25,7 @@ import {
   Info,
   Trash2,
   Loader2,
+  RefreshCw,
 } from 'lucide-react'
 import type { Song } from '@/lib/mediaUtils'
 import { formatDuration, debounce, lsGet, lsSet } from '@/lib/mediaUtils'
@@ -137,6 +138,7 @@ export default function MusicLibrary({ onSongSelect, onBack }: MusicLibraryProps
   })
 
   // ── Refs ──
+  const hasLoadedRef = useRef(false)
   const tabRefs = useRef<Record<TabKey, HTMLButtonElement | null>>({
     all: null,
     albums: null,
@@ -146,6 +148,10 @@ export default function MusicLibrary({ onSongSelect, onBack }: MusicLibraryProps
   })
   const tabScrollRef = useRef<HTMLDivElement>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
+
+  // ── Toast state for library update notifications ──
+  const [toastMsg, setToastMsg] = useState('')
+  const [showToast, setShowToast] = useState(false)
 
   // ════════════════════════════════════════════════════════════
   // DEBOUNCED SEARCH
@@ -355,8 +361,37 @@ export default function MusicLibrary({ onSongSelect, onBack }: MusicLibraryProps
     [contextSong, removeSong]
   )
 
+  // ── Initial load with hasLoadedRef guard ──
+  useEffect(() => {
+    if (hasLoadedRef.current) return
+    hasLoadedRef.current = true
+
+    const loadSongs = async () => {
+      await scanMusicFiles(false) // use cache
+    }
+    loadSongs()
+  }, [scanMusicFiles])
+
+  // ── Listen for pn-library-updated custom event ──
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail
+      if (detail?.type === 'music') {
+        setToastMsg(
+          detail.added > 0
+            ? `+${detail.added} new song${detail.added !== 1 ? 's' : ''} found`
+            : 'Library updated'
+        )
+        setShowToast(true)
+        setTimeout(() => setShowToast(false), 3000)
+      }
+    }
+    window.addEventListener('pn-library-updated', handler as EventListener)
+    return () => window.removeEventListener('pn-library-updated', handler as EventListener)
+  }, [])
+
   const handleScan = useCallback(async () => {
-    await scanMusicFiles()
+    await scanMusicFiles(true) // forceRefresh = true
   }, [scanMusicFiles])
 
   const handleSearchToggle = useCallback(() => {
@@ -412,6 +447,14 @@ export default function MusicLibrary({ onSongSelect, onBack }: MusicLibraryProps
 
           {/* Right actions — 44px touch targets */}
           <div className="flex items-center gap-1">
+            <button
+              onClick={handleScan}
+              className="flex items-center justify-center min-h-[44px] min-w-[44px] rounded-xl active:scale-90 transition-transform duration-150 cursor-pointer"
+              aria-label="Refresh library"
+              title="Refresh library"
+            >
+              <RefreshCw size={20} className={`text-[#9CA3AF] ${scanning ? 'animate-spin' : ''}`} />
+            </button>
             <button
               onClick={handleSearchToggle}
               className="flex items-center justify-center min-h-[44px] min-w-[44px] rounded-xl active:scale-90 transition-transform duration-150 cursor-pointer"
@@ -723,6 +766,15 @@ export default function MusicLibrary({ onSongSelect, onBack }: MusicLibraryProps
           </div>
         </div>
       </div>
+
+      {/* ════════════════════════════════════════════════════════
+          TOAST NOTIFICATION — library updated
+          ════════════════════════════════════════════════════════ */}
+      {showToast && toastMsg && (
+        <div className="fixed bottom-20 left-1/2 -translate-x-1/2 z-[60] px-4 py-2.5 bg-[#1A1A2E] border border-[#7C3AED] rounded-xl shadow-lg shadow-black/60 text-white text-sm font-medium animate-slide-up">
+          {toastMsg}
+        </div>
+      )}
 
       {/* ════════════════════════════════════════════════════════
           4. SONG CONTEXT MENU BOTTOM SHEET — pointer-events when closed

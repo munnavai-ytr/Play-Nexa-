@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useRef, useCallback, useEffect } from 'react';
+import { Capacitor } from '@capacitor/core';
 import {
   formatDuration,
   lsGet,
@@ -406,6 +407,18 @@ export function useVideoPlayer() {
     setIsMuted((prev) => !prev);
   }, []);
 
+  // ── Helper: convert file path for Video src ──────────────────────
+  const getVideoSrc = useCallback((videoPath: string): string => {
+    if (isNativePlatform()) {
+      try {
+        return Capacitor.convertFileSrc(videoPath);
+      } catch {
+        return videoPath;
+      }
+    }
+    return videoPath;
+  }, []);
+
   const loadVideo = useCallback(
     (video: VideoFile) => {
       const el = videoRef.current;
@@ -432,7 +445,10 @@ export function useVideoPlayer() {
       setResumePosition(null);
 
       if (el) {
-        el.src = video.url;
+        // Convert native file path for Capacitor — without this,
+        // Android WebView cannot access file:/// URIs directly
+        const src = getVideoSrc(video.url || video.path);
+        el.src = src;
         el.load();
       }
 
@@ -449,7 +465,7 @@ export function useVideoPlayer() {
 
       resetHideTimer();
     },
-    [currentVideo, resetHideTimer]
+    [currentVideo, resetHideTimer, getVideoSrc]
   );
 
   const cycleRepeat = useCallback(() => {

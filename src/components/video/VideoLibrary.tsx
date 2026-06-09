@@ -23,6 +23,7 @@ import {
   Share2,
   Info,
   RotateCcw,
+  RefreshCw,
 } from 'lucide-react'
 import type { VideoFile } from '@/lib/mediaUtils'
 import {
@@ -142,6 +143,7 @@ export default function VideoLibrary({ onVideoSelect, onBack }: VideoLibraryProp
   const [generatingThumbs, setGeneratingThumbs] = useState<Set<string>>(new Set())
 
   // ── Refs ──
+  const hasLoadedRef = useRef(false)
   const tabRefs = useRef<Record<TabKey, HTMLButtonElement | null>>({
     all: null,
     folders: null,
@@ -151,6 +153,10 @@ export default function VideoLibrary({ onVideoSelect, onBack }: VideoLibraryProp
   const searchInputRef = useRef<HTMLInputElement>(null)
   const observerRef = useRef<IntersectionObserver | null>(null)
   const observedElementsRef = useRef<Map<string, HTMLDivElement>>(new Map())
+
+  // ── Toast state for library update notifications ──
+  const [toastMsg, setToastMsg] = useState('')
+  const [showToast, setShowToast] = useState(false)
 
   // ════════════════════════════════════════════════════════════
   // DEBOUNCED SEARCH
@@ -456,8 +462,37 @@ export default function VideoLibrary({ onVideoSelect, onBack }: VideoLibraryProp
     [contextVideo, removeVideo]
   )
 
+  // ── Initial load with hasLoadedRef guard ──
+  useEffect(() => {
+    if (hasLoadedRef.current) return
+    hasLoadedRef.current = true
+
+    const loadVideos = async () => {
+      await scanVideoFiles(false) // use cache
+    }
+    loadVideos()
+  }, [scanVideoFiles])
+
+  // ── Listen for pn-library-updated custom event ──
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail
+      if (detail?.type === 'video') {
+        setToastMsg(
+          detail.added > 0
+            ? `+${detail.added} new video${detail.added !== 1 ? 's' : ''} found`
+            : 'Library updated'
+        )
+        setShowToast(true)
+        setTimeout(() => setShowToast(false), 3000)
+      }
+    }
+    window.addEventListener('pn-library-updated', handler as EventListener)
+    return () => window.removeEventListener('pn-library-updated', handler as EventListener)
+  }, [])
+
   const handleScan = useCallback(async () => {
-    await scanVideoFiles()
+    await scanVideoFiles(true) // forceRefresh = true
   }, [scanVideoFiles])
 
   const handleSearchToggle = useCallback(() => {
@@ -925,8 +960,16 @@ export default function VideoLibrary({ onVideoSelect, onBack }: VideoLibraryProp
           {/* Right actions */}
           <div className="flex items-center gap-1">
             <button
+              onClick={handleScan}
+              className="flex items-center justify-center min-h-[44px] min-w-[44px] rounded-xl active:scale-90 transition-transform duration-150 cursor-pointer"
+              aria-label="Refresh library"
+              title="Refresh library"
+            >
+              <RefreshCw size={20} className={`text-[#9CA3AF] ${scanning ? 'animate-spin' : ''}`} />
+            </button>
+            <button
               onClick={handleSearchToggle}
-              className="flex items-center justify-center w-11 h-11 rounded-xl active:scale-90 transition-transform duration-150"
+              className="flex items-center justify-center min-h-[44px] min-w-[44px] rounded-xl active:scale-90 transition-transform duration-150 cursor-pointer"
               aria-label={searchOpen ? 'Close search' : 'Open search'}
             >
               {searchOpen ? (
@@ -937,7 +980,7 @@ export default function VideoLibrary({ onVideoSelect, onBack }: VideoLibraryProp
             </button>
             <button
               onClick={handleHeaderMenuToggle}
-              className="flex items-center justify-center w-11 h-11 rounded-xl active:scale-90 transition-transform duration-150"
+              className="flex items-center justify-center min-h-[44px] min-w-[44px] rounded-xl active:scale-90 transition-transform duration-150 cursor-pointer"
               aria-label="More options"
             >
               <MoreVertical size={20} className="text-white" />
@@ -1095,6 +1138,15 @@ export default function VideoLibrary({ onVideoSelect, onBack }: VideoLibraryProp
           {renderContent()}
         </div>
       </main>
+
+      {/* ════════════════════════════════════════════════════════
+          TOAST NOTIFICATION — library updated
+          ════════════════════════════════════════════════════════ */}
+      {showToast && toastMsg && (
+        <div className="fixed bottom-20 left-1/2 -translate-x-1/2 z-[60] px-4 py-2.5 bg-[#1A1A2E] border border-[#7C3AED] rounded-xl shadow-lg shadow-black/60 text-white text-sm font-medium animate-slide-up">
+          {toastMsg}
+        </div>
+      )}
 
       {/* ════════════════════════════════════════════════════════
           6. VIDEO CONTEXT MENU BOTTOM SHEET

@@ -111,3 +111,27 @@ Stage Summary:
 - 8 files modified: useMusicPlayer.ts, NowPlaying.tsx, MusicLibrary.tsx, MiniPlayer.tsx, NowPlayingBanner.tsx (new), globals.css, package.json, mediaUtils.ts (unchanged)
 - All music files pass TypeScript strict check (zero errors)
 - No files outside src/components/music/, src/hooks/, src/lib/mediaUtils.ts, globals.css were modified
+---
+Task ID: 1
+Agent: Main Agent
+Task: Fix BUG 1 (Audio/Video Not Playing) and BUG 2 (Scan Running Every Time) in Play Nexa app
+
+Work Log:
+- Read all 5 target files to understand current code and identify root causes
+- BUG 1 Root Cause: useVideoPlayer.ts loadVideo() used `video.url` directly without Capacitor.convertFileSrc()
+- BUG 1 Fix: Added `getVideoSrc()` helper with Capacitor.convertFileSrc() and applied it in loadVideo()
+- BUG 2 Root Cause: No memory cache, no TTL on localStorage cache, no ref guards on component mount, no recursive directory scanning, no Promise.allSettled
+- BUG 2 Fix: Complete rewrite of useMediaLibrary.ts with 3-layer cache (memory → localStorage TTL → fresh scan)
+- BUG 2 Fix: Added hasLoadedRef guards to both MusicLibrary.tsx and VideoLibrary.tsx
+- BUG 2 Fix: Added RefreshCw buttons in both library headers for manual refresh
+- BUG 2 Fix: Added pn-library-updated custom event dispatching and toast notifications
+- BUG 2 Fix: Added recursive directory scanning (max 3 levels) and Promise.allSettled
+- Fixed @capacitor/filesystem import issue by using window.Capacitor.Plugins pattern (matching original code)
+- Verified zero TypeScript errors in all 5 modified files
+
+Stage Summary:
+- Modified: src/hooks/useVideoPlayer.ts (BUG 1: Capacitor.convertFileSrc)
+- Modified: src/hooks/useMediaLibrary.ts (BUG 2: 3-layer cache + complete scans)
+- Modified: src/components/music/MusicLibrary.tsx (BUG 2: hasLoadedRef + refresh + toast)
+- Modified: src/components/video/VideoLibrary.tsx (BUG 2: hasLoadedRef + refresh + toast)
+- useMusicPlayer.ts was already correctly using getAudioSrc() with Capacitor.convertFileSrc()
