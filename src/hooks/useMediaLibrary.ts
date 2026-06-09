@@ -10,12 +10,8 @@ import { useState, useCallback, useRef, useEffect } from 'react'
 import { Capacitor } from '@capacitor/core'
 import {
   isNativePlatform,
-  isAudioFile,
-  isVideoFile,
   getFileExtension,
   extractAudioMetadata,
-  generateVideoThumbnail,
-  getVideoDimensions,
   lsGet,
   lsSet,
 } from '@/lib/mediaUtils'
@@ -196,7 +192,7 @@ export function useMediaLibrary() {
       if (isNativePlatform()) {
         result = await runMusicScan()
       } else {
-        result = await pickMusicFilesWeb()
+        result = getMockMusicData()
       }
 
       // Save to both memory + localStorage caches
@@ -315,36 +311,20 @@ export function useMediaLibrary() {
     return unique.sort((a, b) => a.name.localeCompare(b.name))
   }
 
-  // ── Web fallback: file picker ──
-  function pickMusicFilesWeb(): Promise<Song[]> {
-    return new Promise((resolve) => {
-      const input = document.createElement('input')
-      input.type = 'file'
-      input.accept = 'audio/*'
-      input.multiple = true
-      input.onchange = async (e: any) => {
-        const files: File[] = Array.from(e.target.files || [])
-        const newSongs: Song[] = []
-        for (const file of files) {
-          if (abortRef.current) break
-          const meta = await extractAudioMetadata(file.name, file)
-          newSongs.push({
-            id: generateId('song'),
-            name: meta.title || file.name.replace(/\.[^.]+$/, ''),
-            artist: meta.artist,
-            album: meta.album,
-            url: URL.createObjectURL(file),
-            size: file.size,
-            duration: meta.duration,
-            cover: meta.artwork,
-            path: file.name,
-            format: getFileExtension(file.name),
-          })
-        }
-        resolve(newSongs)
-      }
-      input.click()
-    })
+  // ── Web fallback: mock data for browser testing ──
+  function getMockMusicData(): Song[] {
+    return [
+      { id: 'mock_song_1',  name: 'Midnight Drive',      artist: 'Luna Wave',        album: 'Neon Horizons',    url: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3',  size: 4500000, duration: 221, cover: null, path: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3',  format: 'mp3' },
+      { id: 'mock_song_2',  name: 'Electric Sunset',     artist: 'Kai Zen',           album: 'Chromatic Dreams', url: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3',  size: 5100000, duration: 253, cover: null, path: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3',  format: 'mp3' },
+      { id: 'mock_song_3',  name: 'Fading Echoes',       artist: 'Nova Drift',        album: 'Silent Frequencies', url: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-3.mp3', size: 4800000, duration: 198, cover: null, path: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-3.mp3',  format: 'mp3' },
+      { id: 'mock_song_4',  name: 'Crystal Rain',        artist: 'Aria Bloom',        album: 'Glass Garden',     url: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3',  size: 4700000, duration: 234, cover: null, path: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3',  format: 'mp3' },
+      { id: 'mock_song_5',  name: 'Urban Pulse',         artist: 'Rivet & Stone',     album: 'Concrete Jungle',  url: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-5.mp3',  size: 4900000, duration: 267, cover: null, path: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-5.mp3',  format: 'mp3' },
+      { id: 'mock_song_6',  name: 'Velvet Horizon',      artist: 'Sable Moon',        album: 'Dusk to Dawn',     url: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-6.mp3',  size: 5200000, duration: 289, cover: null, path: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-6.mp3',  format: 'mp3' },
+      { id: 'mock_song_7',  name: 'Starlight Express',   artist: 'Orion Key',         album: 'Cosmic Relay',     url: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-7.mp3',  size: 4400000, duration: 186, cover: null, path: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-7.mp3',  format: 'mp3' },
+      { id: 'mock_song_8',  name: 'Deep Current',        artist: 'Tidal Shift',       album: 'Ocean Floor',      url: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-8.mp3',  size: 5300000, duration: 298, cover: null, path: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-8.mp3',  format: 'mp3' },
+      { id: 'mock_song_9',  name: 'Amber Glow',          artist: 'Haze & Vapor',      album: 'Warm Frequencies', url: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-9.mp3',  size: 4600000, duration: 212, cover: null, path: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-9.mp3',  format: 'mp3' },
+      { id: 'mock_song_10', name: 'Paper Trails',        artist: 'Fable & Ink',       album: 'Written in Sound', url: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-10.mp3', size: 5000000, duration: 245, cover: null, path: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-10.mp3', format: 'mp3' },
+    ]
   }
 
   // ════════════════════════════════════════════════════════════
@@ -394,7 +374,7 @@ export function useMediaLibrary() {
       if (isNativePlatform()) {
         result = await runVideoScan()
       } else {
-        result = await pickVideoFilesWeb()
+        result = getMockVideoData()
       }
 
       // Save to both caches
@@ -504,49 +484,15 @@ export function useMediaLibrary() {
     return unique.sort((a, b) => a.name.localeCompare(b.name))
   }
 
-  // ── Web fallback: file picker ──
-  function pickVideoFilesWeb(): Promise<VideoFile[]> {
-    return new Promise((resolve) => {
-      const input = document.createElement('input')
-      input.type = 'file'
-      input.accept = 'video/*'
-      input.multiple = true
-      input.onchange = async (e: any) => {
-        const files: File[] = Array.from(e.target.files || [])
-        const newVideos: VideoFile[] = []
-        for (const file of files) {
-          if (abortRef.current) break
-          let thumbnail: string | null = null
-          try {
-            thumbnail = await generateVideoThumbnail(file.name, file)
-          } catch {
-            // Thumbnail generation failed
-          }
-          let dims = { w: 0, h: 0 }
-          try {
-            dims = await getVideoDimensions(file.name, file)
-          } catch {
-            // Dimension extraction failed
-          }
-          newVideos.push({
-            id: generateId('vid'),
-            name: file.name.replace(/\.[^.]+$/, ''),
-            url: URL.createObjectURL(file),
-            size: file.size,
-            duration: 0,
-            thumbnail,
-            path: file.name,
-            format: getFileExtension(file.name),
-            width: dims.w,
-            height: dims.h,
-            lastPlayed: null,
-            progress: 0,
-          })
-        }
-        resolve(newVideos)
-      }
-      input.click()
-    })
+  // ── Web fallback: mock data for browser testing ──
+  function getMockVideoData(): VideoFile[] {
+    return [
+      { id: 'mock_vid_1', name: 'Big Buck Bunny',        path: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4',           url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4',           size: 125000000, duration: 596, thumbnail: null, format: 'mp4', width: 1280, height: 720, lastPlayed: null, progress: 0 },
+      { id: 'mock_vid_2', name: 'Elephants Dream',       path: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4',         url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4',         size: 105000000, duration: 653, thumbnail: null, format: 'mp4', width: 1280, height: 720, lastPlayed: null, progress: 0 },
+      { id: 'mock_vid_3', name: 'For Bigger Blazes',     path: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4',        url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4',        size: 89000000,  duration: 15,  thumbnail: null, format: 'mp4', width: 1280, height: 720, lastPlayed: null, progress: 0 },
+      { id: 'mock_vid_4', name: 'Subaru Outback On Street And Dirt', path: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/SubaruOutbackOnStreetAndDirt.mp4', url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/SubaruOutbackOnStreetAndDirt.mp4', size: 72000000, duration: 15,  thumbnail: null, format: 'mp4', width: 1280, height: 720, lastPlayed: null, progress: 0 },
+      { id: 'mock_vid_5', name: 'Tears of Steel',        path: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4',            url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4',            size: 135000000, duration: 734, thumbnail: null, format: 'mp4', width: 1280, height: 720, lastPlayed: null, progress: 0 },
+    ]
   }
 
   // ════════════════════════════════════════════════════════════
