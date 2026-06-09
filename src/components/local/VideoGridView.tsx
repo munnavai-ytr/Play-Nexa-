@@ -6,12 +6,12 @@
 // 3-col mobile · 4-col md · gap-2
 // Chronological sectioning by date metadata
 // Glassmorphism play icon · Size overlay · content-visibility: auto
-// Three-dot actions: Play, Convert to MP3, Move to Safe Folder, Delete
+// Three-dot actions: Play, Convert to MP3, Delete
 
 import { useState, useCallback, useRef, useEffect } from 'react'
 import {
   Plus, Trash2, Play, Film, ChevronLeft,
-  MoreVertical, FileAudio, Shield
+  MoreVertical, FileAudio
 } from 'lucide-react'
 
 export interface LocalVideo {
@@ -30,7 +30,6 @@ interface VideoGridViewProps {
   searchQuery: string
   onPlay: (video: LocalVideo) => void
   onConvertToMp3: (video: LocalVideo) => void
-  onMoveToSafe: (video: LocalVideo) => void
   onBack: () => void
 }
 
@@ -49,7 +48,7 @@ function getDateGroup(timestamp: number): string {
 }
 
 export default function VideoGridView({
-  searchQuery, onPlay, onConvertToMp3, onMoveToSafe, onBack
+  searchQuery, onPlay, onConvertToMp3, onBack
 }: VideoGridViewProps) {
   const [videos, setVideos] = useState<LocalVideo[]>([])
   const [menuOpen, setMenuOpen] = useState<string | null>(null)
@@ -396,14 +395,6 @@ export default function VideoGridView({
                       >
                         <FileAudio size={12} className="text-[#00D4FF]" />
                         Convert to MP3
-                      </button>
-                      <button
-                        onClick={() => { onMoveToSafe(video); setMenuOpen(null) }}
-                        className="flex items-center gap-2.5 w-full px-3 py-2.5 text-white text-[11px]
-                                   font-medium active:bg-neutral-800 transition-colors duration-100"
-                      >
-                        <Shield size={12} className="text-[#22C55E]" />
-                        Move to Safe
                       </button>
                       <div className="border-t border-neutral-800" />
                       <button

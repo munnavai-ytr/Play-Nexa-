@@ -1,137 +1,99 @@
-# Play Nexa Worklog
-
 ---
 Task ID: 1
-Agent: Main Agent
-Task: FIX Calculator Lock + Build Real OS App Controller Code (Production Rewrite)
+Agent: Super Z (main)
+Task: Remove Security Suite & Restore Clean Profile Page
 
 Work Log:
-- Read all existing security files to identify bugs: Calculator freeze on unlock, state persistence failures, stub-only native bridge code
-- Created `src/lib/security-idb.ts` — Full IndexedDB store with native promise chains for locked_packages and hidden_pool object stores, indexes on locked/hidden booleans, CRUD operations (idbLockPackage, idbUnlockPackage, idbGetAllLocked, idbIsPackageLocked, idbHidePackage, idbUnhidePackage, idbGetAllHidden, idbIsPackageHidden, idbGetHiddenPoolNames, idbClearAll)
-- Rewrote `src/components/settings/CalculatorDisguise.tsx` — Complete rewrite: safe math useReducer (NO eval()), tight useEffect PIN validator monitoring inputBuffer for exact string match, emergency backdoor "99887766=" that clears ALL localStorage + IndexedDB and force-reloads, seamless deactivation via React context + localStorage.removeItem
-- Rewrote `src/lib/disguise-context.tsx` — Added interceptAppLaunch() for Hidden Pool enforcement, refreshHiddenPool() loading from IndexedDB, redundant localStorage write (pn_disguise_active + legacy key), hiddenPool state array
-- Rewrote `src/lib/native-bridge.ts` — Added isNativePlatform() detection, getPlatform(), real Capacitor plugin detection (Capacitor.isNativePlatform, getPlatform, Plugins), startBackgroundMonitor() for native UsageStatsManager polling loop, blobToBase64() utility for ShortcutManager, real Blob support in createHomeShortcut()
-- Rewrote `src/lib/app-security-store.ts` — Integrated with security-idb.ts: lockApp/unlockApp write to BOTH localStorage metadata AND IndexedDB, hideApp/unhideApp call BOTH idb + native AppHider plugin, async IndexedDB operations with .catch() for resilience
-- Rewrote `src/components/security/SystemAppsManager.tsx` — Real onLockToggle/onHideToggle event handlers with IndexedDB persistence, useEffect background monitor start/stop tied to stats.locked, useDisguise() integration for refreshHiddenPool
-- Rewrote `src/components/security/AppLockOverlay.tsx` — Auto-submit PIN on 4 digits, Enter key support on master bypass, dual verification (verifyMasterPin + verifyMasterBypass)
-- Rewrote `src/components/security/IconChangerModal.tsx` — Real file Blob capture (customIconBlob state), blob size/type display, Blob passed to createHomeShortcut for native ShortcutManager
-- Updated `src/components/layout/DisguiseWrapper.tsx` — Clean, minimal, uses updated disguise-context
+- Read all 5 main target files (profile/page.tsx, settings/page.tsx, layout.tsx, settings.ts, local/page.tsx) plus all security components
+- Mapped full dependency graph: disguise-context → app-lock-store → security-idb → native-bridge → AppLock → CalculatorDisguise → DisguiseWrapper → DisguiseProvider
+- Identified SafeFolderModal usage in local/page.tsx and onMoveToSafe in VideoGridView + MusicListView
+- Confirmed idb-store.ts and safe-store.ts only used by PrivateLocker (safe to delete)
+- Confirmed StealthPlayer is a movie player component, not security (kept)
+- Confirmed native-bridge.ts is only used by security features (safe to delete)
+
+Profile Page Changes:
+- Removed `Lock` import from lucide-react
+- Removed `PrivateLocker` import
+- Removed `showPrivateLocker` state
+- Removed entire "Privacy" section with Private Folder button
+- Removed PrivateLocker overlay rendering
+
+Settings Page Changes:
+- Removed `Shield, Eye, Paintbrush, Smartphone` imports from lucide-react
+- Removed `AppLock`, `AppLookCustomizer`, `useDisguise`, `loadLockConfig`, `saveLockConfig` imports
+- Removed "Security" section (safeRedirect, externalWarning, secureBrowser toggles)
+- Removed "System Apps Manager" section (with Lock/Hide/Disguise badges)
+- Removed "App Lock & Pattern" section
+- Removed "App Hide — Disguise Mode" section
+- Removed "App Icon & Label Customizer" section
+- Removed `DisguiseSection` component function entirely
+
+Layout Changes:
+- Removed `DisguiseProvider` import and JSX wrapper
+- Removed `DisguiseWrapper` import and JSX wrapper
+- Children now render directly inside `<body>`
+
+Settings Type Changes (settings.ts):
+- Removed `safeRedirect`, `externalWarning`, `secureBrowser` from `PlayNexaSettings` interface
+- Removed those fields from `DEFAULT_SETTINGS`
+
+Local Page Changes:
+- Removed `Shield` import from lucide-react
+- Removed `SafeFolderModal` import
+- Removed `showSafeFolder` and `safeFolderItem` state
+- Removed `handleMoveToSafeVideo` and `handleMoveToSafeTrack` callbacks
+- Removed Safe Folder button from control bar
+- Removed SafeFolderModal rendering block
+- Removed `onMoveToSafe` prop from VideoGridView and MusicListView
+
+VideoGridView Changes:
+- Removed `Shield` import
+- Removed `onMoveToSafe` from props interface
+- Removed "Move to Safe" menu item from context menu
+
+MusicListView Changes:
+- Removed `Shield` import
+- Removed `onMoveToSafe` from props interface
+- Removed "Move to Safe" menu item from context menu
+
+Deleted Files (18 total):
+Components:
+- src/components/settings/AppLock.tsx
+- src/components/settings/AppLookCustomizer.tsx
+- src/components/settings/CalculatorDisguise.tsx
+- src/components/profile/PrivateLocker.tsx
+- src/components/layout/DisguiseWrapper.tsx
+- src/components/security/AppLockOverlay.tsx
+- src/components/security/SystemAppsManager.tsx
+- src/components/security/IconChangerModal.tsx
+- src/components/local/SafeFolder.tsx
+- src/components/local/SafeFolderModal.tsx
+- src/components/local/PinDial.tsx
+
+Lib:
+- src/lib/disguise-context.tsx
+- src/lib/app-lock-store.ts
+- src/lib/app-security-store.ts
+- src/lib/security-idb.ts
+- src/lib/safe-store.ts
+- src/lib/idb-store.ts
+- src/lib/native-bridge.ts
+
+Pages:
+- src/app/security/page.tsx
+
+Directories removed:
+- src/components/security/
+- src/app/security/
+
+Verification:
+- TypeScript compilation: Zero errors in any changed files
+- Dev server: Starts successfully in 553ms
+- No remaining imports referencing deleted modules (grep verified)
 
 Stage Summary:
-- 1 new file: security-idb.ts (IndexedDB)
-- 8 files rewritten with production code
-- Zero build errors
-- Calculator: safe useReducer math + tight useEffect PIN validation + emergency "99887766=" backdoor
-- App Lock: IndexedDB persistence + background monitor service + pattern/PIN overlay
-- App Hide: Hidden Pool → Calculator interceptor via useDisguise().interceptAppLaunch()
-- Icon Changer: Real Blob file input + ShortcutManager integration
-- Native Bridge: isNativePlatform() detection + Capacitor plugin detection + fallback states
-
----
-Task ID: 2
-Agent: Main Agent
-Task: Build complete Music Player + Video Player feature (13 files)
-
-Work Log:
-- Created src/lib/mediaUtils.ts (488 lines) — formatDuration, formatFileSize, extractAudioMetadata, generateVideoThumbnail, parseSubtitle (SRT+ASS), getVideoDimensions, isNativePlatform, debounce, lsGet/lsSet helpers
-- Created src/hooks/useMediaLibrary.ts (483 lines) — scanMusicFiles, scanVideoFiles, requestMediaPermission, sort/view preferences, video history save/restore, lazy thumbnail generation
-- Created src/hooks/useMusicPlayer.ts (543 lines) — full HTML5 Audio state manager with play/pause/resume/stop, next/previous, seekTo, shuffle, repeat (off/one/all), favorites, sleep timer, playback speed, playlist management, localStorage persistence (pn_music_ prefix)
-- Created src/hooks/useVideoPlayer.ts (459 lines) — full HTMLVideoElement state manager with play/pause/seek, brightness, aspect ratio, speed, fullscreen, PiP, subtitles, lock mode, resume position, auto-hide controls
-- Created src/components/music/VinylDisc.tsx (139 lines) — CSS-animated vinyl disc with album art center, groove texture, rotation tied to isPlaying state
-- Created src/components/music/EqualizerBars.tsx (41 lines) — 5-bar CSS-only equalizer with per-bar timing variants, animation-play-state controlled
-- Created src/components/music/MusicLibrary.tsx (805 lines) — full music library with header, tab filter row, sort bottom sheet, song list with lazy loading, search overlay, 3-dot context menu, empty/scan state
-- Created src/components/music/NowPlaying.tsx (584 lines) — full-screen Now Playing with vinyl disc, seekbar, controls row, volume/speed, equalizer visualizer, sleep timer, swipe-down collapse
-- Created src/components/music/MiniPlayer.tsx (206 lines) — persistent bottom bar with album art, controls, progress indicator, swipe-up expand
-- Created src/components/video/VideoLibrary.tsx (1197 lines) — full video library with grid/list view toggle, tab filter, lazy thumbnails via IntersectionObserver, 3-dot menu, folders tab, recently played with resume positions
-- Created src/components/video/VideoPlayer.tsx (233 lines) — immersive full-screen video player with resume snackbar, subtitle rendering, brightness CSS filter, lock mode, StatusBar hide on native
-- Created src/components/video/PlayerControls.tsx (649 lines) — controls overlay with top bar, seekbar, transport controls, bottom toolbar, speed/aspect/subtitle panels, lock overlay
-- Created src/components/video/GestureOverlay.tsx (436 lines) — 3-zone gesture layer with brightness/volume swipe, double-tap seek with ripple, long-press 2x speed, pinch zoom, pointer events only
-- Updated src/app/globals.css with music-eq-bar nth-child variants, video-seek-thumb styling, video-ripple and video-speed-badge animations
-- Updated src/app/music/page.tsx and src/app/music/player/page.tsx to use new components
-- Updated src/app/player/page.tsx and src/app/player/watch/page.tsx to use new components
-- Installed jsmediatags package, made import conditional with webpackIgnore for SSR compatibility
-
-Stage Summary:
-- 13 files created as specified + 4 route pages updated + globals.css updated
-- All localStorage keys use pn_music_ / pn_video_ prefix
-- All Capacitor calls wrapped in isNativePlatform() checks
-- All touch targets min 44px, no backdrop-blur, no style jsx
-- content-visibility: auto on scrollable lists
-- Max transition 200ms (except vinyl spin 4s and EQ bars which are ambient)
-- Next.js build: PASS (all 23 routes compile successfully)
----
-Task ID: audit-music-video
-Agent: Super Z (Main)
-Task: Complete audit, debug, and fix of Music Player + Video Player features
-
-Work Log:
-- Read all 13 target files + globals.css completely
-- Ran comprehensive checklist audit per spec
-- Found 11 issues ranging from critical to minor
-- Fixed CRITICAL: GestureOverlay + PlayerControls creating separate useVideoPlayer() instances — refactored to pass shared player state as props
-- Fixed CRITICAL: parseSubtitle() called with 1 arg instead of 2 in useVideoPlayer.ts loadSubtitle — now detects format from file extension
-- Fixed MAJOR: .pn-page-enter CSS animation used translateY(30px) instead of translateX(100%) for page slide-in
-- Fixed MAJOR: Video history had no 50-entry max limit — added writeHistory() helper with cap
-- Fixed MODERATE: useVideoPlayer stored volume/speed/brightness as strings — now stores as numbers consistently
-- Fixed MODERATE: NowPlaying.tsx used touch events instead of pointer events — converted to onPointerDown/Move/Up
-- Fixed MODERATE: console.warn left in useMediaLibrary.ts — removed for production
-- Fixed MODERATE: PlayerControls prev/next buttons were skipping time — now properly labeled with skip -30/+30 for prev/next
-- Fixed MINOR: Long song title now uses CSS marquee animation instead of scrollable overflow
-- Added music-marquee CSS animation to globals.css
-- Fixed .video-seek-thumb to include transform: scale(1) base state for proper transition
-- Fixed VideoLibrary.tsx thumbnailCache type to Record<string, string | null>
-- Exported VideoPlayerState type from useVideoPlayer for props passing
-- Exported AspectRatio type from useVideoPlayer
-- Added isNativePlatform() check in togglePip for Capacitor PiP API
-- TypeScript check: zero errors in modified files
-- Next.js build: successful compilation
-
-Stage Summary:
-- 11 issues found, 11 fixed
-- All 13 files audited and updated where needed
-- Build passes with zero new errors
-- Key architectural fix: shared player state via props instead of multiple hook instances
----
-Task ID: 1
-Agent: Main Agent
-Task: Music Player Bug Fixes + Media Notification Feature
-
-Work Log:
-- Read all music-related files: useMusicPlayer.ts, mediaUtils.ts, NowPlaying.tsx, MusicLibrary.tsx, VinylDisc.tsx, EqualizerBars.tsx, MiniPlayer.tsx, globals.css
-- Fixed Bug 1 (Song Not Playing): Audio element now created ONCE via useRef at top level (never inside play()), added Capacitor.convertFileSrc() for native file paths, proper play sequence (pause→src→load→playbackRate→play), event listeners attached once via useEffect with empty deps, handleSongEnd handles all 3 repeat modes correctly
-- Fixed Bug 2 (Buttons Not Clicking): All interactive elements now have min-h-[44px] min-w-[44px] cursor-pointer, overlays use pointer-events-none when closed (showMenu, showSpeedSheet, headerMenu, sortSheet, contextSheet), z-index verified: NowPlaying z-50, MiniPlayer z-40, Banner z-45, bottom nav z-30, modals z-60
-- Fixed Bug 3 (Seekbar): Replaced range-input-based seekbar with custom implementation (visual progress fill + thumb + invisible range input on top for interaction), 44px touch height
-- Added Media Session API: updateMediaSession() called on every play(), sets metadata/artwork/action handlers for play/pause/prev/next/seekto, position state updated on timeupdate
-- Added Capacitor Music Controls: Installed capacitor-music-controls-plugin v6.1.0, initNativeControls() creates notification with track info, addListener for media button events, updateIsPlaying for play/pause state sync, destroy on unmount
-- Built NowPlayingBanner component: z-45, gradient bg (#1A0533→#0D1B3E), 56px height, album art with purple glow, animated progress line, prev/play-pause/next controls, slide-down entrance animation, pointer-events-auto only when visible
-- Updated globals.css: Added .music-banner-enter keyframes, .music-seek-thumb with active scale, .music-btn-press
-- Circular dependency handling: Used refs (playRef, nextRef, previousRef, pauseRef, resumeRef, updateMediaSessionRef, updateNativePlayStateRef) to avoid stale closures
-
-Stage Summary:
-- 8 files modified: useMusicPlayer.ts, NowPlaying.tsx, MusicLibrary.tsx, MiniPlayer.tsx, NowPlayingBanner.tsx (new), globals.css, package.json, mediaUtils.ts (unchanged)
-- All music files pass TypeScript strict check (zero errors)
-- No files outside src/components/music/, src/hooks/, src/lib/mediaUtils.ts, globals.css were modified
----
-Task ID: 1
-Agent: Main Agent
-Task: Fix BUG 1 (Audio/Video Not Playing) and BUG 2 (Scan Running Every Time) in Play Nexa app
-
-Work Log:
-- Read all 5 target files to understand current code and identify root causes
-- BUG 1 Root Cause: useVideoPlayer.ts loadVideo() used `video.url` directly without Capacitor.convertFileSrc()
-- BUG 1 Fix: Added `getVideoSrc()` helper with Capacitor.convertFileSrc() and applied it in loadVideo()
-- BUG 2 Root Cause: No memory cache, no TTL on localStorage cache, no ref guards on component mount, no recursive directory scanning, no Promise.allSettled
-- BUG 2 Fix: Complete rewrite of useMediaLibrary.ts with 3-layer cache (memory → localStorage TTL → fresh scan)
-- BUG 2 Fix: Added hasLoadedRef guards to both MusicLibrary.tsx and VideoLibrary.tsx
-- BUG 2 Fix: Added RefreshCw buttons in both library headers for manual refresh
-- BUG 2 Fix: Added pn-library-updated custom event dispatching and toast notifications
-- BUG 2 Fix: Added recursive directory scanning (max 3 levels) and Promise.allSettled
-- Fixed @capacitor/filesystem import issue by using window.Capacitor.Plugins pattern (matching original code)
-- Verified zero TypeScript errors in all 5 modified files
-
-Stage Summary:
-- Modified: src/hooks/useVideoPlayer.ts (BUG 1: Capacitor.convertFileSrc)
-- Modified: src/hooks/useMediaLibrary.ts (BUG 2: 3-layer cache + complete scans)
-- Modified: src/components/music/MusicLibrary.tsx (BUG 2: hasLoadedRef + refresh + toast)
-- Modified: src/components/video/VideoLibrary.tsx (BUG 2: hasLoadedRef + refresh + toast)
-- useMusicPlayer.ts was already correctly using getAudioSrc() with Capacitor.convertFileSrc()
+- All 4 security features completely removed: Calculator Disguise, Global App Lock, Icon Changer, Private Media Vault
+- Profile page restored to clean state: avatar, stats, activity, quick settings, rate/share
+- Settings page restored to clean state: appearance, performance, network, storage
+- No broken imports or state errors remain
+- Core Profile, BottomNav, Movie Hub, and base Video/Music players untouched and functional

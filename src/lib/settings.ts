@@ -12,11 +12,6 @@ export interface PlayNexaSettings {
   lowDataMode: boolean
   smartLoading: boolean
   thumbnailQuality: 'low' | 'medium' | 'high'
-
-  // Security
-  safeRedirect: boolean
-  externalWarning: boolean
-  secureBrowser: boolean
 }
 
 // Backward-compat alias for gradual migration
@@ -48,10 +43,7 @@ export const DEFAULT_SETTINGS: PlayNexaSettings = {
   performanceBoost: false,
   lowDataMode: false,
   smartLoading: true,
-  thumbnailQuality: 'medium',
-  safeRedirect: true,
-  externalWarning: true,
-  secureBrowser: true
+  thumbnailQuality: 'medium'
 }
 
 export const getSettings = (): PlayNexaSettings => {

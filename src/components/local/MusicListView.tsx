@@ -10,7 +10,7 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
 import {
   Music, Plus, Play, Pause, Trash2, ChevronLeft,
-  MoreVertical, FileAudio, Shield, Headphones, ChevronRight
+  MoreVertical, FileAudio, Headphones, ChevronRight
 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 
@@ -32,7 +32,6 @@ interface MusicListViewProps {
   onPlay: (track: LocalTrack) => void
   onPause: () => void
   onConvertToMp3: (track: LocalTrack) => void
-  onMoveToSafe: (track: LocalTrack) => void
   onBack: () => void
 }
 
@@ -56,7 +55,7 @@ function timeAgo(timestamp: number): string {
 
 export default function MusicListView({
   searchQuery, currentTrackId, isPlaying,
-  onPlay, onPause, onConvertToMp3, onMoveToSafe, onBack
+  onPlay, onPause, onConvertToMp3, onBack
 }: MusicListViewProps) {
   const router = useRouter()
   const [tracks, setTracks] = useState<LocalTrack[]>([])
@@ -356,14 +355,6 @@ export default function MusicListView({
                     >
                       <FileAudio size={12} className="text-[#00D4FF]" />
                       Convert to MP3
-                    </button>
-                    <button
-                      onClick={() => { onMoveToSafe(track); setMenuOpen(null) }}
-                      className="flex items-center gap-2.5 w-full px-3.5 py-2.5 text-white text-[11px]
-                                 font-medium active:bg-neutral-800 transition-colors duration-100"
-                    >
-                      <Shield size={12} className="text-[#22C55E]" />
-                      Move to Safe
                     </button>
                     <div className="border-t border-neutral-800" />
                     <button

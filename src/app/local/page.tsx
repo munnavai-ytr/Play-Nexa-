@@ -3,13 +3,13 @@
 // ── Play Nexa Local Hub ─────────────────────────────────────
 // Google Files / PLAYit inspired unified local media dashboard
 // Pill toggle [Videos] [Audio] · Local search · Mini-player
-// Gesture video overlay · MP3 extractor modal · Safe folder modal
+// Gesture video overlay · MP3 extractor modal
 // Each component owns its own header (< Video Player / < Music Player)
 // 2GB RAM: URL.createObjectURL · content-visibility: auto · no backdrop-blur
 
 import { useState, useCallback, useRef, useEffect } from 'react'
 import {
-  Video, Music, Search, Shield, X, Zap
+  Video, Music, Search, X, Zap
 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import VideoGridView from '@/components/local/VideoGridView'
@@ -18,7 +18,6 @@ import MusicListView from '@/components/local/MusicListView'
 import type { LocalTrack } from '@/components/local/MusicListView'
 import MiniPlayer from '@/components/local/MiniPlayer'
 import VideoPlayer from '@/components/local/VideoPlayer'
-import SafeFolderModal from '@/components/local/SafeFolderModal'
 import MP3ExtractorModal from '@/components/local/MP3ExtractorModal'
 
 type View = 'videos' | 'music'
@@ -38,11 +37,6 @@ export default function LocalHubPage() {
   const [miniPlayerProgress, setMiniPlayerProgress] = useState(0)
 
   // ── Modals ──
-  const [showSafeFolder, setShowSafeFolder] = useState(false)
-  const [safeFolderItem, setSafeFolderItem] = useState<{
-    name: string; type: 'video' | 'audio' | 'image' | 'document'; size?: number
-  } | null>(null)
-
   const [showExtractor, setShowExtractor]     = useState(false)
   const [extractorSource, setExtractorSource] = useState<{
     name: string; file: File | null
@@ -102,17 +96,6 @@ export default function LocalHubPage() {
     setShowExtractor(true)
   }, [])
 
-  // ── Move to Safe Folder ──
-  const handleMoveToSafeVideo = useCallback((video: LocalVideo) => {
-    setSafeFolderItem({ name: video.name, type: 'video', size: video.size })
-    setShowSafeFolder(true)
-  }, [])
-
-  const handleMoveToSafeTrack = useCallback((track: LocalTrack) => {
-    setSafeFolderItem({ name: track.name, type: 'audio', size: track.size })
-    setShowSafeFolder(true)
-  }, [])
-
   // ── Reset search when switching tabs ──
   useEffect(() => {
     setSearchQuery('')
@@ -121,11 +104,11 @@ export default function LocalHubPage() {
   return (
     <div className="min-h-screen bg-black pb-24">
       {/* ════════════════════════════════════════════════════════
-          STICKY CONTROL BAR — Tab toggle + Search + Safe Folder
+          STICKY CONTROL BAR — Tab toggle + Search
           Component headers handle their own back/title
           ════════════════════════════════════════════════════════ */}
       <div className="sticky top-0 z-50 bg-black/95 border-b border-neutral-900">
-        {/* ── Tab toggle + Safe Folder ── */}
+        {/* ── Tab toggle ── */}
         <div className="px-3 pt-2 pb-1.5 flex items-center gap-2">
           {/* Pill toggle */}
           <div className="flex-1 flex bg-neutral-900/80 rounded-lg p-[3px] border border-neutral-800/50">
@@ -151,19 +134,6 @@ export default function LocalHubPage() {
               )
             })}
           </div>
-
-          {/* Safe Folder button */}
-          <button
-            onClick={() => {
-              setSafeFolderItem(null)
-              setShowSafeFolder(true)
-            }}
-            className="w-8 h-8 rounded-full bg-neutral-900 border border-neutral-800
-                       flex items-center justify-center flex-shrink-0
-                       active:scale-90 transition-transform duration-100"
-          >
-            <Shield size={13} className="text-[#22C55E]" />
-          </button>
         </div>
 
         {/* ── Search bar ── */}
@@ -205,7 +175,6 @@ export default function LocalHubPage() {
           searchQuery={searchQuery}
           onPlay={handlePlayVideo}
           onConvertToMp3={handleConvertToMp3Video}
-          onMoveToSafe={handleMoveToSafeVideo}
           onBack={handleBack}
         />
       </div>
@@ -218,7 +187,6 @@ export default function LocalHubPage() {
           onPlay={handlePlayTrack}
           onPause={handlePauseTrack}
           onConvertToMp3={handleConvertToMp3Track}
-          onMoveToSafe={handleMoveToSafeTrack}
           onBack={handleBack}
         />
       </div>
@@ -282,16 +250,6 @@ export default function LocalHubPage() {
           onNext={handleNextTrack}
           onClose={handleCloseMiniPlayer}
           onProgress={setMiniPlayerProgress}
-        />
-      )}
-
-      {/* ════════════════════════════════════════════════════════
-          SAFE FOLDER MODAL
-          ════════════════════════════════════════════════════════ */}
-      {showSafeFolder && (
-        <SafeFolderModal
-          onClose={() => { setShowSafeFolder(false); setSafeFolderItem(null) }}
-          initialItem={safeFolderItem}
         />
       )}
 
