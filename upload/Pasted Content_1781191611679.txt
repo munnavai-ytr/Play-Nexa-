@@ -1,0 +1,1209 @@
+You are a Senior Full-Stack Developer building a 
+complete Master Admin Panel for Play Nexa app.
+This is a separate web dashboard that controls 
+everything in the Play Nexa Android app via Supabase.
+
+Stack: Next.js 14 App Router, TypeScript, 
+Tailwind CSS 4, Supabase JS v2, Recharts,
+Lucide React icons.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🔴 STRICT RULES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. This is a SEPARATE Next.js project from Play Nexa
+   admin panel runs at /admin route or separate URL
+2. Zero placeholder code — 100% real working
+3. Zero mock data — all real Supabase queries
+4. No backdrop-blur anywhere
+5. No style jsx — Tailwind only
+6. All transitions max 200ms
+7. Min 44px touch target (mobile responsive too)
+8. AMOLED dark theme throughout (#000000 base)
+9. localStorage keys: pna_ prefix (admin)
+10. Every destructive action needs confirmation modal
+11. All forms have validation before submit
+12. All Supabase errors shown as toast messages
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🗄️ SUPABASE TABLES REQUIRED
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Print this SQL at top of response as a comment.
+Tell user to run this in Supabase SQL Editor
+BEFORE running the app:
+
+-- ═══════════════════════════════════
+-- PLAY NEXA ADMIN — Extra Tables
+-- Run in Supabase SQL Editor
+-- ═══════════════════════════════════
+
+-- App feature controls
+CREATE TABLE IF NOT EXISTS app_features (
+  id                   UUID DEFAULT gen_random_uuid() 
+                       PRIMARY KEY,
+  feature_key          TEXT NOT NULL UNIQUE,
+  label                TEXT NOT NULL,
+  icon                 TEXT NOT NULL,
+  status               TEXT DEFAULT 'live'
+                       CHECK (status IN (
+                         'live','hidden',
+                         'coming_soon','locked',
+                         'maintenance'
+                       )),
+  coming_soon_message  TEXT DEFAULT 
+                       'Coming Soon — Stay Tuned!',
+  lock_reason          TEXT,
+  sort_order           INTEGER DEFAULT 0,
+  updated_at           TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- App global settings
+CREATE TABLE IF NOT EXISTS app_settings (
+  id          UUID DEFAULT gen_random_uuid() 
+              PRIMARY KEY,
+  key         TEXT NOT NULL UNIQUE,
+  value       TEXT NOT NULL,
+  updated_at  TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Games catalog
+CREATE TABLE IF NOT EXISTS games (
+  id          UUID DEFAULT gen_random_uuid() 
+              PRIMARY KEY,
+  name        TEXT NOT NULL,
+  category    TEXT NOT NULL,
+  apk_url     TEXT,
+  cover_url   TEXT,
+  size        TEXT,
+  version     TEXT,
+  description TEXT,
+  is_featured BOOLEAN DEFAULT false,
+  is_hidden   BOOLEAN DEFAULT false,
+  downloads   INTEGER DEFAULT 0,
+  created_at  TIMESTAMPTZ DEFAULT NOW(),
+  updated_at  TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Notifications log
+CREATE TABLE IF NOT EXISTS notifications_log (
+  id          UUID DEFAULT gen_random_uuid() 
+              PRIMARY KEY,
+  title       TEXT NOT NULL,
+  message     TEXT NOT NULL,
+  target      TEXT DEFAULT 'all',
+  icon        TEXT DEFAULT '🔔',
+  action_url  TEXT,
+  sent_count  INTEGER DEFAULT 0,
+  sent_at     TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Admin users
+CREATE TABLE IF NOT EXISTS admin_users (
+  id          UUID DEFAULT gen_random_uuid() 
+              PRIMARY KEY,
+  user_id     UUID NOT NULL REFERENCES 
+              auth.users(id) ON DELETE CASCADE,
+  role        TEXT DEFAULT 'admin'
+              CHECK (role IN ('superadmin','admin')),
+  created_at  TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(user_id)
+);
+
+-- Activity log
+CREATE TABLE IF NOT EXISTS admin_activity_log (
+  id          UUID DEFAULT gen_random_uuid() 
+              PRIMARY KEY,
+  admin_id    UUID,
+  action      TEXT NOT NULL,
+  target      TEXT,
+  details     JSONB,
+  created_at  TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- RLS
+ALTER TABLE app_features        ENABLE ROW LEVEL SECURITY;
+ALTER TABLE app_settings        ENABLE ROW LEVEL SECURITY;
+ALTER TABLE games               ENABLE ROW LEVEL SECURITY;
+ALTER TABLE notifications_log   ENABLE ROW LEVEL SECURITY;
+ALTER TABLE admin_users         ENABLE ROW LEVEL SECURITY;
+ALTER TABLE admin_activity_log  ENABLE ROW LEVEL SECURITY;
+
+-- app_features: public read (app reads this)
+CREATE POLICY "features_public_read"
+  ON app_features FOR SELECT USING (true);
+
+-- app_settings: public read
+CREATE POLICY "settings_public_read"
+  ON app_settings FOR SELECT USING (true);
+
+-- games: public read
+CREATE POLICY "games_public_read"
+  ON games FOR SELECT USING (true);
+
+-- Admin full access (via service role in panel)
+-- All other tables: admin only via service key
+
+-- Default feature data
+INSERT INTO app_features 
+  (feature_key, label, icon, status, sort_order)
+VALUES
+  ('music_library',  'Music Library',   '🎵', 'live', 1),
+  ('video_player',   'Video Player',    '🎬', 'live', 2),
+  ('movie_hub',      'Movie Hub',       '🍿', 'live', 3),
+  ('game_hub',       'Game Hub',        '🎮', 'live', 4),
+  ('yt_music',       'YT Music',        '🎶', 
+   'coming_soon', 5),
+  ('smart_download', 'Smart Download',  '📥', 'live', 6),
+  ('platforms',      'Platforms',       '📺', 'live', 7)
+ON CONFLICT (feature_key) DO NOTHING;
+
+-- Default app settings
+INSERT INTO app_settings (key, value) VALUES
+  ('app_name',           'Play Nexa'),
+  ('hero_title',         'Your Ultimate Media Universe'),
+  ('hero_subtitle',      
+   'Download, watch, play and manage entertainment'),
+  ('primary_color',      '#7C3AED'),
+  ('accent_color',       '#06B6D4'),
+  ('maintenance_mode',   'false'),
+  ('maintenance_message','We are updating Play Nexa. 
+                          Back soon!')
+ON CONFLICT (key) DO NOTHING;
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📁 FILES TO CREATE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+src/lib/supabaseAdmin.ts
+src/lib/adminAuth.ts
+src/middleware.ts
+src/app/admin/layout.tsx
+src/app/admin/login/page.tsx
+src/app/admin/page.tsx (dashboard)
+src/app/admin/features/page.tsx
+src/app/admin/movies/page.tsx
+src/app/admin/users/page.tsx
+src/app/admin/games/page.tsx
+src/app/admin/notifications/page.tsx
+src/app/admin/settings/page.tsx
+src/app/admin/analytics/page.tsx
+src/components/admin/Sidebar.tsx
+src/components/admin/TopBar.tsx
+src/components/admin/StatsCard.tsx
+src/components/admin/Toast.tsx
+src/components/admin/ConfirmModal.tsx
+src/components/admin/DataTable.tsx
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+⚙️ SUPABASE ADMIN CLIENT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+File: src/lib/supabaseAdmin.ts
+
+import { createClient } from '@supabase/supabase-js'
+
+// Regular client (anon key — for auth)
+export const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+)
+
+// Admin client (service role — bypasses RLS)
+// ONLY use server-side, never expose to browser
+export const supabaseAdmin = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!,
+  {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false
+    }
+  }
+)
+
+.env.local needs:
+NEXT_PUBLIC_SUPABASE_URL=
+NEXT_PUBLIC_SUPABASE_ANON_KEY=
+SUPABASE_SERVICE_ROLE_KEY=
+ADMIN_SECRET_KEY=playnexa_admin_2024
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🔐 MIDDLEWARE — ROUTE PROTECTION
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+File: src/middleware.ts
+
+Protect all /admin/* routes except /admin/login.
+Check localStorage for admin session token.
+If not authenticated → redirect to /admin/login.
+
+import { NextRequest, NextResponse } from 'next/server'
+
+export function middleware(req: NextRequest) {
+  const { pathname } = req.nextUrl
+  
+  if (!pathname.startsWith('/admin')) {
+    return NextResponse.next()
+  }
+  
+  if (pathname === '/admin/login') {
+    return NextResponse.next()
+  }
+  
+  const adminToken = req.cookies.get('pna_admin_token')
+  
+  if (!adminToken) {
+    return NextResponse.redirect(
+      new URL('/admin/login', req.url)
+    )
+  }
+  
+  return NextResponse.next()
+}
+
+export const config = {
+  matcher: ['/admin/:path*']
+}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🔑 ADMIN LOGIN PAGE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+File: src/app/admin/login/page.tsx
+
+Design: Full screen centered card
+Background: #000000
+Card: #0F0F0F, border #7C3AED/30, rounded-2xl
+
+TOP:
+  Play Nexa logo (text: "Play" purple "Nexa" white)
+  Below: "Admin Control Panel" text-sm #9CA3AF
+
+FORM:
+  Email input (type="email")
+  Password input (type="password", toggle show/hide)
+  [Sign In] button: full width, bg #7C3AED
+
+Login logic:
+  const handleLogin = async () => {
+    setIsLoading(true)
+    setError('')
+    
+    try {
+      // Authenticate with Supabase
+      const { data, error } = await supabase.auth
+        .signInWithPassword({ email, password })
+      
+      if (error) throw error
+      
+      // Check if user is in admin_users table
+      const { data: adminData } = await supabase
+        .from('admin_users')
+        .select('role')
+        .eq('user_id', data.user.id)
+        .single()
+      
+      if (!adminData) {
+        await supabase.auth.signOut()
+        throw new Error('Access denied. Not an admin.')
+      }
+      
+      // Set admin cookie
+      document.cookie = 
+        `pna_admin_token=${data.session.access_token};` +
+        `path=/;max-age=7200;SameSite=Strict`
+      
+      localStorage.setItem('pna_admin_role', 
+        adminData.role)
+      localStorage.setItem('pna_admin_email', 
+        data.user.email || '')
+      
+      router.push('/admin')
+      
+    } catch (err: any) {
+      setError(err.message)
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+Error: red text below form
+Loading: spinner inside button
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🗂️ ADMIN LAYOUT + SIDEBAR
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+File: src/app/admin/layout.tsx
+File: src/components/admin/Sidebar.tsx
+
+LAYOUT STRUCTURE:
+  Left: Sidebar (240px, fixed on desktop)
+  Right: Main content area (flex-1)
+  Mobile: Sidebar hidden, hamburger menu
+
+SIDEBAR DESIGN:
+  bg: #0A0A0A
+  border-right: 1px solid #1A1A1A
+  width: 240px
+
+  TOP:
+    Play Nexa logo
+    "Admin Panel" label
+    Admin email (truncated)
+
+  NAV ITEMS (with Lucide icons):
+  
+  [LayoutDashboard] Dashboard      → /admin
+  [Cpu]             Features       → /admin/features
+  [Film]            Movies         → /admin/movies
+  [Users]           Users          → /admin/users
+  [Gamepad2]        Games          → /admin/games
+  [Bell]            Notifications  → /admin/notifications
+  [BarChart3]       Analytics      → /admin/analytics
+  [Settings]        App Settings   → /admin/settings
+  
+  BOTTOM:
+  [LogOut] Sign Out button
+  
+  Each nav item:
+    padding: 12px 16px
+    border-radius: 12px
+    gap: 12px (icon + label)
+    active: bg #7C3AED/20, text #A78BFA, 
+            border-left: 3px solid #7C3AED
+    inactive: text #6B7280, hover bg #1A1A1A
+
+TOPBAR (mobile):
+  Hamburger icon → opens sidebar drawer
+  Page title (current section)
+  Admin avatar (first letter of email)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📊 SECTION 1 — DASHBOARD HOME
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+File: src/app/admin/page.tsx
+
+Fetch all stats on mount with Promise.all:
+
+const fetchDashboardData = async () => {
+  const [
+    usersRes,
+    moviesRes,
+    gamesRes,
+    likesRes,
+    watchlistRes,
+    recentMoviesRes,
+    recentUsersRes,
+    activityRes,
+  ] = await Promise.all([
+    supabase.from('profiles')
+      .select('*', { count: 'exact', head: true }),
+    supabase.from('movies')
+      .select('*', { count: 'exact', head: true }),
+    supabase.from('games')
+      .select('*', { count: 'exact', head: true }),
+    supabase.from('user_likes')
+      .select('*', { count: 'exact', head: true }),
+    supabase.from('user_watchlist')
+      .select('*', { count: 'exact', head: true }),
+    supabase.from('movies')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(5),
+    supabase.from('profiles')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(5),
+    supabase.from('admin_activity_log')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(10),
+  ])
+  
+  setStats({
+    totalUsers: usersRes.count || 0,
+    totalMovies: moviesRes.count || 0,
+    totalGames: gamesRes.count || 0,
+    totalLikes: likesRes.count || 0,
+    totalWatchlist: watchlistRes.count || 0,
+  })
+  setRecentMovies(recentMoviesRes.data || [])
+  setRecentUsers(recentUsersRes.data || [])
+  setActivityLog(activityRes.data || [])
+}
+
+LAYOUT:
+
+── STATS ROW (5 cards) ──
+
+Each StatsCard:
+  bg: #0F0F0F, border: #1A1A1A, rounded-2xl
+  padding: 20px
+  
+  TOP: icon (colored) + label
+  MAIN: big number (font-bold text-3xl)
+  BOTTOM: trend indicator (↑ or ↓)
+
+Cards:
+  [👥 Total Users]    → totalUsers, icon blue
+  [🎬 Movies]         → totalMovies, icon purple
+  [🎮 Games]          → totalGames, icon green
+  [👍 Total Likes]    → totalLikes, icon red
+  [🔖 Watchlists]     → totalWatchlist, icon cyan
+
+── USER GROWTH CHART ──
+
+Use Recharts LineChart:
+  Fetch user_history grouped by date (last 30 days)
+  X axis: dates
+  Y axis: new users
+  Line color: #7C3AED
+  Grid: #1A1A1A
+  Tooltip: dark themed
+
+── RECENT MOVIES TABLE ──
+
+5 most recently added movies:
+  Thumbnail | Title | Channel | Date | [Edit]
+
+── RECENT USERS ──
+
+5 most recently joined users:
+  Avatar | Email | Join date | Status
+
+── ACTIVITY LOG ──
+
+Last 10 admin actions:
+  Action | Target | Time
+
+── SYSTEM STATUS ──
+
+Live Supabase ping:
+  const checkStatus = async () => {
+    const start = Date.now()
+    await supabase.from('movies')
+      .select('id').limit(1)
+    const ms = Date.now() - start
+    setDbLatency(ms)
+    setDbStatus(ms < 500 ? 'healthy' : 'slow')
+  }
+
+Show:
+  🟢 Database: Healthy (45ms)
+  🟢 Auth: Connected
+  🟢 Storage: Online
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🎛️ SECTION 2 — FEATURE CONTROL CENTER
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+File: src/app/admin/features/page.tsx
+
+This is the most powerful section.
+Changes here reflect in the app instantly.
+
+Fetch features:
+  const { data } = await supabase
+    .from('app_features')
+    .select('*')
+    .order('sort_order')
+
+Each feature gets a control card:
+
+┌─────────────────────────────────────┐
+│ [Icon] Feature Name                 │
+│                                     │
+│ STATUS (radio buttons):             │
+│ ● LIVE  ○ HIDDEN  ○ COMING SOON     │
+│ ○ LOCKED  ○ MAINTENANCE             │
+│                                     │
+│ Display Label: [_______________]    │
+│                                     │
+│ Coming Soon Message:                │
+│ [_______________________________]   │
+│ (only shown when status=coming_soon)│
+│                                     │
+│ Lock Reason:                        │
+│ [_______________________________]   │
+│ (only shown when status=locked)     │
+│                                     │
+│ Sort Order: [__] (drag to reorder)  │
+│                                     │
+│ [💾 Save]  [↺ Reset]               │
+└─────────────────────────────────────┘
+
+Save handler:
+  const saveFeature = async (feature) => {
+    const { error } = await supabase
+      .from('app_features')
+      .update({
+        status: feature.status,
+        label: feature.label,
+        coming_soon_message: feature.coming_soon_message,
+        lock_reason: feature.lock_reason,
+        sort_order: feature.sort_order,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('feature_key', feature.feature_key)
+    
+    if (error) {
+      showToast('Failed to save: ' + error.message, 
+        'error')
+    } else {
+      showToast(`✅ ${feature.label} updated!`, 
+        'success')
+      logActivity('UPDATE_FEATURE', feature.feature_key,
+        { status: feature.status })
+    }
+  }
+
+Status colors:
+  live:         green badge
+  hidden:       gray badge
+  coming_soon:  purple badge
+  locked:       red badge
+  maintenance:  orange badge
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🎬 SECTION 3 — MOVIE MANAGER
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+File: src/app/admin/movies/page.tsx
+
+── STATE ──
+const [movies, setMovies] = useState<Movie[]>([])
+const [isLoading, setIsLoading] = useState(true)
+const [searchQuery, setSearchQuery] = useState('')
+const [channelFilter, setChannelFilter] = useState('All')
+const [showAddModal, setShowAddModal] = useState(false)
+const [editMovie, setEditMovie] = useState<Movie|null>(null)
+const [page, setPage] = useState(0)
+const [totalCount, setTotalCount] = useState(0)
+const PAGE_SIZE = 20
+
+── FETCH MOVIES ──
+const fetchMovies = async () => {
+  const from = page * PAGE_SIZE
+  const to = from + PAGE_SIZE - 1
+  
+  let query = supabase
+    .from('movies')
+    .select('*', { count: 'exact' })
+    .order('created_at', { ascending: false })
+    .range(from, to)
+  
+  if (channelFilter !== 'All') {
+    query = query.eq('channel_name', channelFilter)
+  }
+  if (searchQuery.trim()) {
+    query = query.ilike('title', `%${searchQuery}%`)
+  }
+  
+  const { data, count } = await query
+  setMovies(data || [])
+  setTotalCount(count || 0)
+}
+
+── LAYOUT ──
+
+HEADER ROW:
+  "🎬 Movie Manager" title
+  Total count badge
+  [+ Add Movie] button → opens modal
+
+FILTER ROW:
+  Search input (debounce 300ms)
+  Channel filter dropdown:
+    [All][G-Series][Eagle][Chorki][BongoBD][SVF]
+
+STATS BAR:
+  Showing X-Y of Z movies | Page X of Y
+
+MOVIE TABLE:
+  Columns:
+    #  | Thumbnail | Title | Channel | 
+    Duration | Views | Created | Actions
+
+  Each row:
+    thumbnail: 60×34px rounded image
+    title: truncate 30 chars
+    channel: colored badge
+    views: formatted (1.2K)
+    created: "2 days ago"
+    
+    Actions (3 buttons, each 32px):
+      [✏️ Edit] → opens edit modal
+      [👁️ Hide/Show] → toggle visibility
+      [🗑️ Delete] → confirm modal first
+
+  Pagination:
+    [← Prev] [1][2][3] [Next →]
+    Jump to page input
+
+── ADD/EDIT MOVIE MODAL ──
+
+Full screen modal on mobile, centered on desktop:
+bg #0F0F0F, border #2D2D2D, rounded-2xl
+
+FORM FIELDS (all validated):
+
+  YouTube ID * [____________] [🔍 Preview]
+    → When YouTube ID entered, auto-fetch:
+      title, thumbnail from:
+      https://noembed.com/embed?url=
+        https://youtube.com/watch?v={id}
+    → Show thumbnail preview below input
+
+  Title *       [________________________]
+  Channel *     [G-Series ▼]
+  Thumbnail URL [________________________]
+  Description   [________________________]
+                (textarea, 3 rows)
+  Duration      [___] (e.g. "2:15:30")
+  Language      [Bangla ▼]
+  Genre         multi-select chips:
+                [Action][Drama][Comedy][+]
+  Views         [________] (number)
+  
+  Published At  [date picker]
+
+PREVIEW CARD:
+  Right side: live preview of how card looks in app
+  Updates as user types
+
+BUTTONS:
+  [Cancel] [Save Movie]
+
+Save handler:
+  const saveMovie = async () => {
+    // Validate required fields
+    if (!form.youtube_id || !form.title || 
+        !form.channel_name) {
+      showToast('Fill all required fields', 'error')
+      return
+    }
+    
+    if (editMovie) {
+      // Update existing
+      const { error } = await supabase
+        .from('movies')
+        .update({ ...form, 
+          updated_at: new Date().toISOString() })
+        .eq('id', editMovie.id)
+      
+      if (!error) {
+        showToast('✅ Movie updated!', 'success')
+        logActivity('UPDATE_MOVIE', form.title, {})
+      }
+    } else {
+      // Insert new
+      const { error } = await supabase
+        .from('movies')
+        .insert([form])
+      
+      if (!error) {
+        showToast('✅ Movie added!', 'success')
+        logActivity('ADD_MOVIE', form.title, {})
+      }
+    }
+    fetchMovies()
+    setShowAddModal(false)
+  }
+
+── BULK IMPORT (CSV) ──
+
+Button: [📤 Import CSV]
+
+CSV format expected:
+  youtube_id,title,channel_name,duration,language
+
+Upload handler:
+  Parse CSV with FileReader
+  Show preview table (first 5 rows)
+  [Confirm Import] → bulk insert to Supabase:
+  
+  const { error } = await supabase
+    .from('movies')
+    .insert(parsedRows)
+  
+  Show success: "X movies imported!"
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+👥 SECTION 4 — USER MASTER CONTROL
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+File: src/app/admin/users/page.tsx
+
+NOTE: Supabase auth.users is not directly queryable
+from client. Create a profiles table OR use 
+admin API route. Build an API route:
+
+File: src/app/api/admin/users/route.ts
+
+import { supabaseAdmin } from '@/lib/supabaseAdmin'
+import { NextRequest, NextResponse } from 'next/server'
+
+export async function GET(req: NextRequest) {
+  // Verify admin token from cookie
+  const token = req.cookies.get('pna_admin_token')
+  if (!token) {
+    return NextResponse.json(
+      { error: 'Unauthorized' }, { status: 401 })
+  }
+  
+  const page = parseInt(
+    req.nextUrl.searchParams.get('page') || '0')
+  const search = 
+    req.nextUrl.searchParams.get('search') || ''
+  const PAGE_SIZE = 20
+  
+  const { data: { users }, error } = await 
+    supabaseAdmin.auth.admin.listUsers({
+      page: page + 1,
+      perPage: PAGE_SIZE,
+    })
+  
+  if (error) return NextResponse.json(
+    { error: error.message }, { status: 500 })
+  
+  // Filter by search
+  const filtered = search
+    ? users.filter(u => 
+        u.email?.toLowerCase()
+          .includes(search.toLowerCase()))
+    : users
+  
+  return NextResponse.json({ users: filtered })
+}
+
+export async function POST(req: NextRequest) {
+  const token = req.cookies.get('pna_admin_token')
+  if (!token) return NextResponse.json(
+    { error: 'Unauthorized' }, { status: 401 })
+  
+  const { action, userId } = await req.json()
+  
+  switch(action) {
+    case 'ban':
+      await supabaseAdmin.auth.admin.updateUserById(
+        userId, { ban_duration: '876600h' })
+      break
+    case 'unban':
+      await supabaseAdmin.auth.admin.updateUserById(
+        userId, { ban_duration: 'none' })
+      break
+    case 'delete':
+      await supabaseAdmin.auth.admin.deleteUser(userId)
+      break
+  }
+  
+  return NextResponse.json({ success: true })
+}
+
+── USER LIST UI ──
+
+HEADER:
+  "👥 User Manager"
+  Total users count
+  [Export CSV] button
+
+SEARCH + FILTER:
+  Search by email
+  Filter: [All][Active][Banned]
+
+USER TABLE:
+  # | Avatar | Email | Joined | Last Active | 
+  Status | Actions
+
+  Avatar: circle with first letter, gradient bg
+  Status: 
+    Active → green dot
+    Banned → red badge
+  
+  Actions:
+    [👁️ View] → opens user detail panel
+    [🚫 Ban/Unban] → confirm first
+    [🗑️ Delete] → confirm with typing email
+
+── USER DETAIL SIDE PANEL ──
+
+Slide in from right (300ms) when View clicked:
+width: 360px on desktop, full screen on mobile
+
+Shows:
+  User email + avatar
+  User ID (copyable)
+  Join date + last sign in
+  
+  Stats:
+    Movies watched: X
+    Liked movies: X
+    Watchlist count: X
+  
+  Recent watch history (last 5):
+    Fetch: supabase.from('user_history')
+      .select('*, movies(title,thumbnail)')
+      .eq('user_id', userId).limit(5)
+  
+  Actions:
+    [📧 Send Notification]
+    [🚫 Ban User] (red, confirm)
+    [🗑️ Delete Account] (red, type email)
+    [⭐ Grant Premium] (if premium system exists)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🎮 SECTION 5 — GAME MANAGER
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+File: src/app/admin/games/page.tsx
+
+── FETCH ──
+const { data } = await supabase
+  .from('games')
+  .select('*')
+  .order('created_at', { ascending: false })
+
+── LAYOUT ──
+
+HEADER:
+  "🎮 Game Manager"
+  [+ Add Game] button
+
+GAMES GRID (2-3 columns):
+  Each card:
+    Cover image (16:9 ratio)
+    Name + Category badge
+    Version + Size
+    Downloads count
+    Featured toggle (star icon)
+    [Edit][Hide/Show][Delete]
+
+── ADD/EDIT GAME MODAL ──
+
+Fields:
+  Name *          [________________]
+  Category *      [Action ▼]
+                  options: Action/Puzzle/Sports/
+                  Racing/Adventure/Casual
+  APK URL         [________________]
+  Cover Image URL [________________]
+  Size            [________________] (e.g. "45 MB")
+  Version         [________________] (e.g. "1.2.0")
+  Description     [________________________]
+  Featured        [Toggle] ← shows in featured section
+
+Save:
+  const { error } = await supabase
+    .from('games')
+    .upsert([gameData])
+  
+  showToast(error 
+    ? 'Failed to save' 
+    : '✅ Game saved!')
+  logActivity('SAVE_GAME', gameData.name, {})
+
+Hide/Show toggle:
+  await supabase.from('games')
+    .update({ is_hidden: !game.is_hidden })
+    .eq('id', game.id)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🔔 SECTION 6 — NOTIFICATION CENTER
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+File: src/app/admin/notifications/page.tsx
+
+NOTE: Real push notifications need FCM (Firebase).
+Build the notification composer + log system.
+Actual push delivery: store in Supabase, 
+app reads on launch.
+
+── CREATE NOTIFICATION ──
+
+TARGET:
+  ● All Users
+  ○ Specific User (email input appears)
+  ○ Premium Users
+
+FORM:
+  Title *       [________________] (max 60 chars)
+  Message *     [________________] (max 200 chars)
+  Icon Emoji    [🎬] (emoji picker: 🎬🎵🎮📥🔔⚡)
+  Action URL    [________________] (optional)
+                (e.g. /movies or /games)
+  
+  Character counters shown
+
+PREVIEW:
+  Shows how notification looks:
+  ┌─────────────────────────┐
+  │ 🎬 Play Nexa            │
+  │ [Title]                 │
+  │ [Message text here...]  │
+  └─────────────────────────┘
+
+[Send Now] button:
+  const sendNotification = async () => {
+    // Store in notifications table
+    // (app reads on launch or via realtime)
+    const { error } = await supabase
+      .from('notifications_log')
+      .insert([{
+        title: form.title,
+        message: form.message,
+        target: form.target,
+        icon: form.icon,
+        action_url: form.action_url,
+        sent_at: new Date().toISOString(),
+      }])
+    
+    if (!error) {
+      showToast('✅ Notification sent!', 'success')
+      logActivity('SEND_NOTIFICATION', form.title, {
+        target: form.target
+      })
+      fetchHistory()
+    }
+  }
+
+── NOTIFICATION HISTORY ──
+
+Table showing last 20 notifications:
+  Icon | Title | Message | Target | 
+  Sent At | [Delete]
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📈 SECTION 7 — ANALYTICS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+File: src/app/admin/analytics/page.tsx
+
+── CHARTS (all using Recharts) ──
+
+CHART 1 — Most Watched Movies (Bar Chart):
+  Query:
+  const { data } = await supabase
+    .from('user_history')
+    .select('movie_id, watch_count, movies(title)')
+    .order('watch_count', { ascending: false })
+    .limit(10)
+  
+  BarChart: movie titles on X, watch_count on Y
+  Bar color: #7C3AED
+
+CHART 2 — Daily New Users (Line Chart):
+  Query: group profiles by created_at date
+  Show last 30 days
+  Line color: #06B6D4
+
+CHART 3 — Likes Per Channel (Pie Chart):
+  Query: join user_likes with movies, 
+         group by channel_name
+  Colors per channel (same as badge colors)
+
+CHART 4 — Top Genres (Donut Chart):
+  Query: movies grouped by genre
+  Show top 5 genres
+
+SUMMARY CARDS ROW:
+  Most watched movie: [title] (X views)
+  Most active user: [email] (X movies)
+  Most liked channel: [name] (X likes)
+  Peak day: [date] (X users)
+
+── ACTIVITY LOG TABLE ──
+
+  Last 50 admin actions:
+  Action | Target | Details | Time
+  
+  Color coded:
+    ADD_* → green
+    UPDATE_* → blue
+    DELETE_* → red
+    SEND_* → purple
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+⚙️ SECTION 8 — APP SETTINGS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+File: src/app/admin/settings/page.tsx
+
+Fetch all settings:
+  const { data } = await supabase
+    .from('app_settings')
+    .select('*')
+
+Build a settings object from the array:
+  const settings = data.reduce((acc, row) => {
+    acc[row.key] = row.value
+    return acc
+  }, {} as Record<string, string>)
+
+── SECTIONS ──
+
+▶ APP BRANDING:
+  App Name:      [Play Nexa]
+  Hero Title:    [Your Ultimate Media Universe]
+  Hero Subtitle: [Download, watch, play...]
+
+▶ COLORS:
+  Primary Color: [#7C3AED] color picker
+  Accent Color:  [#06B6D4] color picker
+  
+  Live preview: show feature card with colors
+
+▶ MAINTENANCE MODE:
+  Toggle switch (red when on)
+  Message: [We are updating Play Nexa...]
+  
+  When ON:
+    App shows full screen maintenance message
+    Admin panel still accessible
+
+▶ DANGER ZONE:
+  bg: #1A0000, border: #FF0000/30
+  
+  [Clear All Movie Cache] → deletes cached data
+  [Reset Feature States] → resets all to 'live'
+  
+  Both require typing "CONFIRM" before executing
+
+Save per section:
+  const saveSetting = async (key: string, 
+    value: string) => {
+    const { error } = await supabase
+      .from('app_settings')
+      .upsert([{ key, value, 
+        updated_at: new Date().toISOString() }],
+        { onConflict: 'key' })
+    
+    if (!error) {
+      showToast(`✅ ${key} saved!`, 'success')
+      logActivity('UPDATE_SETTING', key, { value })
+    }
+  }
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🧩 SHARED COMPONENTS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+── Toast.tsx ──
+  Fixed bottom-right (desktop) / bottom-center (mobile)
+  Types: success (green) / error (red) / info (blue)
+  Auto dismiss: 3 seconds
+  Slide in from bottom 150ms
+  Stack multiple toasts
+
+── ConfirmModal.tsx ──
+  Props: 
+    title, message, confirmLabel, 
+    onConfirm, onCancel, danger (boolean)
+  
+  Danger mode: confirm button red, 
+               requires typing "DELETE"
+  
+  Normal mode: confirm button purple
+
+── DataTable.tsx ──
+  Reusable table component
+  Props: columns[], data[], onEdit, onDelete
+  Built-in: search, sort by column, pagination
+
+── StatsCard.tsx ──
+  Props: title, value, icon, color, trend
+  Shows: animated number count-up on mount
+
+── logActivity() helper ──
+  Call after every admin action:
+  
+  const logActivity = async (
+    action: string,
+    target: string,
+    details: object
+  ) => {
+    const adminId = localStorage.getItem('pna_admin_id')
+    await supabase.from('admin_activity_log').insert([{
+      admin_id: adminId,
+      action,
+      target,
+      details,
+      created_at: new Date().toISOString(),
+    }])
+  }
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🎨 DESIGN SYSTEM — ADMIN PANEL
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Background:       #000000
+Sidebar bg:       #0A0A0A
+Card bg:          #0F0F0F
+Surface:          #1A1A1A
+Border:           #242424
+Border hover:     #2D2D2D
+
+Accent purple:    #7C3AED
+Accent cyan:      #06B6D4
+Success green:    #10B981
+Warning orange:   #F59E0B
+Danger red:       #EF4444
+Info blue:        #3B82F6
+
+Text primary:     #FFFFFF
+Text secondary:   #9CA3AF
+Text muted:       #4B5563
+
+Input fields:
+  bg: #1A1A1A
+  border: #2D2D2D (focus: #7C3AED)
+  text: white
+  placeholder: #6B7280
+  border-radius: 10px
+  height: 44px
+  padding: 0 14px
+
+Buttons:
+  Primary: bg #7C3AED, hover #6D28D9
+  Danger:  bg #EF4444, hover #DC2626
+  Ghost:   border #2D2D2D, hover bg #1A1A1A
+  All: rounded-xl, min-height 44px, 
+       font-semibold, transition 150ms
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📋 FINAL CHECKLIST
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+SETUP:
+□ All 5 extra SQL tables printed for user
+□ .env.local variables listed
+□ supabaseAdmin.ts with service role client
+□ Middleware protects all /admin/* routes
+□ Login checks admin_users table
+
+SECTIONS:
+□ Login page with auth + admin check
+□ Sidebar with 8 nav items + logout
+□ Dashboard: 5 stats + chart + recent data
+□ Features: all 7 features controllable
+□ Movies: list + add + edit + delete + CSV import
+□ Users: list + ban + delete + detail panel
+□ Games: list + add + edit + hide + delete
+□ Notifications: compose + history
+□ Analytics: 4 charts + activity log
+□ Settings: branding + colors + maintenance
+
+SHARED:
+□ Toast notifications (success/error/info)
+□ Confirm modal for all destructive actions
+□ logActivity() called after every action
+□ All forms validated before submit
+□ Loading states on all data fetches
+□ Error states with retry option
+□ Mobile responsive (sidebar drawer)
+□ All touch targets min 44px
+□ AMOLED dark theme throughout
+□ Zero placeholder code
+□ Zero mock data

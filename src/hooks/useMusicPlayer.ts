@@ -73,7 +73,7 @@ export function useMusicPlayer() {
   const volumeRef      = useRef(volume)
 
   // ── Create single Audio element ONCE via ref ───────────────
-  if (!audioRef.current) {
+  if (!audioRef.current && typeof window !== 'undefined') {
     audioRef.current = new Audio()
     audioRef.current.preload = 'metadata'
   }
