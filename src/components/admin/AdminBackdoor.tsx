@@ -12,7 +12,7 @@ import {
   useCallback,
   useRef
 } from 'react'
-import { supabase } from '@/lib/supabase'
+import { supabase } from '@/lib/supabaseAdmin'
 import type { Movie } from '@/lib/supabase'
 import {
   X, Eye, EyeOff, ShieldAlert, Loader2,

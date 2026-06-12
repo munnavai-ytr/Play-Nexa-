@@ -24,7 +24,11 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Settings', icon: '⚙️', href: '/admin/settings' },
 ]
 
-export default function AdminSidebar() {
+interface AdminSidebarProps {
+  adminEmail?: string
+}
+
+export default function AdminSidebar({ adminEmail }: AdminSidebarProps = { adminEmail: '' }) {
   const pathname = usePathname()
   const router = useRouter()
   const [collapsed, setCollapsed] = useState(false)

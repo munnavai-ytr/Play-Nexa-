@@ -325,7 +325,7 @@ export default function AnalyticsPage() {
           ) : (
             <div className="h-56">
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={topWatched} barCategoryMaxSize={40}>
+                <BarChart data={topWatched} maxBarSize={40}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#1A1A1A" />
                   <XAxis
                     dataKey="name"

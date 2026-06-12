@@ -20,6 +20,7 @@ import {
 } from 'recharts'
 import { BarChart3 } from 'lucide-react'
 import type { Movie } from '@/lib/supabase'
+// Note: Movie type is now exported from @/lib/supabase
 
 // ── Types ──
 
@@ -154,7 +155,7 @@ export default function AdminDashboard() {
         recentMoviesRes,
         activityLogRes,
       ] = await Promise.all([
-        supabase.from('profiles').select('id', { count: 'exact', head: true }),
+        supabase.from('user_profiles').select('id', { count: 'exact', head: true }),
         supabase.from('movies').select('id', { count: 'exact', head: true }),
         supabase.from('games').select('id', { count: 'exact', head: true }),
         supabase.from('user_likes').select('id', { count: 'exact', head: true }),
@@ -306,7 +307,7 @@ export default function AdminDashboard() {
           </div>
           <div className="h-56">
             <ResponsiveContainer width="100%" height="100%">
-              <RechartsBarChart data={chartData} barCategoryMaxSize={40}>
+              <RechartsBarChart data={chartData} maxBarSize={40}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#1A1A1A" />
                 <XAxis
                   dataKey="name"
