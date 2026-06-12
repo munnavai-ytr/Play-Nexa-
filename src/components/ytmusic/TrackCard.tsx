@@ -1,8 +1,8 @@
 // ── Play Nexa YT Music Track Card ────────────────────────────
 // Music track card for the YT Music Hub (online streaming)
 // NOT related to Music Library (offline) components
+// Channel badge with logo from channel_display table
 // AMOLED dark theme, 44px touch targets, lazy-loaded thumbnails
-// Channel badge with colored style, duration badge, play overlay
 // No backdrop-blur, no styled-jsx, no download buttons
 
 'use client'
@@ -29,19 +29,26 @@ export interface MusicTrack {
   language?: string | null
 }
 
-// ── Channel style config for badge coloring ──
+// ── Channel display config for badge coloring ──
 
-export interface ChannelStyle {
-  badge: string
-  badgeColor: string
-  borderColor: string
+export interface ChannelDisplay {
+  id: string
+  channel_id: string
+  display_name: string
+  logo_url: string | null
+  badge_color: string
+  border_color: string
+  is_visible: boolean
+  sort_order: number
+  yt_channels?: {
+    channel_id: string
+    channel_name: string
+    total_imported: number
+  }
 }
 
-const DEFAULT_CHANNEL_STYLE: ChannelStyle = {
-  badge: '🎵',
-  badgeColor: '#A78BFA',
-  borderColor: '#7C3AED',
-}
+const DEFAULT_BADGE_COLOR = '#A78BFA'
+const DEFAULT_BORDER_COLOR = '#7C3AED'
 
 // ── Utility: format view count (e.g., 1.2M, 340K) ──
 
@@ -52,7 +59,7 @@ export function formatViewCount(count: number): string {
   return count.toString()
 }
 
-// ── Utility: format relative time (e.g., "2 hours ago", "3 days ago") ──
+// ── Utility: format relative time (e.g., "2 hours ago") ──
 
 export function formatTimeAgo(dateStr: string): string {
   try {
@@ -85,7 +92,7 @@ export function formatTimeAgo(dateStr: string): string {
 
 interface TrackCardProps {
   track: MusicTrack
-  channelStyle?: ChannelStyle
+  channelDisplay?: ChannelDisplay
   onTap: (track: MusicTrack) => void
 }
 
@@ -93,13 +100,19 @@ interface TrackCardProps {
 //  TRACK CARD
 // ═══════════════════════════════════════════════════════════════
 
-export default function TrackCard({ track, channelStyle, onTap }: TrackCardProps) {
+export default function TrackCard({ track, channelDisplay, onTap }: TrackCardProps) {
   const [imgReady, setImgReady] = useState(false)
-  const style = channelStyle || DEFAULT_CHANNEL_STYLE
+
+  const badgeColor = channelDisplay?.badge_color || DEFAULT_BADGE_COLOR
+  const borderColor = channelDisplay?.border_color || DEFAULT_BORDER_COLOR
 
   const handleClick = useCallback(() => {
     onTap(track)
   }, [onTap, track])
+
+  const handleError = useCallback((e: React.SyntheticEvent<HTMLImageElement>) => {
+    e.currentTarget.src = `https://i.ytimg.com/vi/${track.youtube_id}/mqdefault.jpg`
+  }, [track.youtube_id])
 
   return (
     <div
@@ -120,6 +133,7 @@ export default function TrackCard({ track, channelStyle, onTap }: TrackCardProps
           loading="lazy"
           unoptimized
           onLoad={() => setImgReady(true)}
+          onError={handleError}
         />
 
         {/* Skeleton shimmer while image loads */}
@@ -129,7 +143,7 @@ export default function TrackCard({ track, channelStyle, onTap }: TrackCardProps
           </div>
         )}
 
-        {/* Play icon overlay — always visible on active/tap */}
+        {/* Play icon overlay */}
         <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 group-active:opacity-100 transition-opacity duration-200 bg-black/30">
           <div className="w-12 h-12 rounded-full bg-[#7C3AED]/90 flex items-center justify-center">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="white">
@@ -138,16 +152,26 @@ export default function TrackCard({ track, channelStyle, onTap }: TrackCardProps
           </div>
         </div>
 
-        {/* Channel badge — top-left */}
+        {/* Channel badge — top-left with logo */}
         <span
-          className="absolute top-2 left-2 text-[9px] font-bold rounded px-1.5 py-0.5"
+          className="absolute top-2 left-2 text-[9px] font-bold rounded-full px-2 py-0.5 flex items-center gap-1"
           style={{
-            backgroundColor: style.borderColor + '33',
-            color: style.badgeColor,
-            border: `1px solid ${style.borderColor}66`,
+            backgroundColor: 'rgba(0,0,0,0.8)',
+            border: `1px solid ${borderColor}`,
+            color: badgeColor,
           }}
         >
-          {style.badge}
+          {channelDisplay?.logo_url && (
+            <img
+              src={channelDisplay.logo_url}
+              className="w-3.5 h-3.5 rounded-full object-cover"
+              alt=""
+              onError={(e) => {
+                (e.target as HTMLImageElement).style.display = 'none'
+              }}
+            />
+          )}
+          {channelDisplay?.display_name || track.channel_name}
         </span>
 
         {/* Duration badge — bottom-right */}
@@ -159,14 +183,14 @@ export default function TrackCard({ track, channelStyle, onTap }: TrackCardProps
       </div>
 
       {/* ── INFO SECTION ── */}
-      <div className="pt-2.5 pb-1 px-0.5">
+      <div className="pt-2 pb-1 px-0.5">
         {/* Track title */}
         <h3 className="text-white text-[13px] font-medium leading-snug line-clamp-2 mb-1">
           {track.title}
         </h3>
 
         {/* Channel name — colored */}
-        <p className="text-[11px] truncate mb-0.5" style={{ color: style.badgeColor }}>
+        <p className="text-[11px] truncate mb-0.5" style={{ color: badgeColor }}>
           {track.channel_name}
         </p>
 

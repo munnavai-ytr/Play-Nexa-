@@ -3,7 +3,7 @@
 // Supabase engagement: Like (music_likes), Save (music_saved)
 // localStorage fallback for anonymous users
 // Optimistic updates with error reverts
-// Comments: localStorage only (same pattern as MovieModal)
+// Comments: localStorage only
 // AMOLED dark theme, 44px touch targets
 // No backdrop-blur, no styled-jsx, no download buttons
 
@@ -11,10 +11,10 @@
 
 import { useState, useCallback, useEffect } from 'react'
 import { supabase } from '@/lib/supabaseAdmin'
-import type { MusicTrack } from './TrackCard'
+import type { MusicTrack, ChannelDisplay } from './TrackCard'
 import { formatViewCount, formatTimeAgo } from './TrackCard'
 
-// ── Comment type (localStorage only, no Supabase table) ──
+// ── Comment type (localStorage only) ──
 
 interface Comment {
   id: string
@@ -26,6 +26,7 @@ interface Comment {
 
 interface MusicModalProps {
   track: MusicTrack
+  channelDisplay?: ChannelDisplay
   userId: string | null
   onClose: () => void
 }
@@ -34,9 +35,11 @@ interface MusicModalProps {
 //  MUSIC MODAL
 // ═══════════════════════════════════════════════════════════════
 
-export default function MusicModal({ track, userId, onClose }: MusicModalProps) {
+export default function MusicModal({ track, channelDisplay, userId, onClose }: MusicModalProps) {
 
-  // ── Like/Save state (Supabase + localStorage fallback) ──
+  const badgeColor = channelDisplay?.badge_color || '#A78BFA'
+
+  // ── Like/Save state ──
   const [isLiked, setIsLiked] = useState(false)
   const [isSaved, setIsSaved] = useState(false)
   const [isActionLoading, setIsActionLoading] = useState(false)
@@ -121,10 +124,9 @@ export default function MusicModal({ track, userId, onClose }: MusicModalProps) 
     setIsActionLoading(true)
 
     const newLiked = !isLiked
-    setIsLiked(newLiked) // optimistic update
+    setIsLiked(newLiked)
 
     if (!userId) {
-      // Anonymous: save to localStorage
       try {
         const local = JSON.parse(
           localStorage.getItem('pn_music_likes') || '[]'
@@ -158,7 +160,7 @@ export default function MusicModal({ track, userId, onClose }: MusicModalProps) 
         showToastMsg('Removed like')
       }
     } catch {
-      setIsLiked(!newLiked) // revert on error
+      setIsLiked(!newLiked)
       showToastMsg('Action failed. Try again.')
     } finally {
       setIsActionLoading(false)
@@ -171,10 +173,9 @@ export default function MusicModal({ track, userId, onClose }: MusicModalProps) 
     setIsActionLoading(true)
 
     const newSaved = !isSaved
-    setIsSaved(newSaved) // optimistic
+    setIsSaved(newSaved)
 
     if (!userId) {
-      // Anonymous: localStorage fallback
       try {
         const local = JSON.parse(
           localStorage.getItem('pn_music_saved') || '[]'
@@ -208,7 +209,7 @@ export default function MusicModal({ track, userId, onClose }: MusicModalProps) 
         showToastMsg('Removed from Watchlist')
       }
     } catch {
-      setIsSaved(!newSaved) // revert
+      setIsSaved(!newSaved)
       showToastMsg('Action failed. Try again.')
     } finally {
       setIsActionLoading(false)
@@ -232,7 +233,7 @@ export default function MusicModal({ track, userId, onClose }: MusicModalProps) 
     } catch { /* user cancelled or clipboard failed */ }
   }, [track.title, track.youtube_id, showToastMsg])
 
-  // ── Comment submit handler (localStorage only) ──
+  // ── Comment handler (localStorage only) ──
   const handleComment = useCallback(() => {
     if (!commentText.trim()) return
     const newComment: Comment = {
@@ -292,7 +293,7 @@ export default function MusicModal({ track, userId, onClose }: MusicModalProps) 
             {track.title}
           </p>
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-xs font-medium" style={{ color: '#A78BFA' }}>
+            <span className="text-xs font-medium" style={{ color: badgeColor }}>
               {track.channel_name}
             </span>
             {track.published_at && (
@@ -308,7 +309,7 @@ export default function MusicModal({ track, userId, onClose }: MusicModalProps) 
           </div>
         </div>
 
-        {/* ── ENGAGEMENT ACTION BAR (4 buttons) ── */}
+        {/* ── ENGAGEMENT ACTION BAR ── */}
         <div className="flex items-center justify-around px-4 py-3 border-b border-[#1A1A1A]">
 
           {/* Like button */}

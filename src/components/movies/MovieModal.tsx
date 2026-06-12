@@ -8,8 +8,8 @@
 'use client'
 
 import { useState, useCallback, useEffect } from 'react'
-import { supabase } from '@/lib/supabase'
-import type { Movie } from '@/lib/supabase'
+import { supabase } from '@/lib/supabaseAdmin'
+import type { Movie, ChannelDisplay } from './MovieCard'
 import { formatViewCount, formatTimeAgo } from './MovieCard'
 
 // ── Comment type (localStorage only) ──
@@ -24,6 +24,7 @@ interface Comment {
 
 interface MovieModalProps {
   movie: Movie
+  channelDisplay?: ChannelDisplay
   userId: string | null
   onClose: () => void
 }
@@ -32,9 +33,11 @@ interface MovieModalProps {
 //  MOVIE MODAL
 // ═══════════════════════════════════════════════════════════════
 
-export default function MovieModal({ movie, userId, onClose }: MovieModalProps) {
+export default function MovieModal({ movie, channelDisplay, userId, onClose }: MovieModalProps) {
 
-  // ── Like state (Supabase + localStorage fallback) ──
+  const badgeColor = channelDisplay?.badge_color || '#A78BFA'
+
+  // ── Like/Save state ──
   const [isLiked, setIsLiked] = useState(false)
   const [isSaved, setIsSaved] = useState(false)
   const [isActionLoading, setIsActionLoading] = useState(false)
@@ -105,7 +108,6 @@ export default function MovieModal({ movie, userId, onClose }: MovieModalProps) 
     const recordHistory = async () => {
       if (!supabase) return
 
-      // Upsert: insert new or update existing
       const { data: existing } = await supabase
         .from('user_history')
         .select('watch_count')
@@ -114,7 +116,6 @@ export default function MovieModal({ movie, userId, onClose }: MovieModalProps) 
         .maybeSingle()
 
       if (existing) {
-        // Update watch count
         await supabase
           .from('user_history')
           .update({
@@ -124,7 +125,6 @@ export default function MovieModal({ movie, userId, onClose }: MovieModalProps) 
           .eq('user_id', userId)
           .eq('movie_id', movie.id)
       } else {
-        // Insert new record
         await supabase.from('user_history').insert({
           user_id: userId,
           movie_id: movie.id,
@@ -148,16 +148,15 @@ export default function MovieModal({ movie, userId, onClose }: MovieModalProps) 
     return () => window.removeEventListener('keydown', handler)
   }, [onClose])
 
-  // ── Like handler (Supabase + localStorage fallback) ──
+  // ── Like handler ──
   const handleLike = useCallback(async () => {
     if (isActionLoading) return
     setIsActionLoading(true)
 
     const newLiked = !isLiked
-    setIsLiked(newLiked) // optimistic update
+    setIsLiked(newLiked)
 
     if (!userId) {
-      // Anonymous: save to localStorage
       try {
         const local = JSON.parse(
           localStorage.getItem('pn_local_likes') || '[]'
@@ -166,6 +165,7 @@ export default function MovieModal({ movie, userId, onClose }: MovieModalProps) 
           ? [...local, movie.youtube_id]
           : local.filter(id => id !== movie.youtube_id)
         localStorage.setItem('pn_local_likes', JSON.stringify(updated))
+        showToastMsg(newLiked ? 'Liked!' : 'Removed like')
       } catch { /* silent */ }
       setIsActionLoading(false)
       return
@@ -181,30 +181,31 @@ export default function MovieModal({ movie, userId, onClose }: MovieModalProps) 
           youtube_id: movie.youtube_id,
           created_at: new Date().toISOString(),
         })
+        showToastMsg('Liked!')
       } else {
         await supabase.from('user_likes')
           .delete()
           .eq('user_id', userId)
           .eq('movie_id', movie.id)
+        showToastMsg('Removed like')
       }
     } catch {
-      setIsLiked(!newLiked) // revert on error
+      setIsLiked(!newLiked)
       showToastMsg('Action failed. Try again.')
     } finally {
       setIsActionLoading(false)
     }
   }, [isLiked, isActionLoading, userId, movie.id, movie.youtube_id, showToastMsg])
 
-  // ── Save/Watchlist handler (Supabase + localStorage fallback) ──
+  // ── Save/Watchlist handler ──
   const handleSave = useCallback(async () => {
     if (isActionLoading) return
     setIsActionLoading(true)
 
     const newSaved = !isSaved
-    setIsSaved(newSaved) // optimistic
+    setIsSaved(newSaved)
 
     if (!userId) {
-      // Anonymous: localStorage fallback
       try {
         const local = JSON.parse(
           localStorage.getItem('pn_movies_watchlist') || '[]'
@@ -238,7 +239,7 @@ export default function MovieModal({ movie, userId, onClose }: MovieModalProps) 
         showToastMsg('Removed from Watchlist')
       }
     } catch {
-      setIsSaved(!newSaved) // revert
+      setIsSaved(!newSaved)
       showToastMsg('Action failed. Try again.')
     } finally {
       setIsActionLoading(false)
@@ -262,7 +263,7 @@ export default function MovieModal({ movie, userId, onClose }: MovieModalProps) 
     } catch { /* user cancelled or clipboard failed */ }
   }, [movie.title, movie.youtube_id, showToastMsg])
 
-  // ── Comment submit handler (localStorage only) ──
+  // ── Comment handler (localStorage only) ──
   const handleComment = useCallback(() => {
     if (!commentText.trim()) return
     const newComment: Comment = {
@@ -316,13 +317,13 @@ export default function MovieModal({ movie, userId, onClose }: MovieModalProps) 
       {/* ── SCROLLABLE CONTENT BELOW PLAYER ── */}
       <div className="flex-1 overflow-y-auto">
 
-        {/* ── VIDEO INFO ── */}
+        {/* ── MOVIE INFO ── */}
         <div className="px-4 py-3 border-b border-[#1A1A1A]">
           <p className="text-white font-semibold text-base leading-snug mb-1">
             {movie.title}
           </p>
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-xs font-medium" style={{ color: '#A78BFA' }}>
+            <span className="text-xs font-medium" style={{ color: badgeColor }}>
               {movie.channel_name}
             </span>
             {movie.published_at && (

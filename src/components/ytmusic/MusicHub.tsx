@@ -1,56 +1,17 @@
 // ── Play Nexa YT Music Hub — Supabase-Powered ──────────────
 // ONLINE music streaming from Supabase music_tracks table
 // NOT related to Music Library (offline) — completely separate
-// Channel filter chips (dynamic from DB), search, infinite scroll
-// AMOLED dark theme, 44px touch targets, content-visibility optimization
-// No backdrop-blur, no styled-jsx, no download buttons, no mock data
+// Channel filter chips from channel_display table (joined with yt_channels)
+// Search, infinite scroll, content-visibility optimization
+// AMOLED dark theme, 44px touch targets
+// No backdrop-blur, no styled-jsx, no download buttons
 
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabaseAdmin'
-import TrackCard, { type MusicTrack, type ChannelStyle } from './TrackCard'
+import TrackCard, { type MusicTrack, type ChannelDisplay } from './TrackCard'
 import MusicModal from './MusicModal'
-
-// ── Channel style color palette ──
-// Dynamic coloring based on channel name hash for consistent visual identity
-
-const CHANNEL_PALETTE = [
-  { badgeColor: '#FF4444', borderColor: '#FF0000' },
-  { badgeColor: '#FF8C42', borderColor: '#FF6B00' },
-  { badgeColor: '#A78BFA', borderColor: '#7C3AED' },
-  { badgeColor: '#22D3EE', borderColor: '#06B6D4' },
-  { badgeColor: '#FCD34D', borderColor: '#FFD700' },
-  { badgeColor: '#34D399', borderColor: '#10B981' },
-  { badgeColor: '#F472B6', borderColor: '#EC4899' },
-  { badgeColor: '#FB923C', borderColor: '#F97316' },
-  { badgeColor: '#60A5FA', borderColor: '#3B82F6' },
-  { badgeColor: '#C084FC', borderColor: '#A855F7' },
-]
-
-const DEFAULT_CHANNEL_STYLE: ChannelStyle = {
-  badge: '🎵',
-  badgeColor: '#A78BFA',
-  borderColor: '#7C3AED',
-}
-
-// ── Generate a deterministic channel style from name ──
-
-function getChannelStyle(channelName: string): ChannelStyle {
-  // Simple hash from channel name for consistent color assignment
-  let hash = 0
-  for (let i = 0; i < channelName.length; i++) {
-    hash = ((hash << 5) - hash + channelName.charCodeAt(i)) | 0
-  }
-  const index = Math.abs(hash) % CHANNEL_PALETTE.length
-  const palette = CHANNEL_PALETTE[index]
-  return {
-    badge: `🎵 ${channelName}`,
-    badgeColor: palette.badgeColor,
-    borderColor: palette.borderColor,
-  }
-}
 
 // ── Constants ──
 
@@ -73,17 +34,15 @@ const ANIMATION_STYLE = `
 // ═══════════════════════════════════════════════════════════════
 
 export default function MusicHub() {
-  const router = useRouter()
-
   // ── Auth state ──
   const [userId, setUserId] = useState<string | null>(null)
 
   // ── Data state ──
   const [tracks, setTracks] = useState<MusicTrack[]>([])
-  const [channels, setChannels] = useState<string[]>([])
+  const [channels, setChannels] = useState<ChannelDisplay[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [isLoadingMore, setIsLoadingMore] = useState(false)
-  const [activeChannel, setActiveChannel] = useState('All')
+  const [activeChannel, setActiveChannel] = useState<string>('all')
   const [searchQuery, setSearchQuery] = useState('')
   const [showSearch, setShowSearch] = useState(false)
   const [selectedTrack, setSelectedTrack] = useState<MusicTrack | null>(null)
@@ -91,20 +50,9 @@ export default function MusicHub() {
   const [page, setPage] = useState(0)
   const [error, setError] = useState<string | null>(null)
 
-  // ── Channel style cache ──
-  const channelStyleCache = useRef<Record<string, ChannelStyle>>({})
-
   // ── Infinite scroll refs ──
   const observerRef = useRef<IntersectionObserver | null>(null)
   const loadMoreRef = useRef<HTMLDivElement | null>(null)
-
-  // ── Get or create channel style ──
-  const getStyle = useCallback((name: string): ChannelStyle => {
-    if (!channelStyleCache.current[name]) {
-      channelStyleCache.current[name] = getChannelStyle(name)
-    }
-    return channelStyleCache.current[name]
-  }, [])
 
   // ── Auth: get session + listen for changes ──
   useEffect(() => {
@@ -123,25 +71,28 @@ export default function MusicHub() {
     return () => subscription.unsubscribe()
   }, [])
 
-  // ── Fetch distinct channel names for filter bar ──
+  // ── Fetch channels from channel_display + yt_channels ──
   const fetchChannels = useCallback(async () => {
     if (!supabase) return
 
     try {
-      const { data, error: chError } = await supabase
-        .from('music_tracks')
-        .select('channel_name')
-        .eq('is_hidden', false)
+      const { data, error: chErr } = await supabase
+        .from('channel_display')
+        .select(`
+          *,
+          yt_channels (
+            channel_id,
+            channel_name,
+            total_imported
+          )
+        `)
+        .eq('is_visible', true)
+        .order('sort_order')
 
-      if (chError) throw chError
-
-      if (data) {
-        const uniqueChannels = [...new Set(data.map(d => d.channel_name).filter(Boolean))]
-        uniqueChannels.sort()
-        setChannels(uniqueChannels)
-      }
-    } catch (err: any) {
-      console.error('Fetch channels error:', err.message)
+      if (chErr) throw chErr
+      if (data) setChannels(data as ChannelDisplay[])
+    } catch {
+      // channel_display table may not exist yet — silent
     }
   }, [])
 
@@ -180,8 +131,8 @@ export default function MusicHub() {
         .range(from, to)
 
       // Channel filter
-      if (channel !== 'All') {
-        query = query.eq('channel_name', channel)
+      if (channel !== 'all') {
+        query = query.eq('channel_id', channel)
       }
 
       // Search filter
@@ -258,14 +209,15 @@ export default function MusicHub() {
   }, [hasMore, isLoadingMore, isLoading, fetchTracks])
 
   // ── Handlers ──
-  const handleBack = useCallback(() => {
-    router.back()
-  }, [router])
-
   const handleToggleSearch = useCallback(() => {
     setShowSearch(prev => !prev)
     if (showSearch) setSearchQuery('')
   }, [showSearch])
+
+  // ── Find channel display for a track ──
+  const getChannelDisplay = useCallback((track: MusicTrack): ChannelDisplay | undefined => {
+    return channels.find(ch => ch.yt_channels?.channel_id === track.channel_id)
+  }, [channels])
 
   // ── Render ──
   return (
@@ -276,17 +228,7 @@ export default function MusicHub() {
 
       {/* ── HEADER ── */}
       <div className="flex items-center justify-between px-4 h-14 flex-shrink-0 bg-black sticky top-0 z-20">
-        <button
-          onClick={handleBack}
-          className="min-w-[44px] min-h-[44px] flex items-center justify-center text-white"
-          aria-label="Go back"
-        >
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <polyline points="15 18 9 12 15 6" />
-          </svg>
-        </button>
-
-        <div className="flex items-center gap-2 absolute left-1/2 -translate-x-1/2">
+        <div className="flex items-center gap-2">
           <h1 className="text-white font-bold text-lg">
             🎵 YT Music
           </h1>
@@ -301,7 +243,6 @@ export default function MusicHub() {
             Online Streaming
           </span>
         </div>
-
         <div className="flex gap-1">
           <button
             onClick={handleToggleSearch}
@@ -326,10 +267,10 @@ export default function MusicHub() {
         </div>
       </div>
 
-      {/* ── SUB-HEADER: Online label ── */}
+      {/* ── SUB-HEADER ── */}
       <div className="px-4 pb-2 flex-shrink-0">
         <p className="text-[#9CA3AF] text-xs">
-          🟢 Online music from official channels
+          Online music from official channels
         </p>
       </div>
 
@@ -347,50 +288,75 @@ export default function MusicHub() {
         </div>
       )}
 
-      {/* ── CHANNEL FILTER BAR (dynamic from DB) ── */}
+      {/* ── CHANNEL FILTER CHIPS ── */}
       <div className="flex-shrink-0 px-4 pb-3 sticky top-14 z-10 bg-black">
-        <div className="flex gap-2 overflow-x-auto scrollbar-hide pb-1">
-          {/* "All" chip */}
+        <div className="flex gap-3 overflow-x-auto scrollbar-hide pb-1">
+
+          {/* ALL chip */}
           <button
-            onClick={() => setActiveChannel('All')}
+            onClick={() => setActiveChannel('all')}
             className={`
-              px-4 py-2 rounded-full min-h-[36px]
-              text-sm font-medium whitespace-nowrap
-              flex-shrink-0 transition-all duration-150
-              ${activeChannel === 'All'
-                ? 'bg-[#7C3AED] text-white'
-                : 'border border-[#2D2D2D] text-[#9CA3AF]'
+              flex items-center gap-2
+              flex-shrink-0 px-4 py-2
+              rounded-full min-h-[44px]
+              border-2 transition-all duration-150
+              ${activeChannel === 'all'
+                ? 'border-[#7C3AED] bg-[#7C3AED]/20 text-[#A78BFA]'
+                : 'border-[#2D2D44] text-[#9CA3AF]'
               }
             `}
           >
-            🌍 All
+            <span className="text-lg">🌍</span>
+            <span className="text-sm font-medium whitespace-nowrap">All</span>
           </button>
 
-          {/* Channel chips — dynamically generated */}
+          {/* Per channel chips */}
           {channels.map(ch => {
-            const isActive = activeChannel === ch
-            const style = getStyle(ch)
+            const ytChannel = ch.yt_channels
+            if (!ytChannel) return null
+            const isActive = activeChannel === ytChannel.channel_id
             return (
               <button
-                key={ch}
-                onClick={() => setActiveChannel(ch)}
-                className={`
-                  px-4 py-2 rounded-full min-h-[36px]
-                  text-sm font-medium whitespace-nowrap
-                  flex-shrink-0 transition-all duration-150
-                  ${isActive
-                    ? 'text-white'
-                    : 'border border-[#2D2D2D] text-[#9CA3AF]'
-                  }
-                `}
-                style={isActive ? {
-                  backgroundColor: style.borderColor + '22',
-                  borderColor: style.borderColor,
-                  borderWidth: '1px',
-                  color: style.badgeColor,
-                } : {}}
+                key={ch.channel_id}
+                onClick={() => setActiveChannel(ytChannel.channel_id)}
+                className="flex items-center gap-2
+                  flex-shrink-0 px-3 py-2
+                  rounded-full min-h-[44px]
+                  border-2 transition-all duration-150"
+                style={{
+                  borderColor: isActive ? ch.border_color : '#2D2D44',
+                  backgroundColor: isActive ? ch.badge_color + '22' : 'transparent',
+                }}
               >
-                {ch}
+                {/* Channel logo */}
+                <div className="w-6 h-6 rounded-full overflow-hidden flex-shrink-0 bg-[#1A1A1A]">
+                  {ch.logo_url ? (
+                    <img
+                      src={ch.logo_url}
+                      className="w-full h-full object-cover"
+                      loading="lazy"
+                      alt=""
+                      onError={(e) => {
+                        (e.target as HTMLImageElement).style.display = 'none'
+                      }}
+                    />
+                  ) : (
+                    <div
+                      className="w-full h-full flex items-center justify-center"
+                      style={{ backgroundColor: ch.badge_color }}
+                    >
+                      <span className="text-white text-xs font-bold">
+                        {ch.display_name[0]}
+                      </span>
+                    </div>
+                  )}
+                </div>
+                <span
+                  className="text-sm font-medium whitespace-nowrap"
+                  style={{ color: isActive ? ch.badge_color : '#9CA3AF' }}
+                >
+                  {ch.display_name}
+                </span>
               </button>
             )
           })}
@@ -414,7 +380,7 @@ export default function MusicHub() {
       >
 
         {/* Loading skeleton */}
-        {isLoading && (
+        {isLoading && tracks.length === 0 && (
           <div className="grid grid-cols-2 gap-3">
             {Array.from({ length: 6 }).map((_, i) => (
               <div key={i} className="rounded-xl overflow-hidden bg-[#1A1A1A] animate-pulse">
@@ -450,17 +416,14 @@ export default function MusicHub() {
         {!isLoading && tracks.length > 0 && (
           <>
             <div className="grid grid-cols-2 gap-3">
-              {tracks.map(track => {
-                const channelStyle = getStyle(track.channel_name)
-                return (
-                  <TrackCard
-                    key={track.id}
-                    track={track}
-                    channelStyle={channelStyle}
-                    onTap={() => setSelectedTrack(track)}
-                  />
-                )
-              })}
+              {tracks.map(track => (
+                <TrackCard
+                  key={track.id}
+                  track={track}
+                  channelDisplay={getChannelDisplay(track)}
+                  onTap={() => setSelectedTrack(track)}
+                />
+              ))}
             </div>
 
             {/* Load more trigger */}
@@ -478,18 +441,16 @@ export default function MusicHub() {
         {/* Empty state */}
         {!isLoading && tracks.length === 0 && !error && (
           <div className="flex flex-col items-center justify-center py-16 gap-3">
-            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#9CA3AF" strokeWidth="1.5">
-              <path d="M9 18V5l12-2v13" />
-              <circle cx="6" cy="18" r="3" />
-              <circle cx="18" cy="16" r="3" />
-            </svg>
-            <p className="text-[#9CA3AF] text-sm">No tracks found</p>
+            <p className="text-[#9CA3AF] text-sm">No music yet</p>
+            <p className="text-[#6B7280] text-xs text-center px-8">
+              Add music channels from Admin Panel to import tracks automatically
+            </p>
             {searchQuery && (
               <p className="text-[#9CA3AF] text-xs">Try a different search term</p>
             )}
-            {activeChannel !== 'All' && (
+            {activeChannel !== 'all' && (
               <button
-                onClick={() => setActiveChannel('All')}
+                onClick={() => setActiveChannel('all')}
                 className="mt-2 px-4 py-2 bg-[#1A1A1A] border border-[#2D2D2D] rounded-xl text-white text-xs font-medium min-h-[44px]"
               >
                 Show All Channels
@@ -503,6 +464,7 @@ export default function MusicHub() {
       {selectedTrack && (
         <MusicModal
           track={selectedTrack}
+          channelDisplay={getChannelDisplay(selectedTrack)}
           userId={userId}
           onClose={() => setSelectedTrack(null)}
         />

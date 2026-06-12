@@ -1,104 +1,137 @@
-// ── Play Nexa Movie Card — YouTube Premium Style ────────────────
-// Responsive: full-width in grid, fixed-width in horizontal scroll
-// GPU-only animations: opacity + transform (no layout thrash)
-// 2GB RAM safe: no backdrop-blur, no complex filters
-// 44px touch targets, lazy-loaded thumbnails
-// Dubbed badges: "English [Bangla Dubbed]", "Hindi [Bangla Sub]"
+// ── Play Nexa Movie Card — Supabase-Powered ───────────────────
+// Movie card for the Movie Hub (online streaming from Supabase)
+// Channel badge with colored style from channel_display table
+// Lazy-loaded thumbnails, duration badge, 44px touch targets
+// No backdrop-blur, no styled-jsx, no download buttons
 
 'use client'
 
 import Image from 'next/image'
 import { useState, useCallback } from 'react'
-import type { Movie } from '@/lib/search'
-import type { YouTubeMovie } from '@/lib/youtube'
-import { detectDubbedTags } from '@/lib/movie-authenticator'
 
-/** Unified card type — works with both local JSON movies and YouTube API results */
-type MovieCardData = Movie | YouTubeMovie
+// ── Movie interface (matches Supabase movies table) ──
 
-/** Check if the data is a local JSON Movie (has year/rating/dubbed) */
-const isLocalMovie = (m: MovieCardData): m is Movie => 'year' in m && 'rating' in m
-
-interface MovieCardProps {
-  movie: MovieCardData
-  /** Grid mode: card fills its cell. Default = horizontal scroll fixed-width */
-  fullWidth?: boolean
-  /** Callback when user clicks Play on the card */
-  onPlay?: (movie: MovieCardData) => void
+export interface Movie {
+  id: string
+  youtube_id: string
+  title: string
+  thumbnail: string | null
+  channel_name: string
+  channel_id: string
+  published_at: string | null
+  view_count: number
+  description: string | null
+  duration: string | null
+  is_hidden: boolean
+  source_channel_id: string | null
+  language: string | null
+  created_at: string
 }
 
-export default function MovieCard({ movie, fullWidth = false, onPlay }: MovieCardProps) {
-  const [saved, setSaved] = useState(false)
-  const [favorited, setFavorited] = useState(false)
+// ── Channel display config for badge coloring ──
+
+export interface ChannelDisplay {
+  id: string
+  channel_id: string
+  display_name: string
+  logo_url: string | null
+  badge_color: string
+  border_color: string
+  is_visible: boolean
+  sort_order: number
+  yt_channels?: {
+    channel_id: string
+    channel_name: string
+    total_imported: number
+  }
+}
+
+const DEFAULT_BADGE_COLOR = '#9CA3AF'
+const DEFAULT_BORDER_COLOR = '#2D2D2D'
+
+// ── Utility: format view count (e.g., 1.2M, 340K) ──
+
+export function formatViewCount(count: number): string {
+  if (count >= 1_000_000_000) return (count / 1_000_000_000).toFixed(1).replace(/\.0$/, '') + 'B'
+  if (count >= 1_000_000) return (count / 1_000_000).toFixed(1).replace(/\.0$/, '') + 'M'
+  if (count >= 1_000) return (count / 1_000).toFixed(1).replace(/\.0$/, '') + 'K'
+  return count.toString()
+}
+
+// ── Utility: format relative time (e.g., "2 hours ago") ──
+
+export function formatTimeAgo(dateStr: string): string {
+  try {
+    const date = new Date(dateStr)
+    const now = Date.now()
+    const diffMs = now - date.getTime()
+    if (diffMs < 0) return 'just now'
+
+    const seconds = Math.floor(diffMs / 1000)
+    const minutes = Math.floor(seconds / 60)
+    const hours = Math.floor(minutes / 60)
+    const days = Math.floor(hours / 24)
+    const weeks = Math.floor(days / 7)
+    const months = Math.floor(days / 30)
+    const years = Math.floor(days / 365)
+
+    if (years > 0) return years === 1 ? '1 year ago' : `${years} years ago`
+    if (months > 0) return months === 1 ? '1 month ago' : `${months} months ago`
+    if (weeks > 0) return weeks === 1 ? '1 week ago' : `${weeks} weeks ago`
+    if (days > 0) return days === 1 ? '1 day ago' : `${days} days ago`
+    if (hours > 0) return hours === 1 ? '1 hour ago' : `${hours} hours ago`
+    if (minutes > 0) return minutes === 1 ? '1 min ago' : `${minutes} mins ago`
+    return 'just now'
+  } catch {
+    return ''
+  }
+}
+
+// ── Props ──
+
+interface MovieCardProps {
+  movie: Movie
+  channelDisplay?: ChannelDisplay
+  onTap: () => void
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  MOVIE CARD
+// ═══════════════════════════════════════════════════════════════
+
+export default function MovieCard({ movie, channelDisplay, onTap }: MovieCardProps) {
   const [imgReady, setImgReady] = useState(false)
 
-  // Detect dubbed tags — smart language badge rendering
-  const dubbedTags = ('dubbedTags' in movie && Array.isArray(movie.dubbedTags))
-    ? movie.dubbedTags as string[]
-    : detectDubbedTags(movie.title, movie.language)
+  const badgeColor = channelDisplay?.badge_color || DEFAULT_BADGE_COLOR
+  const borderColor = channelDisplay?.border_color || DEFAULT_BORDER_COLOR
 
-  const handleSave = useCallback((e: React.MouseEvent) => {
-    e.stopPropagation()
-    setSaved(s => !s)
-    try {
-      const key = 'pn_watch_later'
-      const list: string[] = JSON.parse(localStorage.getItem(key) || '[]')
-      if (!saved) {
-        if (!list.includes(movie.videoId)) list.push(movie.videoId)
-      } else {
-        const idx = list.indexOf(movie.videoId)
-        if (idx > -1) list.splice(idx, 1)
-      }
-      localStorage.setItem(key, JSON.stringify(list))
-    } catch { /* silent */ }
-  }, [saved, movie.videoId])
-
-  const handleFavorite = useCallback((e: React.MouseEvent) => {
-    e.stopPropagation()
-    setFavorited(f => !f)
-    try {
-      const key = 'pn_likes'
-      const list: string[] = JSON.parse(localStorage.getItem(key) || '[]')
-      if (!favorited) {
-        if (!list.includes(movie.id)) list.push(movie.id)
-      } else {
-        const idx = list.indexOf(movie.id)
-        if (idx > -1) list.splice(idx, 1)
-      }
-      localStorage.setItem(key, JSON.stringify(list))
-    } catch { /* silent */ }
-  }, [favorited, movie.id])
-
-  const handleClick = useCallback(() => {
-    if (onPlay) {
-      onPlay(movie)
-    }
-  }, [onPlay, movie])
+  const handleError = useCallback((e: React.SyntheticEvent<HTMLImageElement>) => {
+    e.currentTarget.src = `https://i.ytimg.com/vi/${movie.youtube_id}/mqdefault.jpg`
+  }, [movie.youtube_id])
 
   return (
     <div
-      onClick={handleClick}
+      onClick={onTap}
       role="button"
       tabIndex={0}
-      onKeyDown={(e) => { if (e.key === 'Enter') handleClick() }}
-      className={`group cursor-pointer active:scale-[0.97] transition-transform duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-pn-purple rounded-xl ${
-        fullWidth ? 'w-full' : 'w-[168px] flex-shrink-0'
-      }`}
+      onKeyDown={(e) => { if (e.key === 'Enter') onTap() }}
+      className="group cursor-pointer active:scale-[0.97] transition-transform duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#7C3AED] rounded-xl"
     >
       {/* ── THUMBNAIL ── */}
-      <div className="relative aspect-video rounded-xl overflow-hidden bg-pn-card">
+      <div className="relative aspect-video rounded-xl overflow-hidden bg-[#1A1A1A]">
         <Image
-          src={movie.thumbnail}
+          src={movie.thumbnail || `https://i.ytimg.com/vi/${movie.youtube_id}/mqdefault.jpg`}
           alt={movie.title}
           fill
           className={`object-cover transition-opacity duration-300 ${imgReady ? 'opacity-100' : 'opacity-0'}`}
-          sizes={fullWidth ? '(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 25vw' : '168px'}
+          sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"
           loading="lazy"
           unoptimized
           onLoad={() => setImgReady(true)}
+          onError={handleError}
         />
 
-        {/* Skeleton while image loads */}
+        {/* Skeleton shimmer while image loads */}
         {!imgReady && (
           <div className="absolute inset-0 overflow-hidden">
             <div className="absolute inset-0 -translate-x-full animate-[shimmer_1.5s_ease-in-out_infinite] bg-gradient-to-r from-transparent via-white/5 to-transparent" />
@@ -107,120 +140,57 @@ export default function MovieCard({ movie, fullWidth = false, onPlay }: MovieCar
 
         {/* Play icon overlay */}
         <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 group-active:opacity-100 transition-opacity duration-200 bg-black/30">
-          <div className="w-12 h-12 rounded-full bg-pn-purple/90 flex items-center justify-center">
+          <div className="w-12 h-12 rounded-full bg-[#7C3AED]/90 flex items-center justify-center">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="white">
               <path d="M8 5v14l11-7z" />
             </svg>
           </div>
         </div>
 
-        {/* FREE badge — top-left */}
-        {'free' in movie && movie.free && (
-          <span className="absolute top-2 left-2 bg-pn-success text-white text-[9px] font-bold rounded px-1.5 py-0.5 tracking-wide">
-            FREE
-          </span>
-        )}
-
-        {/* Dubbed badge — top-right */}
-        {(isLocalMovie(movie) && movie.dubbed) || (dubbedTags && dubbedTags.length > 0) ? (
-          <span className="absolute top-2 right-2 bg-pn-purple text-white text-[9px] font-bold rounded px-1.5 py-0.5">
-            {dubbedTags && dubbedTags.length > 0
-              ? dubbedTags[0].replace('Dubbed', 'DUB').replace('Sub', 'SUB')
-              : 'DUB'}
-          </span>
-        ) : null}
-
-        {/* Duration badge — bottom-right */}
-        <span className="absolute bottom-2 right-2 bg-black/80 text-white text-[10px] font-medium rounded px-1.5 py-0.5">
-          {movie.duration}
+        {/* Channel badge — top-left */}
+        <span
+          className="absolute top-2 left-2 text-[9px] font-bold rounded-full px-2 py-0.5"
+          style={{
+            backgroundColor: 'rgba(0,0,0,0.8)',
+            border: `1px solid ${borderColor}`,
+            color: badgeColor,
+          }}
+        >
+          {channelDisplay?.display_name || movie.channel_name}
         </span>
 
-        {/* Action buttons — bottom-left */}
-        <div className="absolute bottom-2 left-2 flex gap-1 opacity-0 group-hover:opacity-100 group-active:opacity-100 transition-opacity duration-200">
-          <button
-            onClick={handleSave}
-            type="button"
-            className={`w-7 h-7 rounded-full flex items-center justify-center transition-colors duration-150 ${
-              saved ? 'bg-pn-cyan text-pn-bg' : 'bg-black/70 text-white hover:bg-black/90'
-            }`}
-            aria-label={saved ? 'Remove from Watch Later' : 'Watch Later'}
-          >
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
-              {saved
-                ? <path d="M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2z" />
-                : <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 14.5v-9l6 4.5-6 4.5z" />
-              }
-            </svg>
-          </button>
-
-          <button
-            onClick={handleFavorite}
-            type="button"
-            className={`w-7 h-7 rounded-full flex items-center justify-center transition-colors duration-150 ${
-              favorited ? 'bg-red-500 text-white' : 'bg-black/70 text-white hover:bg-black/90'
-            }`}
-            aria-label={favorited ? 'Unfavorite' : 'Favorite'}
-          >
-            <svg width="12" height="12" viewBox="0 0 24 24" fill={favorited ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2">
-              <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
-            </svg>
-          </button>
-        </div>
+        {/* Duration badge — bottom-right */}
+        {movie.duration && (
+          <span className="absolute bottom-2 right-2 bg-black/80 text-white text-[10px] font-medium rounded px-1.5 py-0.5">
+            {movie.duration}
+          </span>
+        )}
       </div>
 
-      {/* ── INFO SECTION — YouTube-style with dubbed badges ── */}
-      <div className="pt-2.5 pb-1 px-0.5">
+      {/* ── INFO SECTION ── */}
+      <div className="pt-2 pb-1 px-0.5">
         {/* Title */}
         <h3 className="text-white text-[13px] font-medium leading-snug line-clamp-2 mb-1">
           {movie.title}
         </h3>
 
-        {/* Channel */}
-        <p className="text-pn-muted text-[11px] truncate mb-0.5">
-          {movie.channel}
+        {/* Channel name — colored */}
+        <p className="text-[11px] truncate mb-0.5" style={{ color: badgeColor }}>
+          {movie.channel_name}
         </p>
 
-        {/* Meta row: year • language • rating */}
-        <div className="flex items-center gap-1 text-[11px] text-pn-muted flex-wrap">
-          {isLocalMovie(movie) && <><span>{movie.year}</span><span className="text-pn-border">•</span></>}
-          <span>{movie.language}</span>
-          {isLocalMovie(movie) && <><span className="text-pn-border">•</span><span className="text-pn-cyan font-medium">★ {movie.rating}</span></>}
+        {/* Meta: views + date */}
+        <div className="flex items-center gap-1 text-[11px] text-[#9CA3AF] flex-wrap">
+          {movie.view_count > 0 && (
+            <span>{formatViewCount(movie.view_count)} views</span>
+          )}
+          {movie.view_count > 0 && movie.published_at && (
+            <span className="text-[#2D2D2D]">·</span>
+          )}
+          {movie.published_at && (
+            <span>{formatTimeAgo(movie.published_at)}</span>
+          )}
         </div>
-
-        {/* ── Dubbed / Language Tags — Premium lightweight badges ── */}
-        {dubbedTags && dubbedTags.length > 0 && (
-          <div className="flex gap-1 mt-1.5 flex-wrap">
-            {dubbedTags.map(tag => {
-              const isDub = tag.toLowerCase().includes('dub')
-              const isSub = tag.toLowerCase().includes('sub')
-              return (
-                <span
-                  key={tag}
-                  className={`text-[9px] font-medium rounded-full px-2 py-0.5 border ${
-                    isDub
-                      ? 'text-pn-purple bg-pn-purple/10 border-pn-purple/30'
-                      : isSub
-                        ? 'text-pn-cyan bg-pn-cyan/10 border-pn-cyan/30'
-                        : 'text-pn-muted bg-pn-card border-pn-border'
-                  }`}
-                >
-                  {tag}
-                </span>
-              )
-            })}
-          </div>
-        )}
-
-        {/* Genre tags — only in grid/fullWidth mode */}
-        {fullWidth && movie.genre && movie.genre.length > 0 && (
-          <div className="flex gap-1 mt-1.5 flex-wrap">
-            {movie.genre.slice(0, 2).map(g => (
-              <span key={g} className="text-[9px] text-pn-muted bg-pn-card border border-pn-border rounded-full px-2 py-0.5">
-                {g}
-              </span>
-            ))}
-          </div>
-        )}
       </div>
     </div>
   )

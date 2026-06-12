@@ -49,3 +49,29 @@ Stage Summary:
 - Zero placeholder code — all real implementation
 - User needs to set GEMINI_API_KEY in .env (get free key from https://aistudio.google.com/app/apikey)
 - ai_scan_jobs table needs to be created in Supabase for scan history tracking
+
+---
+Task ID: movie-ytmusic-hub-ui
+Agent: Main Agent
+Task: Build Movie Hub and YT Music UI for Play Nexa with channel_display support
+
+Work Log:
+- Read all 8 existing files to understand current patterns and imports
+- Fixed critical build errors: MovieHub imported non-existent Movie type from @/lib/supabase, SupabaseMovieCard named export didn't exist in MovieCard, MovieModal imported formatViewCount/formatTimeAgo from MovieCard which didn't export them
+- Rewrote src/components/movies/MovieCard.tsx — New Movie interface (matches movies table), ChannelDisplay interface, formatViewCount/formatTimeAgo exports, channel badge with border_color, lazy thumbnail with fallback
+- Rewrote src/components/movies/MovieHub.tsx — Fetches channels from channel_display joined with yt_channels, channel filter chips with logos/badge colors, "All" chip, infinite scroll (20/page), search, uses @/lib/supabaseAdmin (not broken @/lib/supabase)
+- Rewrote src/components/movies/MovieModal.tsx — Fixed all broken imports, added channelDisplay prop for colored channel name, user_likes/user_watchlist with Supabase + localStorage fallback, comments in localStorage, share, history tracking
+- Rewrote src/app/movies/page.tsx — Now renders <MovieHub /> instead of local JSON data
+- Rewrote src/components/ytmusic/MusicHub.tsx — Same pattern as MovieHub: channel_display chips with logos, infinite scroll, search, uses @/lib/supabaseAdmin
+- Rewrote src/components/ytmusic/TrackCard.tsx — Added ChannelDisplay type, channelDisplay prop, logo in badge, thumbnail fallback
+- Rewrote src/components/ytmusic/MusicModal.tsx — Added channelDisplay prop, colored channel name, music_likes/music_saved with Supabase + localStorage fallback
+- ytmusic/page.tsx unchanged (still thin wrapper)
+- Next.js build compiled successfully
+
+Stage Summary:
+- 7 files rewritten, 1 unchanged (ytmusic/page.tsx)
+- All broken imports fixed (Movie type, formatViewCount/formatTimeAgo, supabase client)
+- Channel display chips now use channel_display table with yt_channels join for logos and badge colors
+- Both MovieHub and MusicHub share identical chip pattern (logo + colored name)
+- Music Library (offline) completely untouched — useMusicPlayer.ts, MiniPlayer.tsx, NowPlaying.tsx not modified
+- Zero placeholder code, AMOLED dark theme, 44px touch targets, content-visibility: auto

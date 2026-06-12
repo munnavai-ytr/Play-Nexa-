@@ -1,59 +1,16 @@
 // ── Play Nexa Movie Hub — Supabase-Powered ────────────────────
 // Fetches movies from Supabase `movies` table with infinite scroll
-// Channel filter + search, auth-aware engagement
-// AMOLED dark theme, 44px touch targets, content-visibility optimization
-// No backdrop-blur, no styled-jsx, no download buttons, no mock data
+// Channel filter chips from `channel_display` table (joined with yt_channels)
+// Search, auth-aware engagement, content-visibility optimization
+// AMOLED dark theme, 44px touch targets
+// No backdrop-blur, no styled-jsx, no download buttons
 
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { useRouter } from 'next/navigation'
-import { supabase } from '@/lib/supabase'
-import type { Movie } from '@/lib/supabase'
-import { SupabaseMovieCard } from './MovieCard'
+import { supabase } from '@/lib/supabaseAdmin'
+import MovieCard, { type Movie, type ChannelDisplay } from './MovieCard'
 import MovieModal from './MovieModal'
-
-// ── Channel Style Configuration ──
-
-const CHANNEL_STYLES: Record<string, {
-  badge: string
-  badgeColor: string
-  borderColor: string
-}> = {
-  'G-Series': {
-    badge: '🎬 G-Series',
-    badgeColor: '#FF4444',
-    borderColor: '#FF0000',
-  },
-  'Eagle Movies': {
-    badge: '🦅 Eagle',
-    badgeColor: '#FF8C42',
-    borderColor: '#FF6B00',
-  },
-  'Chorki': {
-    badge: '🍿 Chorki',
-    badgeColor: '#A78BFA',
-    borderColor: '#7C3AED',
-  },
-  'BongoBD': {
-    badge: '🎭 Bongo',
-    badgeColor: '#22D3EE',
-    borderColor: '#06B6D4',
-  },
-  'SVF': {
-    badge: '🎥 SVF',
-    badgeColor: '#FCD34D',
-    borderColor: '#FFD700',
-  },
-}
-
-const CHANNELS = ['All', 'G-Series', 'Eagle Movies', 'Chorki', 'BongoBD', 'SVF']
-
-const DEFAULT_CHANNEL_STYLE = {
-  badge: '🎬',
-  badgeColor: '#9CA3AF',
-  borderColor: '#2D2D2D',
-}
 
 // ── Constants ──
 
@@ -76,16 +33,15 @@ const ANIMATION_STYLE = `
 // ═══════════════════════════════════════════════════════════════
 
 export default function MovieHub() {
-  const router = useRouter()
-
   // ── Auth state ──
   const [userId, setUserId] = useState<string | null>(null)
 
   // ── Data state ──
   const [movies, setMovies] = useState<Movie[]>([])
+  const [channels, setChannels] = useState<ChannelDisplay[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [isLoadingMore, setIsLoadingMore] = useState(false)
-  const [activeChannel, setActiveChannel] = useState('All')
+  const [activeChannel, setActiveChannel] = useState<string>('all')
   const [searchQuery, setSearchQuery] = useState('')
   const [showSearch, setShowSearch] = useState(false)
   const [selectedMovie, setSelectedMovie] = useState<Movie | null>(null)
@@ -112,6 +68,31 @@ export default function MovieHub() {
     )
 
     return () => subscription.unsubscribe()
+  }, [])
+
+  // ── Fetch channels from channel_display + yt_channels ──
+  const fetchChannels = useCallback(async () => {
+    if (!supabase) return
+
+    try {
+      const { data, error: chErr } = await supabase
+        .from('channel_display')
+        .select(`
+          *,
+          yt_channels (
+            channel_id,
+            channel_name,
+            total_imported
+          )
+        `)
+        .eq('is_visible', true)
+        .order('sort_order')
+
+      if (chErr) throw chErr
+      if (data) setChannels(data as ChannelDisplay[])
+    } catch {
+      // channel_display table may not exist yet — silent
+    }
   }, [])
 
   // ── Fetch movies from Supabase ──
@@ -147,9 +128,9 @@ export default function MovieHub() {
         .order('published_at', { ascending: false })
         .range(from, to)
 
-      // Channel filter
-      if (channel !== 'All') {
-        query = query.eq('channel_name', channel)
+      // Channel filter — use channel_id from yt_channels
+      if (channel !== 'all') {
+        query = query.eq('channel_id', channel)
       }
 
       // Search filter
@@ -183,6 +164,7 @@ export default function MovieHub() {
 
   // Load on mount
   useEffect(() => {
+    fetchChannels()
     fetchMovies(true)
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -225,14 +207,15 @@ export default function MovieHub() {
   }, [hasMore, isLoadingMore, isLoading, fetchMovies])
 
   // ── Handlers ──
-  const handleBack = useCallback(() => {
-    router.back()
-  }, [router])
-
   const handleToggleSearch = useCallback(() => {
     setShowSearch(prev => !prev)
     if (showSearch) setSearchQuery('')
   }, [showSearch])
+
+  // ── Find channel display for a movie ──
+  const getChannelDisplay = useCallback((movie: Movie): ChannelDisplay | undefined => {
+    return channels.find(ch => ch.yt_channels?.channel_id === movie.channel_id)
+  }, [channels])
 
   // ── Render ──
   return (
@@ -243,16 +226,7 @@ export default function MovieHub() {
 
       {/* ── HEADER ── */}
       <div className="flex items-center justify-between px-4 h-14 flex-shrink-0 bg-black sticky top-0 z-20">
-        <button
-          onClick={handleBack}
-          className="min-w-[44px] min-h-[44px] flex items-center justify-center text-white"
-          aria-label="Go back"
-        >
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <polyline points="15 18 9 12 15 6" />
-          </svg>
-        </button>
-        <h1 className="text-white font-bold text-lg absolute left-1/2 -translate-x-1/2">
+        <h1 className="text-white font-bold text-xl">
           Movie Hub
         </h1>
         <div className="flex gap-1">
@@ -267,7 +241,7 @@ export default function MovieHub() {
             </svg>
           </button>
           <button
-            onClick={() => fetchMovies(true)}
+            onClick={() => { fetchChannels(); fetchMovies(true) }}
             className="min-w-[44px] min-h-[44px] flex items-center justify-center text-white"
             aria-label="Refresh"
           >
@@ -286,49 +260,93 @@ export default function MovieHub() {
             type="text"
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
-            placeholder="Search movies, channels..."
+            placeholder="Search movies..."
             autoFocus
             className="w-full h-11 bg-[#1A1A1A] border border-[#2D2D2D] rounded-xl px-4 text-sm text-white outline-none placeholder-[#9CA3AF]"
           />
         </div>
       )}
 
-      {/* ── CHANNEL FILTER BAR ── */}
+      {/* ── CHANNEL FILTER CHIPS ── */}
       <div className="flex-shrink-0 px-4 pb-3 sticky top-14 z-10 bg-black">
-        <div className="flex gap-2 overflow-x-auto scrollbar-hide pb-1">
-          {CHANNELS.map(ch => {
-            const isActive = activeChannel === ch
-            const style = CHANNEL_STYLES[ch]
+        <div className="flex gap-3 overflow-x-auto scrollbar-hide pb-1">
+
+          {/* ALL chip */}
+          <button
+            onClick={() => {
+              setActiveChannel('all')
+            }}
+            className={`
+              flex items-center gap-2
+              flex-shrink-0 px-4 py-2
+              rounded-full min-h-[44px]
+              border-2 transition-all duration-150
+              ${activeChannel === 'all'
+                ? 'border-[#7C3AED] bg-[#7C3AED]/20 text-[#A78BFA]'
+                : 'border-[#2D2D44] text-[#9CA3AF]'
+              }
+            `}
+          >
+            <span className="text-lg">🌍</span>
+            <span className="text-sm font-medium whitespace-nowrap">All</span>
+          </button>
+
+          {/* Per channel chips */}
+          {channels.map(ch => {
+            const ytChannel = ch.yt_channels
+            if (!ytChannel) return null
+            const isActive = activeChannel === ytChannel.channel_id
             return (
               <button
-                key={ch}
-                onClick={() => setActiveChannel(ch)}
-                className={`
-                  px-4 py-2 rounded-full min-h-[36px]
-                  text-sm font-medium whitespace-nowrap
-                  flex-shrink-0 transition-all duration-150
-                  ${isActive && ch === 'All'
-                    ? 'bg-[#7C3AED] text-white'
-                    : isActive
-                      ? 'text-white'
-                      : 'border border-[#2D2D2D] text-[#9CA3AF]'
-                  }
-                `}
-                style={isActive && ch !== 'All' && style ? {
-                  backgroundColor: style.borderColor + '22',
-                  borderColor: style.borderColor,
-                  borderWidth: '1px',
-                  color: style.badgeColor,
-                } : {}}
+                key={ch.channel_id}
+                onClick={() => {
+                  setActiveChannel(ytChannel.channel_id)
+                }}
+                className="flex items-center gap-2
+                  flex-shrink-0 px-3 py-2
+                  rounded-full min-h-[44px]
+                  border-2 transition-all duration-150"
+                style={{
+                  borderColor: isActive ? ch.border_color : '#2D2D44',
+                  backgroundColor: isActive ? ch.badge_color + '22' : 'transparent',
+                }}
               >
-                {ch === 'All' ? '🌍 All' : ch}
+                {/* Channel logo */}
+                <div className="w-6 h-6 rounded-full overflow-hidden flex-shrink-0 bg-[#1A1A1A]">
+                  {ch.logo_url ? (
+                    <img
+                      src={ch.logo_url}
+                      className="w-full h-full object-cover"
+                      loading="lazy"
+                      alt=""
+                      onError={(e) => {
+                        (e.target as HTMLImageElement).style.display = 'none'
+                      }}
+                    />
+                  ) : (
+                    <div
+                      className="w-full h-full flex items-center justify-center"
+                      style={{ backgroundColor: ch.badge_color }}
+                    >
+                      <span className="text-white text-xs font-bold">
+                        {ch.display_name[0]}
+                      </span>
+                    </div>
+                  )}
+                </div>
+                <span
+                  className="text-sm font-medium whitespace-nowrap"
+                  style={{ color: isActive ? ch.badge_color : '#9CA3AF' }}
+                >
+                  {ch.display_name}
+                </span>
               </button>
             )
           })}
         </div>
       </div>
 
-      {/* ── VIDEO COUNT ── */}
+      {/* ── MOVIE COUNT ── */}
       <div className="px-4 pb-2 flex-shrink-0">
         <p className="text-[#9CA3AF] text-xs">
           {isLoading
@@ -344,7 +362,7 @@ export default function MovieHub() {
       >
 
         {/* Loading skeleton */}
-        {isLoading && (
+        {isLoading && movies.length === 0 && (
           <div className="grid grid-cols-2 gap-3">
             {Array.from({ length: 6 }).map((_, i) => (
               <div key={i} className="rounded-xl overflow-hidden bg-[#1A1A1A] animate-pulse">
@@ -380,17 +398,14 @@ export default function MovieHub() {
         {!isLoading && movies.length > 0 && (
           <>
             <div className="grid grid-cols-2 gap-3">
-              {movies.map(movie => {
-                const channelStyle = CHANNEL_STYLES[movie.channel_name] || DEFAULT_CHANNEL_STYLE
-                return (
-                  <SupabaseMovieCard
-                    key={movie.id}
-                    movie={movie}
-                    channelStyle={channelStyle}
-                    onTap={() => setSelectedMovie(movie)}
-                  />
-                )
-              })}
+              {movies.map(movie => (
+                <MovieCard
+                  key={movie.id}
+                  movie={movie}
+                  channelDisplay={getChannelDisplay(movie)}
+                  onTap={() => setSelectedMovie(movie)}
+                />
+              ))}
             </div>
 
             {/* Load more trigger */}
@@ -408,17 +423,10 @@ export default function MovieHub() {
         {/* Empty state */}
         {!isLoading && movies.length === 0 && !error && (
           <div className="flex flex-col items-center justify-center py-16 gap-3">
-            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#9CA3AF" strokeWidth="1.5">
-              <rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18" />
-              <line x1="7" y1="2" x2="7" y2="22" />
-              <line x1="17" y1="2" x2="17" y2="22" />
-              <line x1="2" y1="12" x2="22" y2="12" />
-              <line x1="2" y1="7" x2="7" y2="7" />
-              <line x1="2" y1="17" x2="7" y2="17" />
-              <line x1="17" y1="7" x2="22" y2="7" />
-              <line x1="17" y1="17" x2="22" y2="17" />
-            </svg>
-            <p className="text-[#9CA3AF] text-sm">No movies found</p>
+            <p className="text-[#9CA3AF] text-sm">No movies yet</p>
+            <p className="text-[#6B7280] text-xs text-center px-8">
+              Add YouTube channels from Admin Panel to import movies automatically
+            </p>
             {searchQuery && (
               <p className="text-[#9CA3AF] text-xs">Try a different search term</p>
             )}
@@ -430,6 +438,7 @@ export default function MovieHub() {
       {selectedMovie && (
         <MovieModal
           movie={selectedMovie}
+          channelDisplay={getChannelDisplay(selectedMovie)}
           userId={userId}
           onClose={() => setSelectedMovie(null)}
         />
