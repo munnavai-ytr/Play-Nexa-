@@ -1,0 +1,1159 @@
+     1→-- ╔══════════════════════════════════════════════════════════════════════════════╗
+     2→-- ║  PLAY NEXA — Complete Database Setup (All-in-One)                          ║
+     3→-- ║  একটা প্রম্পটে সব টেবিল তৈরি হবে — কপি করে Supabase SQL Editor এ পেস্ট করো  ║
+     4→-- ╚══════════════════════════════════════════════════════════════════════════════╝
+     5→--
+     6→-- ব্যবহার:
+     7→--   1. Supabase Dashboard → SQL Editor → New Query
+     8→--   2. এই পুরো কোডটা কপি-পেস্ট করো
+     9→--   3. "Run" বাটনে ক্লিক করো
+    10→--   4. সব টেবিল, ইনডেক্স, RLS পলিসি, RPC, সিড ডাটা একসাথে তৈরি হয়ে যাবে
+    11→--
+    12→-- রান করার পর:
+    13→--   1. Authentication → Users → Add user → Create new user
+    14→--      Email: admin@playnexa.com  Password: PlayNexa@2024
+    15→--   2. User এর UUID কপি করো
+    16→--   3. নিচের SQL রান করো (UUID বসাও):
+    17→--      INSERT INTO admin_users (user_id, email, role)
+    18→--      VALUES ('PASTE_UUID_HERE', 'admin@playnexa.com', 'superadmin');
+    19→--
+    20→-- ══════════════════════════════════════════════════════════════════════════════
+    21→
+    22→
+    23→-- ╔══════════════════════════════════════════════════════════════════════════════╗
+    24→-- ║  SECTION 1: ENUM TYPES                                                      ║
+    25→-- ╚══════════════════════════════════════════════════════════════════════════════╝
+    26→
+    27→DO $$ BEGIN
+    28→  -- Create request_status enum if not exists
+    29→  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'request_status') THEN
+    30→    CREATE TYPE request_status AS ENUM ('pending', 'processing', 'done', 'failed');
+    31→  END IF;
+    32→END $$;
+    33→
+    34→
+    35→-- ╔══════════════════════════════════════════════════════════════════════════════╗
+    36→-- ║  SECTION 2: CORE TABLES                                                    ║
+    37→-- ╚══════════════════════════════════════════════════════════════════════════════╝
+    38→
+    39→
+    40→-- ──────────────────────────────────────────────────────────────────────────────
+    41→-- TABLE: videos (লিগেসি — আগের ভার্সন থেকে আসা)
+    42→-- ──────────────────────────────────────────────────────────────────────────────
+    43→
+    44→CREATE TABLE IF NOT EXISTS videos (
+    45→  id              BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    46→  yt_video_id     TEXT    NOT NULL UNIQUE,
+    47→  title           TEXT    NOT NULL,
+    48→  thumbnail_url   TEXT,
+    49→  category        TEXT    DEFAULT 'movie' CHECK (category IN ('movie','music','short')),
+    50→  genre           TEXT[]  DEFAULT '{}',
+    51→  duration_sec    INTEGER DEFAULT 0 NOT NULL,
+    52→  channel         TEXT    DEFAULT '',
+    53→  language        TEXT    DEFAULT 'English',
+    54→  region          TEXT    DEFAULT 'international' CHECK (region IN ('bangladesh','india','international')),
+    55→  dubbed_tags     TEXT[]  DEFAULT '{}',
+    56→  views           BIGINT  DEFAULT 0,
+    57→  source          TEXT    DEFAULT 'manual',
+    58→  created_at      TIMESTAMPTZ DEFAULT now()
+    59→);
+    60→
+    61→CREATE INDEX IF NOT EXISTS idx_videos_category ON videos (category);
+    62→CREATE INDEX IF NOT EXISTS idx_videos_created  ON videos (created_at DESC);
+    63→
+    64→ALTER TABLE videos ENABLE ROW LEVEL SECURITY;
+    65→CREATE POLICY "Public read videos" ON videos FOR SELECT TO anon, authenticated USING (true);
+    66→CREATE POLICY "Authenticated can insert videos" ON videos FOR INSERT TO authenticated WITH CHECK (true);
+    67→CREATE POLICY "Authenticated can update videos" ON videos FOR UPDATE TO authenticated USING (true);
+    68→
+    69→
+    70→-- ──────────────────────────────────────────────────────────────────────────────
+    71→-- TABLE: missing_requests (ইউজার রিকোয়েস্ট ট্র্যাকিং)
+    72→-- ──────────────────────────────────────────────────────────────────────────────
+    73→
+    74→CREATE TABLE IF NOT EXISTS missing_requests (
+    75→  id              BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    76→  search_query    TEXT    NOT NULL,
+    77→  category        TEXT    DEFAULT 'movie',
+    78→  status          request_status DEFAULT 'pending',
+    79→  request_count   INTEGER DEFAULT 1,
+    80→  created_at      TIMESTAMPTZ DEFAULT now(),
+    81→  updated_at      TIMESTAMPTZ DEFAULT now(),
+    82→  UNIQUE(search_query, category)
+    83→);
+    84→
+    85→CREATE INDEX IF NOT EXISTS idx_missing_status ON missing_requests (status);
+    86→
+    87→ALTER TABLE missing_requests ENABLE ROW LEVEL SECURITY;
+    88→CREATE POLICY "Public read missing_requests" ON missing_requests FOR SELECT TO anon, authenticated USING (true);
+    89→CREATE POLICY "Authenticated can manage missing_requests" ON missing_requests FOR ALL TO authenticated USING (true);
+    90→
+    91→
+    92→-- ──────────────────────────────────────────────────────────────────────────────
+    93→-- TABLE: yt_channels (ইউটিউব চ্যানেল ম্যানেজমেন্ট)
+    94→-- ──────────────────────────────────────────────────────────────────────────────
+    95→
+    96→CREATE TABLE IF NOT EXISTS yt_channels (
+    97→  id                UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    98→  channel_url       TEXT    NOT NULL,
+    99→  channel_id        TEXT    NOT NULL UNIQUE,
+   100→  channel_name      TEXT    NOT NULL,
+   101→  channel_avatar    TEXT,
+   102→  channel_type      TEXT    NOT NULL DEFAULT 'movies'
+   103→                    CHECK (channel_type IN ('movies','music','mixed')),
+   104→  filter_keywords   TEXT[]  DEFAULT ARRAY[
+   105→                        'full movie','official movie',
+   106→                        'bangla movie','bengali movie',
+   107→                        'full film','natok','telefilm',
+   108→                        'web series','short film'
+   109→                      ],
+   110→  exclude_keywords  TEXT[]  DEFAULT ARRAY[
+   111→                        'trailer','teaser','song',
+   112→                        'making','interview','behind',
+   113→                        'promo','preview'
+   114→                      ],
+   115→  auto_sync         BOOLEAN DEFAULT true,
+   116→  sync_interval     INTEGER DEFAULT 6,
+   117→  last_synced_at    TIMESTAMPTZ,
+   118→  total_imported    INTEGER DEFAULT 0,
+   119→  is_active         BOOLEAN DEFAULT true,
+   120→  created_at        TIMESTAMPTZ DEFAULT now(),
+   121→  updated_at        TIMESTAMPTZ DEFAULT now()
+   122→);
+   123→
+   124→CREATE INDEX IF NOT EXISTS idx_yt_channels_type    ON yt_channels (channel_type);
+   125→CREATE INDEX IF NOT EXISTS idx_yt_channels_active  ON yt_channels (is_active) WHERE is_active = true;
+   126→
+   127→ALTER TABLE yt_channels ENABLE ROW LEVEL SECURITY;
+   128→CREATE POLICY "yt_channels_public_read" ON yt_channels FOR SELECT USING (true);
+   129→CREATE POLICY "yt_channels_admin_manage" ON yt_channels FOR ALL TO authenticated USING (true);
+   130→
+   131→
+   132→-- ──────────────────────────────────────────────────────────────────────────────
+   133→-- TABLE: sync_logs (অটো সিঙ্ক লগ)
+   134→-- ──────────────────────────────────────────────────────────────────────────────
+   135→
+   136→CREATE TABLE IF NOT EXISTS sync_logs (
+   137→  id              UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+   138→  channel_id      UUID REFERENCES yt_channels(id) ON DELETE CASCADE,
+   139→  channel_name    TEXT,
+   140→  videos_found    INTEGER DEFAULT 0,
+   141→  videos_added    INTEGER DEFAULT 0,
+   142→  videos_skipped  INTEGER DEFAULT 0,
+   143→  status          TEXT DEFAULT 'success' CHECK (status IN ('success','failed','partial')),
+   144→  error_message   TEXT,
+   145→  synced_at       TIMESTAMPTZ DEFAULT now()
+   146→);
+   147→
+   148→CREATE INDEX IF NOT EXISTS idx_sync_logs_channel ON sync_logs (channel_id);
+   149→CREATE INDEX IF NOT EXISTS idx_sync_logs_time    ON sync_logs (synced_at DESC);
+   150→
+   151→ALTER TABLE sync_logs ENABLE ROW LEVEL SECURITY;
+   152→CREATE POLICY "sync_logs_public_read" ON sync_logs FOR SELECT USING (true);
+   153→
+   154→
+   155→-- ──────────────────────────────────────────────────────────────────────────────
+   156→-- TABLE: channel_display (চ্যানেল ফিল্টার চিপস + ব্যাজ কালার)
+   157→-- MovieHub ও MusicHub এ চ্যানেল ফিল্টার চিপস দেখানোর জন্য
+   158→-- ──────────────────────────────────────────────────────────────────────────────
+   159→
+   160→CREATE TABLE IF NOT EXISTS channel_display (
+   161→  id            UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+   162→  channel_id    TEXT    NOT NULL UNIQUE,
+   163→  display_name  TEXT    NOT NULL,
+   164→  logo_url      TEXT,
+   165→  badge_color   TEXT    NOT NULL DEFAULT '#7C3AED',
+   166→  border_color  TEXT    NOT NULL DEFAULT '#2D2D2D',
+   167→  is_visible    BOOLEAN NOT NULL DEFAULT true,
+   168→  sort_order    INTEGER NOT NULL DEFAULT 0,
+   169→  created_at    TIMESTAMPTZ DEFAULT now(),
+   170→  updated_at    TIMESTAMPTZ DEFAULT now()
+   171→);
+   172→
+   173→CREATE INDEX IF NOT EXISTS idx_channel_display_visible  ON channel_display (is_visible) WHERE is_visible = true;
+   174→CREATE INDEX IF NOT EXISTS idx_channel_display_sort     ON channel_display (sort_order);
+   175→
+   176→ALTER TABLE channel_display ENABLE ROW LEVEL SECURITY;
+   177→CREATE POLICY "channel_display_public_read" ON channel_display FOR SELECT USING (true);
+   178→CREATE POLICY "channel_display_admin_manage" ON channel_display FOR ALL TO authenticated USING (true);
+   179→
+   180→
+   181→-- ──────────────────────────────────────────────────────────────────────────────
+   182→-- TABLE: ai_scan_jobs (Gemini AI স্ক্যান জব ট্র্যাকিং)
+   183→-- ──────────────────────────────────────────────────────────────────────────────
+   184→
+   185→CREATE TABLE IF NOT EXISTS ai_scan_jobs (
+   186→  id            UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+   187→  channel_name  TEXT    NOT NULL,
+   188→  status        TEXT    NOT NULL DEFAULT 'scanning'
+   189→                  CHECK (status IN ('scanning','completed','failed')),
+   190→  total_videos  INTEGER DEFAULT 0,
+   191→  processed     INTEGER DEFAULT 0,
+   192→  movies_found  INTEGER DEFAULT 0,
+   193→  music_found   INTEGER DEFAULT 0,
+   194→  skipped       INTEGER DEFAULT 0,
+   195→  error_message TEXT,
+   196→  started_at    TIMESTAMPTZ DEFAULT now(),
+   197→  completed_at  TIMESTAMPTZ
+   198→);
+   199→
+   200→CREATE INDEX IF NOT EXISTS idx_ai_scan_status ON ai_scan_jobs (status);
+   201→CREATE INDEX IF NOT EXISTS idx_ai_scan_time   ON ai_scan_jobs (started_at DESC);
+   202→
+   203→ALTER TABLE ai_scan_jobs ENABLE ROW LEVEL SECURITY;
+   204→CREATE POLICY "ai_scan_jobs_public_read" ON ai_scan_jobs FOR SELECT USING (true);
+   205→CREATE POLICY "ai_scan_jobs_admin_manage" ON ai_scan_jobs FOR ALL TO authenticated USING (true);
+   206→
+   207→
+   208→-- ──────────────────────────────────────────────────────────────────────────────
+   209→-- TABLE: movies (মুভি হাব — Gemini স্ক্যান থেকে আসা ডাটা)
+   210→-- ──────────────────────────────────────────────────────────────────────────────
+   211→
+   212→CREATE TABLE IF NOT EXISTS movies (
+   213→  id                UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+   214→  youtube_id        TEXT    NOT NULL,
+   215→  title             TEXT    NOT NULL,
+   216→  thumbnail         TEXT,
+   217→  channel_name      TEXT    DEFAULT '',
+   218→  channel_id        TEXT    DEFAULT '',
+   219→  published_at      TIMESTAMPTZ,
+   220→  view_count        BIGINT  DEFAULT 0,
+   221→  description       TEXT    DEFAULT '',
+   222→  duration          TEXT    DEFAULT '',
+   223→  is_hidden         BOOLEAN DEFAULT false,
+   224→  source_channel_id UUID    REFERENCES yt_channels(id) ON DELETE SET NULL,
+   225→  language          TEXT    DEFAULT '',
+   226→  created_at        TIMESTAMPTZ DEFAULT now()
+   227→);
+   228→
+   229→CREATE INDEX IF NOT EXISTS idx_movies_youtube_id  ON movies (youtube_id);
+   230→CREATE INDEX IF NOT EXISTS idx_movies_channel     ON movies (channel_name);
+   231→CREATE INDEX IF NOT EXISTS idx_movies_channel_id  ON movies (channel_id);
+   232→CREATE INDEX IF NOT EXISTS idx_movies_created     ON movies (created_at DESC);
+   233→CREATE INDEX IF NOT EXISTS idx_movies_hidden      ON movies (is_hidden) WHERE is_hidden = false;
+   234→
+   235→ALTER TABLE movies ENABLE ROW LEVEL SECURITY;
+   236→CREATE POLICY "Public read movies" ON movies FOR SELECT TO anon, authenticated USING (true);
+   237→CREATE POLICY "Authenticated can insert movies" ON movies FOR INSERT TO authenticated WITH CHECK (true);
+   238→CREATE POLICY "Authenticated can update movies" ON movies FOR UPDATE TO authenticated USING (true);
+   239→
+   240→
+   241→-- ──────────────────────────────────────────────────────────────────────────────
+   242→-- TABLE: music_tracks (YT মিউজিক — Gemini স্ক্যান থেকে আসা ডাটা)
+   243→-- ──────────────────────────────────────────────────────────────────────────────
+   244→
+   245→CREATE TABLE IF NOT EXISTS music_tracks (
+   246→  id                UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+   247→  youtube_id        TEXT    NOT NULL UNIQUE,
+   248→  title             TEXT    NOT NULL,
+   249→  thumbnail         TEXT    NOT NULL,
+   250→  channel_name      TEXT    NOT NULL,
+   251→  channel_id        TEXT    NOT NULL,
+   252→  duration          TEXT,
+   253→  published_at      TIMESTAMPTZ,
+   254→  view_count        INTEGER DEFAULT 0,
+   255→  is_hidden         BOOLEAN DEFAULT false,
+   256→  source_channel_id UUID    REFERENCES yt_channels(id) ON DELETE SET NULL,
+   257→  description       TEXT    DEFAULT '',
+   258→  language          TEXT    DEFAULT '',
+   259→  created_at        TIMESTAMPTZ DEFAULT now()
+   260→);
+   261→
+   262→CREATE INDEX IF NOT EXISTS idx_music_youtube_id  ON music_tracks (youtube_id);
+   263→CREATE INDEX IF NOT EXISTS idx_music_channel     ON music_tracks (channel_name);
+   264→CREATE INDEX IF NOT EXISTS idx_music_channel_id  ON music_tracks (channel_id);
+   265→CREATE INDEX IF NOT EXISTS idx_music_created     ON music_tracks (created_at DESC);
+   266→CREATE INDEX IF NOT EXISTS idx_music_hidden      ON music_tracks (is_hidden) WHERE is_hidden = false;
+   267→
+   268→ALTER TABLE music_tracks ENABLE ROW LEVEL SECURITY;
+   269→CREATE POLICY "music_tracks_public_read" ON music_tracks FOR SELECT USING (true);
+   270→CREATE POLICY "music_tracks_admin_manage" ON music_tracks FOR ALL TO authenticated USING (true);
+   271→
+   272→
+   273→-- ╔══════════════════════════════════════════════════════════════════════════════╗
+   274→-- ║  SECTION 3: USER ENGAGEMENT TABLES (Like, Save, History)                   ║
+   275→-- ╚══════════════════════════════════════════════════════════════════════════════╝
+   276→
+   277→
+   278→-- ──────────────────────────────────────────────────────────────────────────────
+   279→-- TABLE: user_likes (মুভি লাইক)
+   280→-- ──────────────────────────────────────────────────────────────────────────────
+   281→
+   282→CREATE TABLE IF NOT EXISTS user_likes (
+   283→  id          UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+   284→  user_id     UUID    NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+   285→  movie_id    UUID    NOT NULL REFERENCES movies(id) ON DELETE CASCADE,
+   286→  youtube_id  TEXT,
+   287→  created_at  TIMESTAMPTZ DEFAULT now(),
+   288→  UNIQUE(user_id, movie_id)
+   289→);
+   290→
+   291→CREATE INDEX IF NOT EXISTS idx_user_likes_user  ON user_likes (user_id);
+   292→CREATE INDEX IF NOT EXISTS idx_user_likes_movie ON user_likes (movie_id);
+   293→
+   294→ALTER TABLE user_likes ENABLE ROW LEVEL SECURITY;
+   295→CREATE POLICY "User owns likes" ON user_likes FOR ALL USING (auth.uid() = user_id);
+   296→
+   297→
+   298→-- ──────────────────────────────────────────────────────────────────────────────
+   299→-- TABLE: user_watchlist (মুভি ওয়াচলিস্ট / সেভ)
+   300→-- ──────────────────────────────────────────────────────────────────────────────
+   301→
+   302→CREATE TABLE IF NOT EXISTS user_watchlist (
+   303→  id          UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+   304→  user_id     UUID    NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+   305→  movie_id    UUID    NOT NULL REFERENCES movies(id) ON DELETE CASCADE,
+   306→  youtube_id  TEXT,
+   307→  created_at  TIMESTAMPTZ DEFAULT now(),
+   308→  UNIQUE(user_id, movie_id)
+   309→);
+   310→
+   311→CREATE INDEX IF NOT EXISTS idx_user_watchlist_user  ON user_watchlist (user_id);
+   312→CREATE INDEX IF NOT EXISTS idx_user_watchlist_movie ON user_watchlist (movie_id);
+   313→
+   314→ALTER TABLE user_watchlist ENABLE ROW LEVEL SECURITY;
+   315→CREATE POLICY "User owns watchlist" ON user_watchlist FOR ALL USING (auth.uid() = user_id);
+   316→
+   317→
+   318→-- ──────────────────────────────────────────────────────────────────────────────
+   319→-- TABLE: user_history (মুভি ওয়াচ হিস্ট্রি)
+   320→-- ──────────────────────────────────────────────────────────────────────────────
+   321→
+   322→CREATE TABLE IF NOT EXISTS user_history (
+   323→  id          UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+   324→  user_id     UUID    NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+   325→  movie_id    UUID    NOT NULL REFERENCES movies(id) ON DELETE CASCADE,
+   326→  youtube_id  TEXT,
+   327→  watched_at  TIMESTAMPTZ DEFAULT now(),
+   328→  watch_count INTEGER DEFAULT 1,
+   329→  UNIQUE(user_id, movie_id)
+   330→);
+   331→
+   332→CREATE INDEX IF NOT EXISTS idx_user_history_user    ON user_history (user_id);
+   333→CREATE INDEX IF NOT EXISTS idx_user_history_watched ON user_history (watched_at DESC);
+   334→
+   335→ALTER TABLE user_history ENABLE ROW LEVEL SECURITY;
+   336→CREATE POLICY "User owns history" ON user_history FOR ALL USING (auth.uid() = user_id);
+   337→
+   338→
+   339→-- ──────────────────────────────────────────────────────────────────────────────
+   340→-- TABLE: music_likes (মিউজিক লাইক)
+   341→-- ──────────────────────────────────────────────────────────────────────────────
+   342→
+   343→CREATE TABLE IF NOT EXISTS music_likes (
+   344→  id          UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+   345→  user_id     UUID    NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+   346→  track_id    UUID    NOT NULL REFERENCES music_tracks(id) ON DELETE CASCADE,
+   347→  youtube_id  TEXT    NOT NULL,
+   348→  created_at  TIMESTAMPTZ DEFAULT now(),
+   349→  UNIQUE(user_id, track_id)
+   350→);
+   351→
+   352→CREATE INDEX IF NOT EXISTS idx_music_likes_user  ON music_likes (user_id);
+   353→CREATE INDEX IF NOT EXISTS idx_music_likes_track ON music_likes (track_id);
+   354→
+   355→ALTER TABLE music_likes ENABLE ROW LEVEL SECURITY;
+   356→CREATE POLICY "music_likes_own" ON music_likes FOR ALL USING (auth.uid() = user_id);
+   357→
+   358→
+   359→-- ──────────────────────────────────────────────────────────────────────────────
+   360→-- TABLE: music_saved (মিউজিক সেভ/বুকমার্ক)
+   361→-- ──────────────────────────────────────────────────────────────────────────────
+   362→
+   363→CREATE TABLE IF NOT EXISTS music_saved (
+   364→  id          UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+   365→  user_id     UUID    NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+   366→  track_id    UUID    NOT NULL REFERENCES music_tracks(id) ON DELETE CASCADE,
+   367→  youtube_id  TEXT    NOT NULL,
+   368→  created_at  TIMESTAMPTZ DEFAULT now(),
+   369→  UNIQUE(user_id, track_id)
+   370→);
+   371→
+   372→CREATE INDEX IF NOT EXISTS idx_music_saved_user  ON music_saved (user_id);
+   373→CREATE INDEX IF NOT EXISTS idx_music_saved_track ON music_saved (track_id);
+   374→
+   375→ALTER TABLE music_saved ENABLE ROW LEVEL SECURITY;
+   376→CREATE POLICY "music_saved_own" ON music_saved FOR ALL USING (auth.uid() = user_id);
+   377→
+   378→
+   379→-- ╔══════════════════════════════════════════════════════════════════════════════╗
+   380→-- ║  SECTION 4: USER PROFILES & AUTH                                          ║
+   381→-- ╚══════════════════════════════════════════════════════════════════════════════╝
+   382→
+   383→
+   384→-- ──────────────────────────────────────────────────────────────────────────────
+   385→-- TABLE: user_profiles (ইউজার প্রোফাইল)
+   386→-- ──────────────────────────────────────────────────────────────────────────────
+   387→
+   388→CREATE TABLE IF NOT EXISTS user_profiles (
+   389→  id            UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+   390→  auth_user_id  UUID    NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE UNIQUE,
+   391→  display_name  TEXT    DEFAULT '',
+   392→  email         TEXT,
+   393→  avatar_url    TEXT,
+   394→  auth_provider TEXT    DEFAULT 'email',
+   395→  coins         INTEGER DEFAULT 0,
+   396→  created_at    TIMESTAMPTZ DEFAULT now(),
+   397→  updated_at    TIMESTAMPTZ DEFAULT now()
+   398→);
+   399→
+   400→CREATE INDEX IF NOT EXISTS idx_user_profiles_auth ON user_profiles (auth_user_id);
+   401→
+   402→ALTER TABLE user_profiles ENABLE ROW LEVEL SECURITY;
+   403→CREATE POLICY "Users can read own profile" ON user_profiles FOR SELECT USING (auth.uid() = auth_user_id);
+   404→CREATE POLICY "Users can update own profile" ON user_profiles FOR UPDATE USING (auth.uid() = auth_user_id);
+   405→CREATE POLICY "Users can insert own profile" ON user_profiles FOR INSERT WITH CHECK (auth.uid() = auth_user_id);
+   406→
+   407→
+   408→-- ──────────────────────────────────────────────────────────────────────────────
+   409→-- TABLE: admin_users (অ্যাডমিন অ্যাক্সেস কন্ট্রোল)
+   410→-- ──────────────────────────────────────────────────────────────────────────────
+   411→
+   412→CREATE TABLE IF NOT EXISTS admin_users (
+   413→  id          UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+   414→  user_id     UUID    NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+   415→  email       TEXT    NOT NULL,
+   416→  role        TEXT    NOT NULL DEFAULT 'admin',
+   417→  created_at  TIMESTAMPTZ DEFAULT now(),
+   418→  UNIQUE(user_id)
+   419→);
+   420→
+   421→ALTER TABLE admin_users ENABLE ROW LEVEL SECURITY;
+   422→CREATE POLICY "Service role can read admin_users" ON admin_users FOR SELECT USING (auth.role() = 'service_role');
+   423→CREATE POLICY "Users can check own admin status" ON admin_users FOR SELECT USING (auth.uid() = user_id);
+   424→
+   425→
+   426→-- ──────────────────────────────────────────────────────────────────────────────
+   427→-- TABLE: admin_activity_log (অ্যাডমিন অ্যাকশন লগ)
+   428→-- ──────────────────────────────────────────────────────────────────────────────
+   429→
+   430→CREATE TABLE IF NOT EXISTS admin_activity_log (
+   431→  id          UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+   432→  admin_id    UUID,
+   433→  action      TEXT    NOT NULL,
+   434→  target      TEXT    NOT NULL,
+   435→  details     JSONB   DEFAULT '{}',
+   436→  created_at  TIMESTAMPTZ DEFAULT now()
+   437→);
+   438→
+   439→CREATE INDEX IF NOT EXISTS idx_admin_log_created ON admin_activity_log (created_at DESC);
+   440→CREATE INDEX IF NOT EXISTS idx_admin_log_admin  ON admin_activity_log (admin_id);
+   441→
+   442→ALTER TABLE admin_activity_log ENABLE ROW LEVEL SECURITY;
+   443→CREATE POLICY "Service role can manage activity log" ON admin_activity_log FOR ALL USING (auth.role() = 'service_role');
+   444→CREATE POLICY "Authenticated can read activity log" ON admin_activity_log FOR SELECT TO authenticated USING (true);
+   445→
+   446→
+   447→-- ╔══════════════════════════════════════════════════════════════════════════════╗
+   448→-- ║  SECTION 5: APP CONFIG TABLES                                             ║
+   449→-- ╚══════════════════════════════════════════════════════════════════════════════╝
+   450→
+   451→
+   452→-- ──────────────────────────────────────────────────────────────────────────────
+   453→-- TABLE: app_features (ফিচার টগল — কোন ফিচার লাইভ/হিডেন/কামিং সুন)
+   454→-- ──────────────────────────────────────────────────────────────────────────────
+   455→
+   456→CREATE TABLE IF NOT EXISTS app_features (
+   457→  id                 UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+   458→  feature_key        TEXT    NOT NULL UNIQUE,
+   459→  name               TEXT    NOT NULL,
+   460→  label              TEXT    DEFAULT '',
+   461→  icon               TEXT    DEFAULT '',
+   462→  status             TEXT    NOT NULL DEFAULT 'live',
+   463→  description        TEXT    DEFAULT '',
+   464→  coming_soon_message TEXT   DEFAULT '',
+   465→  lock_reason        TEXT    DEFAULT '',
+   466→  sort_order         INTEGER DEFAULT 0,
+   467→  updated_at         TIMESTAMPTZ DEFAULT now()
+   468→);
+   469→
+   470→-- ডিফল্ট ফিচার সিড ডাটা
+   471→INSERT INTO app_features (feature_key, name, label, icon, status, description, sort_order) VALUES
+   472→  ('movie_hub',  'Movie Hub',  'Movies',  '🎬', 'live',        'Browse and watch movies from top channels', 1),
+   473→  ('game_hub',   'Game Hub',   'Games',   '🎮', 'live',        'Play mini games and track scores',          2),
+   474→  ('ytmusic',    'YT Music',   'Music',   '🎵', 'live',        'YouTube Music integration',                 3),
+   475→  ('downloader', 'Downloader', 'Download','📥', 'live',        'Download videos from platforms',            4),
+   476→  ('offline',    'Offline Mode','Offline','💾', 'live',        'Save media for offline playback',           5),
+   477→  ('shorts',     'Shorts',     'Shorts',  '⚡', 'hidden',      'Short video clips',                         6),
+   478→  ('local_player','Local Player','Player','🎞️', 'live',        'Play local media files',                    7)
+   479→ON CONFLICT (feature_key) DO NOTHING;
+   480→
+   481→ALTER TABLE app_features ENABLE ROW LEVEL SECURITY;
+   482→CREATE POLICY "Public read features" ON app_features FOR SELECT TO anon, authenticated USING (true);
+   483→CREATE POLICY "Authenticated can manage features" ON app_features FOR ALL TO authenticated USING (true);
+   484→
+   485→
+   486→-- ──────────────────────────────────────────────────────────────────────────────
+   487→-- TABLE: app_settings (গ্লোবাল অ্যাপ সেটিংস)
+   488→-- ──────────────────────────────────────────────────────────────────────────────
+   489→
+   490→CREATE TABLE IF NOT EXISTS app_settings (
+   491→  id          UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+   492→  key         TEXT    NOT NULL UNIQUE,
+   493→  value       JSONB   NOT NULL DEFAULT '{}',
+   494→  updated_at  TIMESTAMPTZ DEFAULT now()
+   495→);
+   496→
+   497→INSERT INTO app_settings (key, value) VALUES
+   498→  ('branding',    '{"app_name": "Play Nexa", "tagline": "Your Entertainment Hub"}'),
+   499→  ('colors',      '{"primary": "#7C3AED", "accent": "#06B6D4"}'),
+   500→  ('maintenance', '{"enabled": false, "message": "Under maintenance"}')
+   501→ON CONFLICT (key) DO NOTHING;
+   502→
+   503→ALTER TABLE app_settings ENABLE ROW LEVEL SECURITY;
+   504→CREATE POLICY "Public read settings" ON app_settings FOR SELECT TO anon, authenticated USING (true);
+   505→CREATE POLICY "Authenticated can manage settings" ON app_settings FOR ALL TO authenticated USING (true);
+   506→
+   507→
+   508→-- ──────────────────────────────────────────────────────────────────────────────
+   509→-- TABLE: notifications_log (পুশ নোটিফিকেশন হিস্ট্রি)
+   510→-- ──────────────────────────────────────────────────────────────────────────────
+   511→
+   512→CREATE TABLE IF NOT EXISTS notifications_log (
+   513→  id          UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+   514→  title       TEXT    NOT NULL,
+   515→  body        TEXT    NOT NULL,
+   516→  message     TEXT    DEFAULT '',
+   517→  sent_to     TEXT    DEFAULT 'all',
+   518→  target      TEXT    DEFAULT 'all',
+   519→  icon        TEXT    DEFAULT '',
+   520→  action_url  TEXT    DEFAULT '',
+   521→  sent_at     TIMESTAMPTZ DEFAULT now(),
+   522→  sent_count  INTEGER DEFAULT 0
+   523→);
+   524→
+   525→CREATE INDEX IF NOT EXISTS idx_notifications_sent ON notifications_log (sent_at DESC);
+   526→
+   527→ALTER TABLE notifications_log ENABLE ROW LEVEL SECURITY;
+   528→CREATE POLICY "Authenticated can manage notifications" ON notifications_log FOR ALL TO authenticated USING (true);
+   529→
+   530→
+   531→-- ╔══════════════════════════════════════════════════════════════════════════════╗
+   532→-- ║  SECTION 6: GAME HUB TABLES                                               ║
+   533→-- ╚══════════════════════════════════════════════════════════════════════════════╝
+   534→
+   535→
+   536→-- ──────────────────────────────────────────────────────────────────────────────
+   537→-- TABLE: games (গেম ক্যাটালগ)
+   538→-- ──────────────────────────────────────────────────────────────────────────────
+   539→
+   540→CREATE TABLE IF NOT EXISTS games (
+   541→  id           UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+   542→  name         TEXT    NOT NULL,
+   543→  description  TEXT,
+   544→  category     TEXT    NOT NULL,
+   545→  game_type    TEXT    NOT NULL DEFAULT 'offline'
+   546→               CHECK (game_type IN ('offline','download','online','mini')),
+   547→  apk_url      TEXT,
+   548→  web_url      TEXT,
+   549→  cover_url    TEXT    NOT NULL,
+   550→  size         TEXT    DEFAULT '0 MB',
+   551→  version      TEXT    DEFAULT '1.0',
+   552→  min_android  TEXT    DEFAULT '5.0',
+   553→  is_featured  BOOLEAN DEFAULT false,
+   554→  is_hidden    BOOLEAN DEFAULT false,
+   555→  is_free      BOOLEAN DEFAULT true,
+   556→  downloads    INTEGER DEFAULT 0,
+   557→  rating       REAL    DEFAULT 0,
+   558→  created_at   TIMESTAMPTZ DEFAULT now(),
+   559→  updated_at   TIMESTAMPTZ DEFAULT now()
+   560→);
+   561→
+   562→CREATE INDEX IF NOT EXISTS idx_games_category  ON games (category);
+   563→CREATE INDEX IF NOT EXISTS idx_games_type      ON games (game_type);
+   564→CREATE INDEX IF NOT EXISTS idx_games_featured  ON games (is_featured) WHERE is_featured = true;
+   565→CREATE INDEX IF NOT EXISTS idx_games_hidden    ON games (is_hidden) WHERE is_hidden = false;
+   566→
+   567→ALTER TABLE games ENABLE ROW LEVEL SECURITY;
+   568→CREATE POLICY "games_public_read" ON games FOR SELECT USING (true);
+   569→CREATE POLICY "games_admin_manage" ON games FOR ALL TO authenticated USING (true);
+   570→
+   571→
+   572→-- ──────────────────────────────────────────────────────────────────────────────
+   573→-- TABLE: game_scores (গেম স্কোর ট্র্যাকিং)
+   574→-- ──────────────────────────────────────────────────────────────────────────────
+   575→
+   576→CREATE TABLE IF NOT EXISTS game_scores (
+   577→  id          UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+   578→  user_id     UUID    REFERENCES auth.users(id) ON DELETE CASCADE,
+   579→  game_slug   TEXT    NOT NULL,
+   580→  high_score  INTEGER DEFAULT 0,
+   581→  coins       INTEGER DEFAULT 0,
+   582→  plays       INTEGER DEFAULT 0,
+   583→  last_played TIMESTAMPTZ DEFAULT now(),
+   584→  UNIQUE(user_id, game_slug)
+   585→);
+   586→
+   587→CREATE INDEX IF NOT EXISTS idx_game_scores_game   ON game_scores (game_slug);
+   588→CREATE INDEX IF NOT EXISTS idx_game_scores_high   ON game_scores (high_score DESC);
+   589→
+   590→ALTER TABLE game_scores ENABLE ROW LEVEL SECURITY;
+   591→CREATE POLICY "Users can read own scores" ON game_scores FOR SELECT USING (auth.uid() = user_id);
+   592→CREATE POLICY "Users can insert own scores" ON game_scores FOR INSERT WITH CHECK (auth.uid() = user_id);
+   593→CREATE POLICY "Users can update own scores" ON game_scores FOR UPDATE USING (auth.uid() = user_id);
+   594→
+   595→
+   596→-- ──────────────────────────────────────────────────────────────────────────────
+   597→-- TABLE: game_data (RPC ফাংশনের জন্য — game_scores এর মিরর)
+   598→-- upsert_game_score RPC এই টেবিল ব্যবহার করে
+   599→-- ──────────────────────────────────────────────────────────────────────────────
+   600→
+   601→CREATE TABLE IF NOT EXISTS game_data (
+   602→  id          UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+   603→  user_id     UUID    REFERENCES user_profiles(id) ON DELETE CASCADE,
+   604→  game_slug   TEXT    NOT NULL,
+   605→  high_score  INTEGER DEFAULT 0,
+   606→  coins       INTEGER DEFAULT 0,
+   607→  plays       INTEGER DEFAULT 0,
+   608→  last_played TIMESTAMPTZ DEFAULT now(),
+   609→  created_at  TIMESTAMPTZ DEFAULT now(),
+   610→  UNIQUE(user_id, game_slug)
+   611→);
+   612→
+   613→CREATE INDEX IF NOT EXISTS idx_game_data_slug  ON game_data (game_slug);
+   614→CREATE INDEX IF NOT EXISTS idx_game_data_high  ON game_data (high_score DESC);
+   615→
+   616→ALTER TABLE game_data ENABLE ROW LEVEL SECURITY;
+   617→CREATE POLICY "Users can read own game data" ON game_data FOR SELECT
+   618→  USING (user_id IN (SELECT id FROM user_profiles WHERE auth_user_id = auth.uid()));
+   619→CREATE POLICY "Users can insert own game data" ON game_data FOR INSERT
+   620→  WITH CHECK (user_id IN (SELECT id FROM user_profiles WHERE auth_user_id = auth.uid()));
+   621→CREATE POLICY "Users can update own game data" ON game_data FOR UPDATE
+   622→  USING (user_id IN (SELECT id FROM user_profiles WHERE auth_user_id = auth.uid()));
+   623→
+   624→
+   625→-- ──────────────────────────────────────────────────────────────────────────────
+   626→-- TABLE: game_downloads (গেম ডাউনলোড ট্র্যাকিং)
+   627→-- ──────────────────────────────────────────────────────────────────────────────
+   628→
+   629→CREATE TABLE IF NOT EXISTS game_downloads (
+   630→  id            UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+   631→  user_id       UUID    REFERENCES auth.users(id) ON DELETE CASCADE,
+   632→  game_id       UUID    REFERENCES games(id) ON DELETE CASCADE,
+   633→  downloaded_at TIMESTAMPTZ DEFAULT now(),
+   634→  status        TEXT    DEFAULT 'pending',
+   635→  progress      NUMERIC DEFAULT 0,
+   636→  file_path     TEXT    DEFAULT '',
+   637→  UNIQUE(user_id, game_id)
+   638→);
+   639→
+   640→ALTER TABLE game_downloads ENABLE ROW LEVEL SECURITY;
+   641→CREATE POLICY "game_downloads_user_own" ON game_downloads FOR ALL USING (auth.uid() = user_id);
+   642→
+   643→
+   644→-- ╔══════════════════════════════════════════════════════════════════════════════╗
+   645→-- ║  SECTION 7: PUSH NOTIFICATIONS TABLES                                     ║
+   646→-- ╚══════════════════════════════════════════════════════════════════════════════╝
+   647→
+   648→
+   649→-- ──────────────────────────────────────────────────────────────────────────────
+   650→-- TABLE: push_subscriptions (FCM ডিভাইস টোকেন)
+   651→-- ──────────────────────────────────────────────────────────────────────────────
+   652→
+   653→CREATE TABLE IF NOT EXISTS push_subscriptions (
+   654→  id           UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+   655→  user_id      UUID REFERENCES user_profiles(id) ON DELETE CASCADE,
+   656→  device_token TEXT NOT NULL,
+   657→  platform     TEXT DEFAULT 'web',
+   658→  device_info  TEXT DEFAULT '',
+   659→  is_active    BOOLEAN DEFAULT true,
+   660→  created_at   TIMESTAMPTZ DEFAULT now(),
+   661→  last_used    TIMESTAMPTZ DEFAULT now(),
+   662→  UNIQUE(device_token)
+   663→);
+   664→
+   665→CREATE INDEX IF NOT EXISTS idx_push_subs_user   ON push_subscriptions (user_id);
+   666→CREATE INDEX IF NOT EXISTS idx_push_subs_active ON push_subscriptions (is_active) WHERE is_active = true;
+   667→CREATE INDEX IF NOT EXISTS idx_push_subs_token  ON push_subscriptions (device_token);
+   668→
+   669→ALTER TABLE push_subscriptions ENABLE ROW LEVEL SECURITY;
+   670→CREATE POLICY "Users can read own push subscriptions" ON push_subscriptions FOR SELECT
+   671→  USING (user_id IN (SELECT id FROM user_profiles WHERE auth_user_id = auth.uid()) OR auth.role() = 'service_role');
+   672→CREATE POLICY "Users can insert own push subscriptions" ON push_subscriptions FOR INSERT
+   673→  WITH CHECK (user_id IN (SELECT id FROM user_profiles WHERE auth_user_id = auth.uid()));
+   674→CREATE POLICY "Users can update own push subscriptions" ON push_subscriptions FOR UPDATE
+   675→  USING (user_id IN (SELECT id FROM user_profiles WHERE auth_user_id = auth.uid()));
+   676→CREATE POLICY "Users can delete own push subscriptions" ON push_subscriptions FOR DELETE
+   677→  USING (user_id IN (SELECT id FROM user_profiles WHERE auth_user_id = auth.uid()));
+   678→
+   679→
+   680→-- ──────────────────────────────────────────────────────────────────────────────
+   681→-- TABLE: notification_log (নোটিফিকেশন লগ — গ্যামিফিকেশন সিস্টেমের জন্য)
+   682→-- ──────────────────────────────────────────────────────────────────────────────
+   683→
+   684→CREATE TABLE IF NOT EXISTS notification_log (
+   685→  id           UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+   686→  title        TEXT    NOT NULL,
+   687→  body         TEXT    NOT NULL,
+   688→  category     TEXT    DEFAULT 'new_content',
+   689→  sent_count   INTEGER DEFAULT 0,
+   690→  created_at   TIMESTAMPTZ DEFAULT now()
+   691→);
+   692→
+   693→CREATE INDEX IF NOT EXISTS idx_notif_log_created ON notification_log (created_at DESC);
+   694→
+   695→ALTER TABLE notification_log ENABLE ROW LEVEL SECURITY;
+   696→CREATE POLICY "Notification log readable by all" ON notification_log FOR SELECT USING (true);
+   697→CREATE POLICY "Notification log write by service_role" ON notification_log FOR INSERT WITH CHECK (auth.role() = 'service_role');
+   698→
+   699→
+   700→-- ╔══════════════════════════════════════════════════════════════════════════════╗
+   701→-- ║  SECTION 8: RPC FUNCTIONS                                                 ║
+   702→-- ╚══════════════════════════════════════════════════════════════════════════════╝
+   703→
+   704→
+   705→-- ──────────────────────────────────────────────────────────────────────────────
+   706→-- RPC: upsert_missing_request (মিসিং রিকোয়েস্ট আপসার্ট)
+   707→-- ──────────────────────────────────────────────────────────────────────────────
+   708→
+   709→CREATE OR REPLACE FUNCTION upsert_missing_request(
+   710→  p_search_query TEXT,
+   711→  p_category TEXT DEFAULT 'movie'
+   712→)
+   713→RETURNS TABLE (id BIGINT, search_query TEXT, category TEXT, status TEXT, request_count INTEGER) AS $$
+   714→DECLARE
+   715→  v_id BIGINT;
+   716→  v_count INTEGER;
+   717→BEGIN
+   718→  INSERT INTO missing_requests (search_query, category, status, request_count)
+   719→  VALUES (p_search_query, p_category, 'pending', 1)
+   720→  ON CONFLICT (search_query, category)
+   721→  DO UPDATE SET
+   722→    request_count = missing_requests.request_count + 1,
+   723→    updated_at = now()
+   724→  RETURNING id INTO v_id;
+   725→
+   726→  RETURN QUERY
+   727→    SELECT mr.id, mr.search_query, mr.category, mr.status::TEXT, mr.request_count
+   728→    FROM missing_requests mr
+   729→    WHERE mr.id = v_id;
+   730→END;
+   731→$$ LANGUAGE plpgsql SECURITY DEFINER;
+   732→
+   733→
+   734→-- ──────────────────────────────────────────────────────────────────────────────
+   735→-- RPC: fetch_user_game_data (ইউজারের সব গেম ডাটা)
+   736→-- ──────────────────────────────────────────────────────────────────────────────
+   737→
+   738→CREATE OR REPLACE FUNCTION fetch_user_game_data(
+   739→  p_auth_user_id UUID
+   740→)
+   741→RETURNS TABLE (
+   742→  id UUID,
+   743→  game_slug TEXT,
+   744→  high_score INTEGER,
+   745→  coins INTEGER,
+   746→  plays INTEGER,
+   747→  last_played TIMESTAMPTZ,
+   748→  created_at TIMESTAMPTZ
+   749→) AS $$
+   750→  SELECT gd.id, gd.game_slug, gd.high_score, gd.coins, gd.plays,
+   751→         gd.last_played, gd.created_at
+   752→  FROM game_data gd
+   753→  INNER JOIN user_profiles up ON up.id = gd.user_id
+   754→  WHERE up.auth_user_id = p_auth_user_id
+   755→  ORDER BY gd.last_played DESC;
+   756→$$ LANGUAGE sql STABLE SECURITY DEFINER;
+   757→
+   758→
+   759→-- ──────────────────────────────────────────────────────────────────────────────
+   760→-- RPC: fetch_game_score (একটা গেমের স্কোর)
+   761→-- ──────────────────────────────────────────────────────────────────────────────
+   762→
+   763→CREATE OR REPLACE FUNCTION fetch_game_score(
+   764→  p_auth_user_id UUID,
+   765→  p_game_slug TEXT
+   766→)
+   767→RETURNS TABLE (
+   768→  high_score INTEGER,
+   769→  coins INTEGER,
+   770→  plays INTEGER
+   771→) AS $$
+   772→  SELECT gd.high_score, gd.coins, gd.plays
+   773→  FROM game_data gd
+   774→  INNER JOIN user_profiles up ON up.id = gd.user_id
+   775→  WHERE up.auth_user_id = p_auth_user_id
+   776→    AND gd.game_slug = p_game_slug;
+   777→$$ LANGUAGE sql STABLE SECURITY DEFINER;
+   778→
+   779→
+   780→-- ──────────────────────────────────────────────────────────────────────────────
+   781→-- RPC: upsert_game_score (গেম স্কোর আপডেট/ইনসার্ট + কয়েন যোগ)
+   782→-- ──────────────────────────────────────────────────────────────────────────────
+   783→
+   784→CREATE OR REPLACE FUNCTION upsert_game_score(
+   785→  p_auth_user_id UUID,
+   786→  p_game_slug TEXT,
+   787→  p_score INTEGER,
+   788→  p_coins_earned INTEGER DEFAULT 0
+   789→)
+   790→RETURNS TABLE (
+   791→  id UUID,
+   792→  game_slug TEXT,
+   793→  high_score INTEGER,
+   794→  coins INTEGER,
+   795→  plays INTEGER
+   796→) AS $$
+   797→DECLARE
+   798→  v_profile_id UUID;
+   799→  v_current_high INTEGER;
+   800→  v_result_id UUID;
+   801→BEGIN
+   802→  SELECT id INTO v_profile_id FROM user_profiles WHERE auth_user_id = p_auth_user_id LIMIT 1;
+   803→  IF v_profile_id IS NULL THEN
+   804→    RAISE EXCEPTION 'User profile not found for auth_user_id %', p_auth_user_id;
+   805→  END IF;
+   806→
+   807→  SELECT high_score INTO v_current_high
+   808→  FROM game_data WHERE user_id = v_profile_id AND game_slug = p_game_slug;
+   809→
+   810→  IF v_current_high IS NOT NULL THEN
+   811→    UPDATE game_data
+   812→    SET high_score = GREATEST(high_score, p_score),
+   813→        coins = coins + p_coins_earned,
+   814→        plays = plays + 1,
+   815→        last_played = now()
+   816→    WHERE user_id = v_profile_id AND game_slug = p_game_slug
+   817→    RETURNING id INTO v_result_id;
+   818→  ELSE
+   819→    INSERT INTO game_data (user_id, game_slug, high_score, coins, plays)
+   820→    VALUES (v_profile_id, p_game_slug, p_score, p_coins_earned, 1)
+   821→    RETURNING id INTO v_result_id;
+   822→  END IF;
+   823→
+   824→  IF p_coins_earned > 0 THEN
+   825→    UPDATE user_profiles SET coins = coins + p_coins_earned WHERE id = v_profile_id;
+   826→  END IF;
+   827→
+   828→  RETURN QUERY
+   829→    SELECT gd.id, gd.game_slug, gd.high_score, gd.coins, gd.plays
+   830→    FROM game_data gd WHERE gd.id = v_result_id;
+   831→END;
+   832→$$ LANGUAGE plpgsql SECURITY DEFINER;
+   833→
+   834→
+   835→-- ──────────────────────────────────────────────────────────────────────────────
+   836→-- RPC: fetch_user_coins (মোট কয়েন)
+   837→-- ──────────────────────────────────────────────────────────────────────────────
+   838→
+   839→CREATE OR REPLACE FUNCTION fetch_user_coins(
+   840→  p_auth_user_id UUID
+   841→)
+   842→RETURNS TABLE (
+   843→  total_coins INTEGER,
+   844→  game_coins INTEGER,
+   845→  games_played INTEGER
+   846→) AS $$
+   847→DECLARE
+   848→  v_profile_coins INTEGER;
+   849→  v_game_coins INTEGER;
+   850→  v_games_count INTEGER;
+   851→BEGIN
+   852→  SELECT coins INTO v_profile_coins FROM user_profiles WHERE auth_user_id = p_auth_user_id;
+   853→  SELECT COALESCE(SUM(gd.coins), 0), COUNT(*)
+   854→  INTO v_game_coins, v_games_count
+   855→  FROM game_data gd
+   856→  INNER JOIN user_profiles up ON up.id = gd.user_id
+   857→  WHERE up.auth_user_id = p_auth_user_id;
+   858→
+   859→  v_profile_coins := COALESCE(v_profile_coins, 0);
+   860→
+   861→  RETURN QUERY SELECT v_profile_coins, v_game_coins, v_games_count;
+   862→END;
+   863→$$ LANGUAGE plpgsql STABLE SECURITY DEFINER;
+   864→
+   865→
+   866→-- ──────────────────────────────────────────────────────────────────────────────
+   867→-- RPC: fetch_leaderboard (গ্লোবাল লিডারবোর্ড)
+   868→-- ──────────────────────────────────────────────────────────────────────────────
+   869→
+   870→CREATE OR REPLACE FUNCTION fetch_leaderboard(
+   871→  p_game_slug TEXT DEFAULT NULL,
+   872→  p_limit INTEGER DEFAULT 10
+   873→)
+   874→RETURNS TABLE (
+   875→  rank BIGINT,
+   876→  display_name TEXT,
+   877→  avatar_url TEXT,
+   878→  game_slug TEXT,
+   879→  high_score INTEGER,
+   880→  coins INTEGER,
+   881→  plays INTEGER
+   882→) AS $$
+   883→  SELECT
+   884→    ROW_NUMBER() OVER (
+   885→      PARTITION BY gd.game_slug
+   886→      ORDER BY gd.high_score DESC, gd.coins DESC
+   887→    ) AS rank,
+   888→    up.display_name,
+   889→    up.avatar_url,
+   890→    gd.game_slug,
+   891→    gd.high_score,
+   892→    gd.coins,
+   893→    gd.plays
+   894→  FROM game_data gd
+   895→  INNER JOIN user_profiles up ON up.id = gd.user_id
+   896→  WHERE p_game_slug IS NULL OR gd.game_slug = p_game_slug
+   897→  ORDER BY gd.high_score DESC, gd.coins DESC
+   898→  LIMIT p_limit;
+   899→$$ LANGUAGE sql STABLE SECURITY DEFINER;
+   900→
+   901→
+   902→-- ──────────────────────────────────────────────────────────────────────────────
+   903→-- RPC: deduct_user_coins (কয়েন কাটা)
+   904→-- ──────────────────────────────────────────────────────────────────────────────
+   905→
+   906→CREATE OR REPLACE FUNCTION deduct_user_coins(
+   907→  p_auth_user_id UUID,
+   908→  p_amount INTEGER
+   909→)
+   910→RETURNS TABLE (success BOOLEAN, remaining_coins INTEGER) AS $$
+   911→DECLARE
+   912→  v_profile_id UUID;
+   913→  v_current INTEGER;
+   914→BEGIN
+   915→  IF p_amount <= 0 THEN
+   916→    RETURN QUERY SELECT false, 0;
+   917→    RETURN;
+   918→  END IF;
+   919→
+   920→  SELECT id, coins INTO v_profile_id, v_current
+   921→  FROM user_profiles WHERE auth_user_id = p_auth_user_id;
+   922→
+   923→  IF v_profile_id IS NULL THEN
+   924→    RETURN QUERY SELECT false, 0;
+   925→    RETURN;
+   926→  END IF;
+   927→
+   928→  IF v_current < p_amount THEN
+   929→    RETURN QUERY SELECT false, v_current;
+   930→    RETURN;
+   931→  END IF;
+   932→
+   933→  UPDATE user_profiles SET coins = coins - p_amount WHERE id = v_profile_id;
+   934→  RETURN QUERY SELECT true, (v_current - p_amount);
+   935→END;
+   936→$$ LANGUAGE plpgsql SECURITY DEFINER;
+   937→
+   938→
+   939→-- ──────────────────────────────────────────────────────────────────────────────
+   940→-- RPC: register_push_token (FCM টোকেন রেজিস্টার)
+   941→-- ──────────────────────────────────────────────────────────────────────────────
+   942→
+   943→CREATE OR REPLACE FUNCTION register_push_token(
+   944→  p_auth_user_id UUID,
+   945→  p_device_token TEXT,
+   946→  p_platform TEXT DEFAULT 'web',
+   947→  p_device_info TEXT DEFAULT ''
+   948→)
+   949→RETURNS UUID AS $$
+   950→DECLARE
+   951→  v_profile_id UUID;
+   952→  v_existing_id UUID;
+   953→BEGIN
+   954→  SELECT id INTO v_profile_id FROM user_profiles WHERE auth_user_id = p_auth_user_id;
+   955→  IF v_profile_id IS NULL THEN
+   956→    RAISE EXCEPTION 'User profile not found';
+   957→  END IF;
+   958→
+   959→  SELECT id INTO v_existing_id FROM push_subscriptions WHERE device_token = p_device_token;
+   960→
+   961→  IF v_existing_id IS NOT NULL THEN
+   962→    UPDATE push_subscriptions
+   963→    SET user_id = v_profile_id,
+   964→        platform = p_platform,
+   965→        device_info = p_device_info,
+   966→        is_active = true,
+   967→        last_used = now()
+   968→    WHERE id = v_existing_id;
+   969→    RETURN v_existing_id;
+   970→  END IF;
+   971→
+   972→  INSERT INTO push_subscriptions (user_id, device_token, platform, device_info)
+   973→  VALUES (v_profile_id, p_device_token, p_platform, p_device_info)
+   974→  RETURNING id INTO v_existing_id;
+   975→
+   976→  RETURN v_existing_id;
+   977→END;
+   978→$$ LANGUAGE plpgsql SECURITY DEFINER;
+   979→
+   980→
+   981→-- ──────────────────────────────────────────────────────────────────────────────
+   982→-- RPC: unregister_push_token (FCM টোকেন আনরেজিস্টার)
+   983→-- ──────────────────────────────────────────────────────────────────────────────
+   984→
+   985→CREATE OR REPLACE FUNCTION unregister_push_token(
+   986→  p_device_token TEXT
+   987→)
+   988→RETURNS BOOLEAN AS $$
+   989→BEGIN
+   990→  UPDATE push_subscriptions SET is_active = false WHERE device_token = p_device_token;
+   991→  RETURN FOUND;
+   992→END;
+   993→$$ LANGUAGE plpgsql SECURITY DEFINER;
+   994→
+   995→
+   996→-- ──────────────────────────────────────────────────────────────────────────────
+   997→-- RPC: get_active_push_tokens (সব একটিভ টোকেন)
+   998→-- ──────────────────────────────────────────────────────────────────────────────
+   999→
+  1000→CREATE OR REPLACE FUNCTION get_active_push_tokens(
+  1001→  p_limit INTEGER DEFAULT 500
+  1002→)
+  1003→RETURNS TABLE (device_token TEXT, platform TEXT) AS $$
+  1004→  SELECT device_token, platform
+  1005→  FROM push_subscriptions
+  1006→  WHERE is_active = true
+  1007→  ORDER BY last_used DESC
+  1008→  LIMIT p_limit;
+  1009→$$ LANGUAGE sql STABLE SECURITY DEFINER;
+  1010→
+  1011→
+  1012→-- ──────────────────────────────────────────────────────────────────────────────
+  1013→-- RPC: cleanup_stale_tokens (পুরনো টোকেন ডিঅ্যাক্টিভেট)
+  1014→-- ──────────────────────────────────────────────────────────────────────────────
+  1015→
+  1016→CREATE OR REPLACE FUNCTION cleanup_stale_tokens()
+  1017→RETURNS void AS $$
+  1018→BEGIN
+  1019→  UPDATE push_subscriptions
+  1020→  SET is_active = false
+  1021→  WHERE last_used < now() - INTERVAL '30 days'
+  1022→    AND is_active = true;
+  1023→END;
+  1024→$$ LANGUAGE plpgsql SECURITY DEFINER;
+  1025→
+  1026→
+  1027→-- ──────────────────────────────────────────────────────────────────────────────
+  1028→-- TRIGGER: notify_new_video (নতুন ভিডিও ইনসার্ট হলে পুশ নোটিফিকেশন)
+  1029→-- ──────────────────────────────────────────────────────────────────────────────
+  1030→
+  1031→CREATE OR REPLACE FUNCTION notify_new_video()
+  1032→RETURNS TRIGGER AS $$
+  1033→DECLARE
+  1034→  v_title TEXT;
+  1035→  v_category TEXT;
+  1036→  v_notification_body TEXT;
+  1037→BEGIN
+  1038→  IF TG_OP != 'INSERT' THEN
+  1039→    RETURN NEW;
+  1040→  END IF;
+  1041→
+  1042→  v_title := NEW.title;
+  1043→  v_category := NEW.category;
+  1044→
+  1045→  IF v_category = 'music' THEN
+  1046→    v_notification_body := 'New music added! Check it out.';
+  1047→  ELSE
+  1048→    v_notification_body := 'New movie added! Check it out.';
+  1049→  END IF;
+  1050→
+  1051→  PERFORM net.http_post(
+  1052→    url := 'https://gjapqxeksdsiqhvlfrnb.supabase.co/functions/v1/push-notify',
+  1053→    headers := jsonb_build_object(
+  1054→      'Content-Type', 'application/json',
+  1055→      'Authorization', 'Bearer ' || current_setting('app.cron_secret', true)
+  1056→    ),
+  1057→    body := jsonb_build_object(
+  1058→      'type', 'new_video',
+  1059→      'title', v_title,
+  1060→      'body', v_notification_body,
+  1061→      'category', v_category,
+  1062→      'video_id', NEW.yt_video_id,
+  1063→      'thumbnail', COALESCE(NEW.thumbnail_url, '')
+  1064→    ),
+  1065→    timeout_milliseconds := 5000
+  1066→  );
+  1067→
+  1068→  RETURN NEW;
+  1069→END;
+  1070→$$ LANGUAGE plpgsql SECURITY DEFINER;
+  1071→
+  1072→DROP TRIGGER IF EXISTS trg_notify_new_video ON videos;
+  1073→CREATE TRIGGER trg_notify_new_video
+  1074→  AFTER INSERT ON videos
+  1075→  FOR EACH ROW
+  1076→  WHEN (NEW.source = 'youtube')
+  1077→  EXECUTE FUNCTION notify_new_video();
+  1078→
+  1079→
+  1080→-- ──────────────────────────────────────────────────────────────────────────────
+  1081→-- TRIGGER: auto-update updated_at (সব টেবিলের জন্য অটো আপডেট)
+  1082→-- ──────────────────────────────────────────────────────────────────────────────
+  1083→
+  1084→CREATE OR REPLACE FUNCTION update_updated_at()
+  1085→RETURNS TRIGGER AS $$
+  1086→BEGIN
+  1087→  NEW.updated_at = now();
+  1088→  RETURN NEW;
+  1089→END;
+  1090→$$ LANGUAGE plpgsql;
+  1091→
+  1092→CREATE TRIGGER trg_yt_channels_updated   BEFORE UPDATE ON yt_channels      FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+  1093→CREATE TRIGGER trg_channel_display_updated BEFORE UPDATE ON channel_display FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+  1094→CREATE TRIGGER trg_app_features_updated  BEFORE UPDATE ON app_features     FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+  1095→CREATE TRIGGER trg_app_settings_updated  BEFORE UPDATE ON app_settings     FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+  1096→CREATE TRIGGER trg_games_updated         BEFORE UPDATE ON games            FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+  1097→CREATE TRIGGER trg_user_profiles_updated BEFORE UPDATE ON user_profiles    FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+  1098→
+  1099→
+  1100→-- ╔══════════════════════════════════════════════════════════════════════════════╗
+  1101→-- ║  SECTION 9: VIEWS (জয়েন কুয়েরি সহজ করার জন্য)                              ║
+  1102→-- ╚══════════════════════════════════════════════════════════════════════════════╝
+  1103→
+  1104→
+  1105→-- ──────────────────────────────────────────────────────────────────────────────
+  1106→-- VIEW: channel_display_with_info
+  1107→-- channel_display + yt_channels জয়েন — MovieHub/MusicHub চিপস লোড করতে
+  1108→-- ──────────────────────────────────────────────────────────────────────────────
+  1109→
+  1110→CREATE OR REPLACE VIEW channel_display_with_info AS
+  1111→SELECT
+  1112→  cd.id,
+  1113→  cd.channel_id,
+  1114→  cd.display_name,
+  1115→  cd.logo_url,
+  1116→  cd.badge_color,
+  1117→  cd.border_color,
+  1118→  cd.is_visible,
+  1119→  cd.sort_order,
+  1120→  yc.channel_name,
+  1121→  yc.channel_type,
+  1122→  yc.total_imported,
+  1123→  yc.channel_avatar
+  1124→FROM channel_display cd
+  1125→LEFT JOIN yt_channels yc ON yc.channel_id = cd.channel_id
+  1126→WHERE cd.is_visible = true
+  1127→ORDER BY cd.sort_order ASC;
+  1128→
+  1129→ALTER TABLE channel_display_with_info OWNER TO postgres;
+  1130→
+  1131→
+  1132→-- ╔══════════════════════════════════════════════════════════════════════════════╗
+  1133→-- ║  SECTION 10: GRANT PERMISSIONS                                            ║
+  1134→-- ╚══════════════════════════════════════════════════════════════════════════════╝
+  1135→
+  1136→-- পাবলিক স্কিমায় টেবিল পারমিশন (Supabase ডিফল্ট)
+  1137→GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
+  1138→
+  1139→-- সিকোয়েন্স পারমিশন (BIGINT IDENTITY কলামের জন্য)
+  1140→GRANT USAGE, SELECT ON SEQUENCE public.videos_id_seq TO anon, authenticated, service_role;
+  1141→GRANT USAGE, SELECT ON SEQUENCE public.missing_requests_id_seq TO anon, authenticated, service_role;
+  1142→
+  1143→
+  1144→-- ╔══════════════════════════════════════════════════════════════════════════════╗
+  1145→-- ║  ✅ সব হয়ে গেছে! এখন নিচের স্টেপগুলো ফলো করো:                              ║
+  1146→-- ║                                                                            ║
+  1147→-- ║  1. Supabase Dashboard → Authentication → Users → Add user                ║
+  1148→-- ║     Email: admin@playnexa.com    Password: PlayNexa@2024                  ║
+  1149→-- ║                                                                            ║
+  1150→-- ║  2. ইউজারের UUID কপি করো                                                   ║
+  1151→-- ║                                                                            ║
+  1152→-- ║  3. SQL Editor এ রান করো:                                                  ║
+  1153→-- ║     INSERT INTO admin_users (user_id, email, role)                         ║
+  1154→-- ║     VALUES ('UUID_পেস্ট_করো', 'admin@playnexa.com', 'superadmin');            ║
+  1155→-- ║                                                                            ║
+  1156→-- ║  4. /admin/login এ লগইন করো                                               ║
+  1157→-- ║     Email: admin@playnexa.com    Password: PlayNexa@2024                  ║
+  1158→-- ╚══════════════════════════════════════════════════════════════════════════════╝
+  1159→
