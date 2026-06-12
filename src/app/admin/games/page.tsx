@@ -1,29 +1,38 @@
-// ── Play Nexa Admin — Game Manager ────────────────────────────
-// Full CRUD for games table with Supabase
-// AMOLED dark theme (#000000 base), no backdrop-blur, no styled-jsx
+// ── Play Nexa Admin — Game Manager (Phase 3) ───────────────────
+// Full CRUD for games table with Supabase.
+// Supports 4 game types: offline, download, online, mini.
+// Conditional URL fields based on game_type.
+// AMOLED dark theme, no backdrop-blur, no styled-jsx.
 
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { supabase } from '@/lib/supabaseAdmin'
+import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { useToast } from '@/components/admin/Toast'
 import { logActivity } from '@/lib/adminAuth'
 import ConfirmModal from '@/components/admin/ConfirmModal'
 
-// ── Types ──
+// ── Types ──────────────────────────────────────────────────────
+
+type GameType = 'offline' | 'download' | 'online' | 'mini'
 
 interface Game {
   id: string
   name: string
+  description: string | null
   category: string
-  apk_url: string
+  game_type: GameType
+  apk_url: string | null
+  web_url: string | null
   cover_url: string
   size: string
   version: string
-  description: string
+  min_android: string
   is_featured: boolean
   is_hidden: boolean
+  is_free: boolean
   downloads: number
+  rating: number
   created_at: string
   updated_at: string
 }
@@ -31,26 +40,45 @@ interface Game {
 interface FormState {
   name: string
   category: string
+  game_type: GameType
   apk_url: string
+  web_url: string
   cover_url: string
   size: string
   version: string
+  min_android: string
   description: string
   is_featured: boolean
+  is_free: boolean
 }
 
 const EMPTY_FORM: FormState = {
   name: '',
   category: '',
+  game_type: 'offline',
   apk_url: '',
+  web_url: '',
   cover_url: '',
-  size: '',
-  version: '',
+  size: '0 MB',
+  version: '1.0',
+  min_android: '5.0',
   description: '',
   is_featured: false,
+  is_free: true,
 }
 
-const CATEGORIES = ['Action', 'Puzzle', 'Sports', 'Racing', 'Adventure', 'Casual'] as const
+const CATEGORIES = [
+  'Action', 'Puzzle', 'Sports', 'Racing',
+  'Adventure', 'Casual', 'Arcade', 'Strategy',
+  'RPG', 'Simulation', 'Board', 'Card',
+] as const
+
+const GAME_TYPES: { value: GameType; label: string; desc: string }[] = [
+  { value: 'offline',  label: '📴 Offline',  desc: 'HTML5 game, plays in WebView' },
+  { value: 'download', label: '📥 Download', desc: 'APK file, user downloads & installs' },
+  { value: 'online',   label: '🌐 Online',   desc: 'External URL, plays in WebView' },
+  { value: 'mini',     label: '⚡ Mini',      desc: 'Built-in small HTML5 game' },
+]
 
 const CATEGORY_COLORS: Record<string, string> = {
   Action: '#EF4444',
@@ -59,9 +87,22 @@ const CATEGORY_COLORS: Record<string, string> = {
   Racing: '#F59E0B',
   Adventure: '#06B6D4',
   Casual: '#A78BFA',
+  Arcade: '#EC4899',
+  Strategy: '#F97316',
+  RPG: '#8B5CF6',
+  Simulation: '#14B8A6',
+  Board: '#6366F1',
+  Card: '#D946EF',
 }
 
-// ── Helpers ──
+const TYPE_COLORS: Record<GameType, string> = {
+  offline: '#6B7280',
+  download: '#3B82F6',
+  online: '#10B981',
+  mini: '#F59E0B',
+}
+
+// ── Helpers ────────────────────────────────────────────────────
 
 function formatDownloads(n: number): string {
   if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M'
@@ -82,7 +123,7 @@ function formatDate(iso: string): string {
   }
 }
 
-// ── Component ──
+// ── Component ──────────────────────────────────────────────────
 
 export default function GameManagerPage() {
   const { showToast } = useToast()
@@ -102,8 +143,8 @@ export default function GameManagerPage() {
   // ── Fetch games ──
 
   const fetchGames = useCallback(async () => {
-    if (!supabase) {
-      setError('Supabase client not available')
+    if (!supabaseAdmin) {
+      setError('Supabase admin client not available')
       setIsLoading(false)
       return
     }
@@ -112,7 +153,7 @@ export default function GameManagerPage() {
     setError(null)
 
     try {
-      const { data, error: fetchError } = await supabase
+      const { data, error: fetchError } = await supabaseAdmin
         .from('games')
         .select('*')
         .order('created_at', { ascending: false })
@@ -147,12 +188,16 @@ export default function GameManagerPage() {
     setForm({
       name: game.name,
       category: game.category,
+      game_type: game.game_type || 'offline',
       apk_url: game.apk_url || '',
+      web_url: game.web_url || '',
       cover_url: game.cover_url || '',
-      size: game.size || '',
-      version: game.version || '',
+      size: game.size || '0 MB',
+      version: game.version || '1.0',
+      min_android: game.min_android || '5.0',
       description: game.description || '',
       is_featured: game.is_featured,
+      is_free: game.is_free !== false,
     })
     setEditGame(game)
     setShowAddModal(true)
@@ -166,12 +211,30 @@ export default function GameManagerPage() {
     setForm(EMPTY_FORM)
   }
 
+  // ── Handle game_type change — reset URL fields ──
+
+  const handleGameTypeChange = (newType: GameType) => {
+    setForm(f => ({
+      ...f,
+      game_type: newType,
+      // Reset URL fields when switching type to avoid confusion
+      apk_url: newType === 'download' ? f.apk_url : '',
+      web_url: (newType === 'offline' || newType === 'online' || newType === 'mini')
+        ? f.web_url
+        : '',
+    }))
+  }
+
   // ── Save game ──
 
   const saveGame = async () => {
-    if (!supabase) return
+    if (!supabaseAdmin) return
     if (!form.name.trim() || !form.category.trim()) {
       showToast('Name and Category are required', 'error')
+      return
+    }
+    if (!form.cover_url.trim()) {
+      showToast('Cover Image URL is required', 'error')
       return
     }
 
@@ -181,33 +244,45 @@ export default function GameManagerPage() {
       const payload = {
         name: form.name.trim(),
         category: form.category.trim(),
-        apk_url: form.apk_url.trim(),
+        game_type: form.game_type,
+        apk_url: form.game_type === 'download' ? form.apk_url.trim() : null,
+        web_url: (form.game_type === 'offline' || form.game_type === 'online' || form.game_type === 'mini')
+          ? form.web_url.trim()
+          : null,
         cover_url: form.cover_url.trim(),
-        size: form.size.trim(),
-        version: form.version.trim(),
-        description: form.description.trim(),
+        size: form.size.trim() || '0 MB',
+        version: form.version.trim() || '1.0',
+        min_android: form.min_android.trim() || '5.0',
+        description: form.description.trim() || null,
         is_featured: form.is_featured,
+        is_free: form.is_free,
         updated_at: now,
       }
 
       if (editGame) {
-        const { error } = await supabase
+        const { error } = await supabaseAdmin
           .from('games')
           .update(payload)
           .eq('id', editGame.id)
 
         if (error) throw error
 
-        showToast('✅ Game updated!', 'success')
+        showToast('Game updated!', 'success')
         logActivity('UPDATE_GAME', editGame.name, { id: editGame.id })
       } else {
-        const { error } = await supabase
+        const { error } = await supabaseAdmin
           .from('games')
-          .insert([{ ...payload, is_hidden: false, downloads: 0, created_at: now }])
+          .insert([{
+            ...payload,
+            is_hidden: false,
+            downloads: 0,
+            rating: 0,
+            created_at: now,
+          }])
 
         if (error) throw error
 
-        showToast('✅ Game added!', 'success')
+        showToast('Game added!', 'success')
         logActivity('ADD_GAME', form.name.trim())
       }
 
@@ -223,10 +298,10 @@ export default function GameManagerPage() {
   // ── Delete game ──
 
   const deleteGame = async () => {
-    if (!supabase || !deleteTarget) return
+    if (!supabaseAdmin || !deleteTarget) return
 
     try {
-      const { error } = await supabase
+      const { error } = await supabaseAdmin
         .from('games')
         .delete()
         .eq('id', deleteTarget.id)
@@ -245,10 +320,10 @@ export default function GameManagerPage() {
   // ── Toggle featured ──
 
   const toggleFeatured = async (game: Game) => {
-    if (!supabase) return
+    if (!supabaseAdmin) return
 
     try {
-      const { error } = await supabase
+      const { error } = await supabaseAdmin
         .from('games')
         .update({ is_featured: !game.is_featured, updated_at: new Date().toISOString() })
         .eq('id', game.id)
@@ -266,10 +341,10 @@ export default function GameManagerPage() {
   // ── Toggle hidden ──
 
   const toggleHidden = async (game: Game) => {
-    if (!supabase) return
+    if (!supabaseAdmin) return
 
     try {
-      const { error } = await supabase
+      const { error } = await supabaseAdmin
         .from('games')
         .update({ is_hidden: !game.is_hidden, updated_at: new Date().toISOString() })
         .eq('id', game.id)
@@ -291,7 +366,7 @@ export default function GameManagerPage() {
       <div className="flex items-center justify-center min-h-[60vh]">
         <div className="flex flex-col items-center gap-4">
           <div className="w-10 h-10 border-2 border-[#7C3AED] border-t-transparent rounded-full animate-spin" />
-          <p className="text-[#9CA3AF] text-sm">Loading games…</p>
+          <p className="text-[#9CA3AF] text-sm">Loading games...</p>
         </div>
       </div>
     )
@@ -323,11 +398,11 @@ export default function GameManagerPage() {
 
   return (
     <div className="space-y-5">
-      {/* ── Header ── */}
+      {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div className="flex items-center gap-3">
           <h1 className="text-xl sm:text-2xl font-bold text-white">
-            🎮 Game Manager
+            Game Manager
           </h1>
           <span className="px-2.5 py-0.5 bg-[#10B981]/20 text-[#10B981] text-xs font-semibold rounded-full">
             {games.length}
@@ -341,7 +416,7 @@ export default function GameManagerPage() {
         </button>
       </div>
 
-      {/* ── Games Grid ── */}
+      {/* Games Grid */}
       {games.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-20 gap-4">
           <div className="w-16 h-16 rounded-2xl bg-[#1A1A1A] flex items-center justify-center text-3xl">
@@ -359,6 +434,9 @@ export default function GameManagerPage() {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {games.map(game => {
             const catColor = CATEGORY_COLORS[game.category] || '#6B7280'
+            const typeColor = TYPE_COLORS[game.game_type] || '#6B7280'
+            const typeLabel = GAME_TYPES.find(t => t.value === game.game_type)?.label || game.game_type
+
             return (
               <div
                 key={game.id}
@@ -379,6 +457,14 @@ export default function GameManagerPage() {
                     </div>
                   )}
 
+                  {/* Game type badge */}
+                  <span
+                    className="absolute top-3 left-3 px-2 py-0.5 text-xs font-semibold rounded-lg text-white"
+                    style={{ backgroundColor: typeColor + 'CC' }}
+                  >
+                    {typeLabel}
+                  </span>
+
                   {/* Featured star */}
                   <button
                     onClick={() => toggleFeatured(game)}
@@ -394,8 +480,15 @@ export default function GameManagerPage() {
 
                   {/* Hidden badge */}
                   {game.is_hidden && (
-                    <div className="absolute top-3 left-3 px-2 py-0.5 bg-[#EF4444]/80 text-white text-xs font-semibold rounded-lg">
+                    <div className="absolute top-3 left-24 px-2 py-0.5 bg-[#EF4444]/80 text-white text-xs font-semibold rounded-lg">
                       HIDDEN
+                    </div>
+                  )}
+
+                  {/* FREE badge */}
+                  {game.is_free && (
+                    <div className="absolute bottom-3 left-3 px-2 py-0.5 bg-[#10B981]/80 text-white text-[10px] font-bold rounded-lg">
+                      FREE
                     </div>
                   )}
                 </div>
@@ -421,6 +514,13 @@ export default function GameManagerPage() {
                     {game.size && <span>{game.size}</span>}
                     <span>{formatDownloads(game.downloads)} downloads</span>
                   </div>
+
+                  {/* Web/APK URL preview */}
+                  {(game.web_url || game.apk_url) && (
+                    <p className="text-[9px] text-[#6B7280] truncate mb-3">
+                      {game.web_url || game.apk_url}
+                    </p>
+                  )}
 
                   {/* Action Buttons */}
                   <div className="flex items-center gap-2">
@@ -481,6 +581,30 @@ export default function GameManagerPage() {
                 />
               </div>
 
+              {/* Game Type (radio) */}
+              <div>
+                <label className="block text-[#9CA3AF] text-xs font-medium mb-2">
+                  Game Type <span className="text-[#EF4444]">*</span>
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  {GAME_TYPES.map(gt => (
+                    <button
+                      key={gt.value}
+                      type="button"
+                      onClick={() => handleGameTypeChange(gt.value)}
+                      className={`text-left p-3 rounded-xl border text-xs transition-colors duration-150 ${
+                        form.game_type === gt.value
+                          ? 'border-[#7C3AED] bg-[#7C3AED]/10 text-white'
+                          : 'border-[#2D2D2D] bg-[#1A1A1A] text-[#9CA3AF] hover:border-[#4B5563]'
+                      }`}
+                    >
+                      <div className="font-semibold mb-0.5">{gt.label}</div>
+                      <div className="text-[9px] text-[#6B7280]">{gt.desc}</div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
               {/* Category */}
               <div>
                 <label className="block text-[#9CA3AF] text-xs font-medium mb-1.5">
@@ -502,24 +626,43 @@ export default function GameManagerPage() {
                 </select>
               </div>
 
-              {/* APK URL */}
-              <div>
-                <label className="block text-[#9CA3AF] text-xs font-medium mb-1.5">
-                  APK URL
-                </label>
-                <input
-                  type="text"
-                  value={form.apk_url}
-                  onChange={e => setForm(f => ({ ...f, apk_url: e.target.value }))}
-                  placeholder="https://..."
-                  className="w-full h-11 bg-[#1A1A1A] border border-[#2D2D2D] rounded-xl px-4 text-white text-sm outline-none focus:border-[#7C3AED] transition-colors duration-150 placeholder:text-[#6B7280]"
-                />
-              </div>
+              {/* URL field — changes based on game_type */}
+              {form.game_type === 'download' ? (
+                <div>
+                  <label className="block text-[#9CA3AF] text-xs font-medium mb-1.5">
+                    APK Download URL <span className="text-[#EF4444]">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={form.apk_url}
+                    onChange={e => setForm(f => ({ ...f, apk_url: e.target.value }))}
+                    placeholder="https://storage.example.com/game.apk"
+                    className="w-full h-11 bg-[#1A1A1A] border border-[#2D2D2D] rounded-xl px-4 text-white text-sm outline-none focus:border-[#7C3AED] transition-colors duration-150 placeholder:text-[#6B7280]"
+                  />
+                </div>
+              ) : (
+                <div>
+                  <label className="block text-[#9CA3AF] text-xs font-medium mb-1.5">
+                    Game URL (HTML5 / Web) <span className="text-[#EF4444]">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={form.web_url}
+                    onChange={e => setForm(f => ({ ...f, web_url: e.target.value }))}
+                    placeholder={
+                      form.game_type === 'online'
+                        ? 'https://example.com/game'
+                        : 'https://storage.example.com/game/index.html'
+                    }
+                    className="w-full h-11 bg-[#1A1A1A] border border-[#2D2D2D] rounded-xl px-4 text-white text-sm outline-none focus:border-[#7C3AED] transition-colors duration-150 placeholder:text-[#6B7280]"
+                  />
+                </div>
+              )}
 
               {/* Cover Image URL */}
               <div>
                 <label className="block text-[#9CA3AF] text-xs font-medium mb-1.5">
-                  Cover Image URL
+                  Cover Image URL <span className="text-[#EF4444]">*</span>
                 </label>
                 <input
                   type="text"
@@ -542,8 +685,8 @@ export default function GameManagerPage() {
                 </div>
               )}
 
-              {/* Size + Version row */}
-              <div className="grid grid-cols-2 gap-3">
+              {/* Size + Version + Min Android row */}
+              <div className="grid grid-cols-3 gap-3">
                 <div>
                   <label className="block text-[#9CA3AF] text-xs font-medium mb-1.5">
                     Size
@@ -552,7 +695,7 @@ export default function GameManagerPage() {
                     type="text"
                     value={form.size}
                     onChange={e => setForm(f => ({ ...f, size: e.target.value }))}
-                    placeholder="e.g. 45 MB"
+                    placeholder="45 MB"
                     className="w-full h-11 bg-[#1A1A1A] border border-[#2D2D2D] rounded-xl px-4 text-white text-sm outline-none focus:border-[#7C3AED] transition-colors duration-150 placeholder:text-[#6B7280]"
                   />
                 </div>
@@ -564,7 +707,19 @@ export default function GameManagerPage() {
                     type="text"
                     value={form.version}
                     onChange={e => setForm(f => ({ ...f, version: e.target.value }))}
-                    placeholder="e.g. 1.2.0"
+                    placeholder="1.0"
+                    className="w-full h-11 bg-[#1A1A1A] border border-[#2D2D2D] rounded-xl px-4 text-white text-sm outline-none focus:border-[#7C3AED] transition-colors duration-150 placeholder:text-[#6B7280]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[#9CA3AF] text-xs font-medium mb-1.5">
+                    Min Android
+                  </label>
+                  <input
+                    type="text"
+                    value={form.min_android}
+                    onChange={e => setForm(f => ({ ...f, min_android: e.target.value }))}
+                    placeholder="5.0"
                     className="w-full h-11 bg-[#1A1A1A] border border-[#2D2D2D] rounded-xl px-4 text-white text-sm outline-none focus:border-[#7C3AED] transition-colors duration-150 placeholder:text-[#6B7280]"
                   />
                 </div>
@@ -584,22 +739,43 @@ export default function GameManagerPage() {
                 />
               </div>
 
-              {/* Featured toggle */}
-              <div className="flex items-center justify-between">
-                <label className="text-[#9CA3AF] text-xs font-medium">Featured Game</label>
-                <button
-                  type="button"
-                  onClick={() => setForm(f => ({ ...f, is_featured: !f.is_featured }))}
-                  className={`relative w-12 h-7 rounded-full transition-colors duration-150 ${
-                    form.is_featured ? 'bg-[#7C3AED]' : 'bg-[#2D2D2D]'
-                  }`}
-                >
-                  <span
-                    className={`absolute top-0.5 left-0.5 w-6 h-6 bg-white rounded-full transition-transform duration-150 ${
-                      form.is_featured ? 'translate-x-5' : 'translate-x-0'
+              {/* Toggles row */}
+              <div className="flex items-center justify-between gap-4">
+                {/* Featured toggle */}
+                <div className="flex items-center gap-3">
+                  <label className="text-[#9CA3AF] text-xs font-medium">Featured</label>
+                  <button
+                    type="button"
+                    onClick={() => setForm(f => ({ ...f, is_featured: !f.is_featured }))}
+                    className={`relative w-12 h-7 rounded-full transition-colors duration-150 ${
+                      form.is_featured ? 'bg-[#7C3AED]' : 'bg-[#2D2D2D]'
                     }`}
-                  />
-                </button>
+                  >
+                    <span
+                      className={`absolute top-0.5 left-0.5 w-6 h-6 bg-white rounded-full transition-transform duration-150 ${
+                        form.is_featured ? 'translate-x-5' : 'translate-x-0'
+                      }`}
+                    />
+                  </button>
+                </div>
+
+                {/* Free toggle */}
+                <div className="flex items-center gap-3">
+                  <label className="text-[#9CA3AF] text-xs font-medium">Free</label>
+                  <button
+                    type="button"
+                    onClick={() => setForm(f => ({ ...f, is_free: !f.is_free }))}
+                    className={`relative w-12 h-7 rounded-full transition-colors duration-150 ${
+                      form.is_free ? 'bg-[#10B981]' : 'bg-[#2D2D2D]'
+                    }`}
+                  >
+                    <span
+                      className={`absolute top-0.5 left-0.5 w-6 h-6 bg-white rounded-full transition-transform duration-150 ${
+                        form.is_free ? 'translate-x-5' : 'translate-x-0'
+                      }`}
+                    />
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -623,7 +799,7 @@ export default function GameManagerPage() {
         </div>
       )}
 
-      {/* ── Delete Confirm Modal ── */}
+      {/* Delete Confirm Modal */}
       {deleteTarget && (
         <ConfirmModal
           title="Delete Game"
