@@ -1,0 +1,893 @@
+     1→'use client'
+     2→
+     3→// ── Play Nexa Music Library ──────────────────────────────────
+     4→// Full Music Library screen with tab filter, sort, search, and context menus
+     5→// Design system: bg-[#0D0D0D] / bg-[#1A1A2E] / bg-[#16213E] / #7C3AED / #06B6D4
+     6→// No backdrop-blur · Tailwind only · Max transition 200ms · 44px touch targets
+     7→// content-visibility: auto on scrollable list · pn_music_ localStorage prefix
+     8→
+     9→import { useState, useCallback, useRef, useEffect, useMemo } from 'react'
+    10→import {
+    11→  ArrowLeft,
+    12→  Search,
+    13→  MoreVertical,
+    14→  Music,
+    15→  Clock,
+    16→  User,
+    17→  FolderOpen,
+    18→  Plus,
+    19→  Shuffle,
+    20→  SortAsc,
+    21→  X,
+    22→  ChevronDown,
+    23→  Heart,
+    24→  Share2,
+    25→  Info,
+    26→  Trash2,
+    27→  Loader2,
+    28→  RefreshCw,
+    29→  Play,
+    30→  SkipForward,
+    31→} from 'lucide-react'
+    32→import type { Song } from '@/lib/mediaUtils'
+    33→import { formatDuration, debounce, lsGet, lsSet } from '@/lib/mediaUtils'
+    34→import { useMediaLibrary } from '@/hooks/useMediaLibrary'
+    35→import type { MusicSortMode } from '@/hooks/useMediaLibrary'
+    36→
+    37→// ══════════════════════════════════════════════════════════════
+    38→// PROPS
+    39→// ══════════════════════════════════════════════════════════════
+    40→
+    41→interface MusicLibraryProps {
+    42→  onSongSelect: (song: Song) => void
+    43→  onBack: () => void
+    44→}
+    45→
+    46→// ══════════════════════════════════════════════════════════════
+    47→// TAB DEFINITIONS
+    48→// ══════════════════════════════════════════════════════════════
+    49→
+    50→type TabKey = 'all' | 'albums' | 'artists' | 'folders' | 'recent'
+    51→
+    52→interface TabDef {
+    53→  key: TabKey
+    54→  label: string
+    55→  icon: React.ReactNode
+    56→}
+    57→
+    58→const TABS: TabDef[] = [
+    59→  { key: 'all', label: 'All', icon: <Music size={14} /> },
+    60→  { key: 'albums', label: 'Albums', icon: <FolderOpen size={14} /> },
+    61→  { key: 'artists', label: 'Artists', icon: <User size={14} /> },
+    62→  { key: 'folders', label: 'Folders', icon: <FolderOpen size={14} /> },
+    63→  { key: 'recent', label: 'Recently Added', icon: <Clock size={14} /> },
+    64→]
+    65→
+    66→// ══════════════════════════════════════════════════════════════
+    67→// SORT OPTIONS
+    68→// ══════════════════════════════════════════════════════════════
+    69→
+    70→interface SortOption {
+    71→  key: MusicSortMode
+    72→  label: string
+    73→}
+    74→
+    75→const SORT_OPTIONS: SortOption[] = [
+    76→  { key: 'name', label: 'Name' },
+    77→  { key: 'date', label: 'Date Added' },
+    78→  { key: 'duration', label: 'Duration' },
+    79→  { key: 'artist', label: 'Artist' },
+    80→  { key: 'size', label: 'Size' },
+    81→]
+    82→
+    83→// ══════════════════════════════════════════════════════════════
+    84→// CONTEXT MENU ACTIONS
+    85→// ══════════════════════════════════════════════════════════════
+    86→
+    87→interface ContextAction {
+    88→  id: string
+    89→  label: string
+    90→  icon: React.ReactNode
+    91→  color: string
+    92→}
+    93→
+    94→const CONTEXT_ACTIONS: ContextAction[] = [
+    95→  { id: 'playNow', label: 'Play Now', icon: <Play size={18} />, color: 'text-[#7C3AED]' },
+    96→  { id: 'playNext', label: 'Play Next', icon: <SkipForward size={18} />, color: 'text-[#06B6D4]' },
+    97→  { id: 'addToPlaylist', label: 'Add to Playlist', icon: <Plus size={18} />, color: 'text-[#7C3AED]' },
+    98→  { id: 'addToFavorites', label: 'Add to Favorites', icon: <Heart size={18} />, color: 'text-red-400' },
+    99→  { id: 'songInfo', label: 'Song Info', icon: <Info size={18} />, color: 'text-[#9CA3AF]' },
+   100→  { id: 'share', label: 'Share', icon: <Share2 size={18} />, color: 'text-[#06B6D4]' },
+   101→  { id: 'delete', label: 'Delete', icon: <Trash2 size={18} />, color: 'text-red-500' },
+   102→]
+   103→
+   104→// ══════════════════════════════════════════════════════════════
+   105→// LOCAL STORAGE KEYS
+   106→// ══════════════════════════════════════════════════════════════
+   107→
+   108→const TAB_STORAGE_KEY = 'pn_music_active_tab'
+   109→const FAVORITES_KEY = 'pn_music_favorites'
+   110→
+   111→// ══════════════════════════════════════════════════════════════
+   112→// COMPONENT
+   113→// ══════════════════════════════════════════════════════════════
+   114→
+   115→export default function MusicLibrary({ onSongSelect, onBack }: MusicLibraryProps) {
+   116→  // ── Hook state ──
+   117→  const {
+   118→    songs,
+   119→    scanning,
+   120→    musicSort,
+   121→    setMusicSort,
+   122→    sortSongs,
+   123→    scanMusicFiles,
+   124→    removeSong,
+   125→  } = useMediaLibrary()
+   126→
+   127→  // ── Local state ──
+   128→  const [activeTab, setActiveTab] = useState<TabKey>(() =>
+   129→    lsGet<TabKey>(TAB_STORAGE_KEY, 'all')
+   130→  )
+   131→  const [searchOpen, setSearchOpen] = useState(false)
+   132→  const [searchQuery, setSearchQuery] = useState('')
+   133→  const [debouncedQuery, setDebouncedQuery] = useState('')
+   134→  const [sortSheetOpen, setSortSheetOpen] = useState(false)
+   135→  const [contextSong, setContextSong] = useState<Song | null>(null)
+   136→  const [contextSheetOpen, setContextSheetOpen] = useState(false)
+   137→  const [headerMenuOpen, setHeaderMenuOpen] = useState(false)
+   138→  const [favorites, setFavorites] = useState<Set<string>>(() => {
+   139→    const stored = lsGet<string[]>(FAVORITES_KEY, [])
+   140→    return new Set(stored)
+   141→  })
+   142→
+   143→  // ── Refs ──
+   144→  const hasLoadedRef = useRef(false)
+   145→  const tabRefs = useRef<Record<TabKey, HTMLButtonElement | null>>({
+   146→    all: null,
+   147→    albums: null,
+   148→    artists: null,
+   149→    folders: null,
+   150→    recent: null,
+   151→  })
+   152→  const tabScrollRef = useRef<HTMLDivElement>(null)
+   153→  const searchInputRef = useRef<HTMLInputElement>(null)
+   154→
+   155→  // ── Toast state for library update notifications ──
+   156→  const [toastMsg, setToastMsg] = useState('')
+   157→  const [showToast, setShowToast] = useState(false)
+   158→
+   159→  // ════════════════════════════════════════════════════════════
+   160→  // DEBOUNCED SEARCH
+   161→  // ════════════════════════════════════════════════════════════
+   162→
+   163→  const updateDebouncedQuery = useMemo(
+   164→    () =>
+   165→      debounce((query: string) => {
+   166→        setDebouncedQuery(query)
+   167→      }, 200),
+   168→    []
+   169→  )
+   170→
+   171→  const handleSearchChange = useCallback(
+   172→    (e: React.ChangeEvent<HTMLInputElement>) => {
+   173→      const value = e.target.value
+   174→      setSearchQuery(value)
+   175→      updateDebouncedQuery(value)
+   176→    },
+   177→    [updateDebouncedQuery]
+   178→  )
+   179→
+   180→  // ════════════════════════════════════════════════════════════
+   181→  // SCROLL ACTIVE TAB INTO VIEW
+   182→  // ════════════════════════════════════════════════════════════
+   183→
+   184→  useEffect(() => {
+   185→    const el = tabRefs.current[activeTab]
+   186→    if (el) {
+   187→      el.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' })
+   188→    }
+   189→  }, [activeTab])
+   190→
+   191→  // ════════════════════════════════════════════════════════════
+   192→  // FOCUS SEARCH INPUT ON OPEN
+   193→  // ════════════════════════════════════════════════════════════
+   194→
+   195→  useEffect(() => {
+   196→    if (searchOpen) {
+   197→      setTimeout(() => searchInputRef.current?.focus(), 160)
+   198→    }
+   199→  }, [searchOpen])
+   200→
+   201→  // ════════════════════════════════════════════════════════════
+   202→  // PERSIST ACTIVE TAB
+   203→  // ════════════════════════════════════════════════════════════
+   204→
+   205→  useEffect(() => {
+   206→    lsSet(TAB_STORAGE_KEY, activeTab)
+   207→  }, [activeTab])
+   208→
+   209→  // ════════════════════════════════════════════════════════════
+   210→  // PERSIST FAVORITES
+   211→  // ════════════════════════════════════════════════════════════
+   212→
+   213→  useEffect(() => {
+   214→    lsSet(FAVORITES_KEY, Array.from(favorites))
+   215→  }, [favorites])
+   216→
+   217→  // ════════════════════════════════════════════════════════════
+   218→  // FILTERED + SORTED SONGS
+   219→  // ════════════════════════════════════════════════════════════
+   220→
+   221→  const displayedSongs = useMemo(() => {
+   222→    let filtered = songs
+   223→
+   224→    // Apply search filter
+   225→    if (debouncedQuery.trim()) {
+   226→      const q = debouncedQuery.toLowerCase().trim()
+   227→      filtered = filtered.filter(
+   228→        (s) =>
+   229→          s.name.toLowerCase().includes(q) ||
+   230→          s.artist.toLowerCase().includes(q) ||
+   231→          s.album.toLowerCase().includes(q)
+   232→      )
+   233→    }
+   234→
+   235→    // Apply tab filter — group by category where applicable
+   236→    switch (activeTab) {
+   237→      case 'albums': {
+   238→        // Show first song per album
+   239→        const albumMap = new Map<string, Song>()
+   240→        filtered.forEach((song) => {
+   241→          const album = song.album || 'Unknown Album'
+   242→          if (!albumMap.has(album)) albumMap.set(album, song)
+   243→        })
+   244→        filtered = Array.from(albumMap.values())
+   245→        break
+   246→      }
+   247→      case 'artists': {
+   248→        // Show first song per artist
+   249→        const artistMap = new Map<string, Song>()
+   250→        filtered.forEach((song) => {
+   251→          const artist = song.artist || 'Unknown Artist'
+   252→          if (!artistMap.has(artist)) artistMap.set(artist, song)
+   253→        })
+   254→        filtered = Array.from(artistMap.values())
+   255→        break
+   256→      }
+   257→      case 'folders': {
+   258→        // Show first song per folder
+   259→        const folderMap = new Map<string, Song>()
+   260→        filtered.forEach((song) => {
+   261→          const folder = song.path
+   262→            ? song.path.substring(0, song.path.lastIndexOf('/'))
+   263→            : 'Unknown Folder'
+   264→          if (!folderMap.has(folder)) folderMap.set(folder, song)
+   265→        })
+   266→        filtered = Array.from(folderMap.values())
+   267→        break
+   268→      }
+   269→      case 'recent':
+   270→        // Sort by id descending (proxy for date added), take first 50
+   271→        filtered = [...filtered].sort((a, b) => b.id.localeCompare(a.id)).slice(0, 50)
+   272→        break
+   273→      case 'all':
+   274→      default:
+   275→        break
+   276→    }
+   277→
+   278→    // Apply sort
+   279→    return sortSongs(filtered, musicSort)
+   280→  }, [songs, debouncedQuery, activeTab, musicSort, sortSongs])
+   281→
+   282→  // ════════════════════════════════════════════════════════════
+   283→  // SORT LABEL
+   284→  // ════════════════════════════════════════════════════════════
+   285→
+   286→  const currentSortLabel = useMemo(
+   287→    () => SORT_OPTIONS.find((o) => o.key === musicSort)?.label || 'Name',
+   288→    [musicSort]
+   289→  )
+   290→
+   291→  // ════════════════════════════════════════════════════════════
+   292→  // HANDLERS
+   293→  // ════════════════════════════════════════════════════════════
+   294→
+   295→  const handleTabChange = useCallback((tab: TabKey) => {
+   296→    setActiveTab(tab)
+   297→  }, [])
+   298→
+   299→  const handleSortSelect = useCallback(
+   300→    (mode: MusicSortMode) => {
+   301→      setMusicSort(mode)
+   302→      setSortSheetOpen(false)
+   303→    },
+   304→    [setMusicSort]
+   305→  )
+   306→
+   307→  const handleSongRowTap = useCallback(
+   308→    (song: Song) => {
+   309→      onSongSelect(song)
+   310→    },
+   311→    [onSongSelect]
+   312→  )
+   313→
+   314→  const handleContextMenuOpen = useCallback((song: Song, e: React.MouseEvent) => {
+   315→    e.stopPropagation()
+   316→    setContextSong(song)
+   317→    setContextSheetOpen(true)
+   318→  }, [])
+   319→
+   320→  const handleContextAction = useCallback(
+   321→    (actionId: string) => {
+   322→      if (!contextSong) return
+   323→
+   324→      switch (actionId) {
+   325→        case 'playNow': {
+   326→          onSongSelect(contextSong)
+   327→          break
+   328→        }
+   329→        case 'playNext': {
+   330→          try {
+   331→            const playNextList = lsGet<Song[]>('pn_music_play_next', [])
+   332→            playNextList.unshift(contextSong)
+   333→            lsSet('pn_music_play_next', playNextList)
+   334→          } catch {
+   335→            // storage write failed
+   336→          }
+   337→          break
+   338→        }
+   339→        case 'addToPlaylist': {
+   340→          try {
+   341→            lsSet('pn_music_playlist_pending', contextSong.id)
+   342→          } catch {
+   343→            // storage write failed
+   344→          }
+   345→          break
+   346→        }
+   347→        case 'addToFavorites':
+   348→          setFavorites((prev) => {
+   349→            const next = new Set(prev)
+   350→            if (next.has(contextSong.id)) {
+   351→              next.delete(contextSong.id)
+   352→            } else {
+   353→              next.add(contextSong.id)
+   354→            }
+   355→            return next
+   356→          })
+   357→          break
+   358→        case 'songInfo': {
+   359→          try {
+   360→            lsSet('pn_music_info_song', {
+   361→              id: contextSong.id,
+   362→              name: contextSong.name,
+   363→              artist: contextSong.artist,
+   364→              album: contextSong.album,
+   365→              duration: contextSong.duration,
+   366→              size: contextSong.size,
+   367→              format: contextSong.format,
+   368→              path: contextSong.path,
+   369→            })
+   370→          } catch {
+   371→            // storage write failed
+   372→          }
+   373→          break
+   374→        }
+   375→        case 'share':
+   376→          if (typeof navigator !== 'undefined' && navigator.share) {
+   377→            navigator.share({
+   378→              title: contextSong.name,
+   379→              text: `${contextSong.name} by ${contextSong.artist}`,
+   380→            }).catch(() => {
+   381→              // Share cancelled or failed
+   382→            })
+   383→          }
+   384→          break
+   385→        case 'delete':
+   386→          removeSong(contextSong.id)
+   387→          break
+   388→      }
+   389→
+   390→      setContextSheetOpen(false)
+   391→      setContextSong(null)
+   392→    },
+   393→    [contextSong, removeSong, onSongSelect]
+   394→  )
+   395→
+   396→  // ── Initial load with hasLoadedRef guard ──
+   397→  useEffect(() => {
+   398→    if (hasLoadedRef.current) return
+   399→    hasLoadedRef.current = true
+   400→
+   401→    const loadSongs = async () => {
+   402→      await scanMusicFiles(false) // use cache
+   403→    }
+   404→    loadSongs()
+   405→  }, [scanMusicFiles])
+   406→
+   407→  // ── Listen for pn-library-updated custom event ──
+   408→  useEffect(() => {
+   409→    const handler = (e: Event) => {
+   410→      const detail = (e as CustomEvent).detail
+   411→      if (detail?.type === 'music') {
+   412→        setToastMsg(
+   413→          detail.added > 0
+   414→            ? `+${detail.added} new song${detail.added !== 1 ? 's' : ''} found`
+   415→            : 'Library updated'
+   416→        )
+   417→        setShowToast(true)
+   418→        setTimeout(() => setShowToast(false), 3000)
+   419→      }
+   420→    }
+   421→    window.addEventListener('pn-library-updated', handler as EventListener)
+   422→    return () => window.removeEventListener('pn-library-updated', handler as EventListener)
+   423→  }, [])
+   424→
+   425→  const handleScan = useCallback(async () => {
+   426→    await scanMusicFiles(true) // forceRefresh = true
+   427→  }, [scanMusicFiles])
+   428→
+   429→  const handleSearchToggle = useCallback(() => {
+   430→    setSearchOpen((prev) => !prev)
+   431→    if (searchOpen) {
+   432→      setSearchQuery('')
+   433→      setDebouncedQuery('')
+   434→    }
+   435→  }, [searchOpen])
+   436→
+   437→  const handleHeaderMenuToggle = useCallback(() => {
+   438→    setHeaderMenuOpen((prev) => !prev)
+   439→  }, [])
+   440→
+   441→  const closeSortSheet = useCallback(() => {
+   442→    setSortSheetOpen(false)
+   443→  }, [])
+   444→
+   445→  const closeContextSheet = useCallback(() => {
+   446→    setContextSheetOpen(false)
+   447→    setContextSong(null)
+   448→  }, [])
+   449→
+   450→  const clearSearch = useCallback(() => {
+   451→    setSearchQuery('')
+   452→    setDebouncedQuery('')
+   453→  }, [])
+   454→
+   455→  // ════════════════════════════════════════════════════════════
+   456→  // RENDER
+   457→  // ════════════════════════════════════════════════════════════
+   458→
+   459→  return (
+   460→    <div className="flex flex-col min-h-screen bg-[#0D0D0D]">
+   461→      {/* ════════════════════════════════════════════════════════
+   462→          1. HEADER
+   463→          ════════════════════════════════════════════════════════ */}
+   464→      <header className="sticky top-0 z-40 bg-[#0D0D0D] border-b border-[#2D2D44]">
+   465→        <div className="flex items-center justify-between h-14 px-4">
+   466→          {/* Back — 44px touch target */}
+   467→          <button
+   468→            onClick={onBack}
+   469→            className="flex items-center justify-center min-h-[44px] min-w-[44px] rounded-xl active:scale-90 transition-transform duration-150 cursor-pointer"
+   470→            aria-label="Go back"
+   471→          >
+   472→            <ArrowLeft size={22} className="text-white" />
+   473→          </button>
+   474→
+   475→          {/* Title */}
+   476→          <h1 className="text-white font-bold text-lg absolute left-1/2 -translate-x-1/2">
+   477→            Music Player
+   478→          </h1>
+   479→
+   480→          {/* Right actions — 44px touch targets */}
+   481→          <div className="flex items-center gap-1">
+   482→            <button
+   483→              onClick={handleScan}
+   484→              className="flex items-center justify-center min-h-[44px] min-w-[44px] rounded-xl active:scale-90 transition-transform duration-150 cursor-pointer"
+   485→              aria-label="Refresh library"
+   486→              title="Refresh library"
+   487→            >
+   488→              <RefreshCw size={20} className={`text-[#9CA3AF] ${scanning ? 'animate-spin' : ''}`} />
+   489→            </button>
+   490→            <button
+   491→              onClick={handleSearchToggle}
+   492→              className="flex items-center justify-center min-h-[44px] min-w-[44px] rounded-xl active:scale-90 transition-transform duration-150 cursor-pointer"
+   493→              aria-label={searchOpen ? 'Close search' : 'Open search'}
+   494→            >
+   495→              {searchOpen ? (
+   496→                <X size={20} className="text-white" />
+   497→              ) : (
+   498→                <Search size={20} className="text-white" />
+   499→              )}
+   500→            </button>
+   501→            <button
+   502→              onClick={handleHeaderMenuToggle}
+   503→              className="flex items-center justify-center min-h-[44px] min-w-[44px] rounded-xl active:scale-90 transition-transform duration-150 cursor-pointer"
+   504→              aria-label="More options"
+   505→            >
+   506→              <MoreVertical size={20} className="text-white" />
+   507→            </button>
+   508→          </div>
+   509→        </div>
+   510→
+   511→        {/* ════════════════════════════════════════════════════════
+   512→            5. SEARCH OVERLAY — slides down (150ms)
+   513→            ════════════════════════════════════════════════════════ */}
+   514→        <div
+   515→          className={`overflow-hidden transition-all duration-150 ease-out ${
+   516→            searchOpen ? 'max-h-16 opacity-100' : 'max-h-0 opacity-0'
+   517→          }`}
+   518→        >
+   519→          <div className="px-4 pb-3">
+   520→            <div className="flex items-center gap-2 bg-[#1A1A2E] rounded-xl px-3 h-11 border border-[#2D2D44]">
+   521→              <Search size={16} className="text-[#9CA3AF] flex-shrink-0" />
+   522→              <input
+   523→                ref={searchInputRef}
+   524→                type="text"
+   525→                value={searchQuery}
+   526→                onChange={handleSearchChange}
+   527→                placeholder="Search songs, artists, albums..."
+   528→                className="flex-1 bg-transparent text-white text-sm outline-none placeholder:text-[#9CA3AF]"
+   529→              />
+   530→              {searchQuery && (
+   531→                <button
+   532→                  onClick={clearSearch}
+   533→                  className="flex items-center justify-center min-h-[44px] min-w-[44px] rounded-lg active:scale-90 transition-transform duration-150 cursor-pointer"
+   534→                  aria-label="Clear search"
+   535→                >
+   536→                  <X size={14} className="text-[#9CA3AF]" />
+   537→                </button>
+   538→              )}
+   539→            </div>
+   540→          </div>
+   541→        </div>
+   542→      </header>
+   543→
+   544→      {/* ════════════════════════════════════════════════════════
+   545→          HEADER DROPDOWN MENU (3-dot) — pointer-events when closed
+   546→          ════════════════════════════════════════════════════════ */}
+   547→      <div
+   548→        className={`fixed inset-0 z-50 transition-opacity duration-150 ${
+   549→          headerMenuOpen ? 'pointer-events-auto opacity-100' : 'pointer-events-none opacity-0'
+   550→        }`}
+   551→        onClick={() => setHeaderMenuOpen(false)}
+   552→      >
+   553→        <div
+   554→          className="absolute top-14 right-4 w-48 bg-[#1A1A2E] border border-[#2D2D44] rounded-xl overflow-hidden shadow-lg shadow-black/60 animate-slide-up"
+   555→          onClick={(e) => e.stopPropagation()}
+   556→        >
+   557→          <button
+   558→            onClick={() => {
+   559→              handleScan()
+   560→              setHeaderMenuOpen(false)
+   561→            }}
+   562→            className="flex items-center gap-3 w-full px-4 py-3 text-white text-sm active:bg-[#16213E] transition-colors duration-150 min-h-[44px] cursor-pointer"
+   563→          >
+   564→            <Music size={16} className="text-[#7C3AED]" />
+   565→            Scan for Music
+   566→          </button>
+   567→          <button
+   568→            onClick={() => {
+   569→              setSortSheetOpen(true)
+   570→              setHeaderMenuOpen(false)
+   571→            }}
+   572→            className="flex items-center gap-3 w-full px-4 py-3 text-white text-sm active:bg-[#16213E] transition-colors duration-150 min-h-[44px] cursor-pointer"
+   573→          >
+   574→            <SortAsc size={16} className="text-[#06B6D4]" />
+   575→            Sort Library
+   576→          </button>
+   577→          <button
+   578→            onClick={() => {
+   579→              setHeaderMenuOpen(false)
+   580→              if (displayedSongs.length > 0) {
+   581→                const randomSong = displayedSongs[Math.floor(Math.random() * displayedSongs.length)]
+   582→                onSongSelect(randomSong)
+   583→              }
+   584→            }}
+   585→            className="flex items-center gap-3 w-full px-4 py-3 text-white text-sm active:bg-[#16213E] transition-colors duration-150 min-h-[44px] cursor-pointer"
+   586→          >
+   587→            <Shuffle size={16} className="text-[#7C3AED]" />
+   588→            Shuffle All
+   589→          </button>
+   590→        </div>
+   591→      </div>
+   592→
+   593→      {/* ════════════════════════════════════════════════════════
+   594→          2. TAB FILTER ROW (horizontal scroll, hide scrollbar)
+   595→          ════════════════════════════════════════════════════════ */}
+   596→      <div className="sticky top-14 z-30 bg-[#0D0D0D]">
+   597→        <div
+   598→          ref={tabScrollRef}
+   599→          className="flex gap-2 px-4 py-3 overflow-x-auto scrollbar-hide"
+   600→        >
+   601→          {TABS.map((tab) => {
+   602→            const isActive = activeTab === tab.key
+   603→            return (
+   604→              <button
+   605→                key={tab.key}
+   606→                ref={(el) => {
+   607→                  tabRefs.current[tab.key] = el
+   608→                }}
+   609→                onClick={() => handleTabChange(tab.key)}
+   610→                className={`flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-colors duration-150 active:scale-95 min-h-[44px] cursor-pointer ${
+   611→                  isActive
+   612→                    ? 'bg-[#7C3AED] text-white'
+   613→                    : 'border border-[#2D2D44] text-[#9CA3AF]'
+   614→                }`}
+   615→                aria-pressed={isActive}
+   616→              >
+   617→                {tab.icon}
+   618→                {tab.label}
+   619→              </button>
+   620→            )
+   621→          })}
+   622→        </div>
+   623→
+   624→        {/* ════════════════════════════════════════════════════════
+   625→            3. SORT BAR
+   626→            ════════════════════════════════════════════════════════ */}
+   627→        <div className="flex items-center justify-between px-4 pb-2">
+   628→          <span className="text-[#9CA3AF] text-xs">
+   629→            {displayedSongs.length} song{displayedSongs.length !== 1 ? 's' : ''}
+   630→          </span>
+   631→          <button
+   632→            onClick={() => setSortSheetOpen(true)}
+   633→            className="flex items-center gap-1 px-3 py-2 rounded-lg bg-[#1A1A2E] border border-[#2D2D44] text-[#9CA3AF] text-xs font-medium active:scale-95 transition-transform duration-150 min-h-[44px] cursor-pointer"
+   634→            aria-label="Sort songs"
+   635→          >
+   636→            <SortAsc size={12} />
+   637→            Sort by: {currentSortLabel}
+   638→            <ChevronDown size={12} />
+   639→          </button>
+   640→        </div>
+   641→      </div>
+   642→
+   643→      {/* ════════════════════════════════════════════════════════
+   644→          4. SONG LIST / 5. SEARCH RESULTS / 6. EMPTY STATE
+   645→          ════════════════════════════════════════════════════════ */}
+   646→      <main className="flex-1 px-4 pb-4">
+   647→        {songs.length === 0 && !scanning ? (
+   648→          /* ════════════════════════════════════════════════════════
+   649→              6. EMPTY STATE — "Scan for Music" button
+   650→              ════════════════════════════════════════════════════════ */
+   651→          <div className="flex flex-col items-center justify-center py-20">
+   652→            <div className="w-20 h-20 rounded-2xl bg-[#1A1A2E] border border-[#2D2D44] flex items-center justify-center mb-5">
+   653→              <Music size={36} className="text-[#7C3AED]" />
+   654→            </div>
+   655→            <p className="text-white font-bold text-lg mb-1">No Music Found</p>
+   656→            <p className="text-[#9CA3AF] text-sm text-center px-8 mb-6">
+   657→              Scan your device for music files to get started
+   658→            </p>
+   659→            <button
+   660→              onClick={handleScan}
+   661→              className="flex items-center gap-2 px-8 py-3 rounded-xl bg-[#7C3AED] text-white text-sm font-semibold active:scale-95 transition-transform duration-150 min-h-[44px] cursor-pointer"
+   662→            >
+   663→              <Music size={16} />
+   664→              Scan for Music
+   665→            </button>
+   666→          </div>
+   667→        ) : scanning ? (
+   668→          /* Scanning spinner state */
+   669→          <div className="flex flex-col items-center justify-center py-20">
+   670→            <Loader2 size={40} className="text-[#7C3AED] animate-spin mb-4" />
+   671→            <p className="text-white font-semibold text-base mb-1">Scanning...</p>
+   672→            <p className="text-[#9CA3AF] text-sm">Looking for music files on your device</p>
+   673→          </div>
+   674→        ) : displayedSongs.length === 0 ? (
+   675→          /* Search / filter empty state */
+   676→          <div className="flex flex-col items-center justify-center py-20">
+   677→            <div className="w-16 h-16 rounded-2xl bg-[#1A1A2E] border border-[#2D2D44] flex items-center justify-center mb-4">
+   678→              <Search size={28} className="text-[#9CA3AF]" />
+   679→            </div>
+   680→            <p className="text-white font-semibold text-base mb-1">No Results</p>
+   681→            <p className="text-[#9CA3AF] text-sm text-center px-8">
+   682→              {debouncedQuery
+   683→                ? `No songs matching "${debouncedQuery}"`
+   684→                : 'No songs in this category'}
+   685→            </p>
+   686→          </div>
+   687→        ) : (
+   688→          /* ════════════════════════════════════════════════════════
+   689→              4. SONG LIST — content-visibility: auto · 64px rows · onClick on entire row
+   690→              ════════════════════════════════════════════════════════ */
+   691→          <div className="max-h-[calc(100vh-220px)] overflow-y-auto">
+   692→            <div className="space-y-1">
+   693→              {displayedSongs.map((song) => (
+   694→                <div
+   695→                  key={song.id}
+   696→                  className="flex items-center gap-3 px-4 min-h-[64px] rounded-xl active:bg-[#1A1A2E] transition-colors duration-150 cursor-pointer"
+   697→                  style={{
+   698→                    contentVisibility: 'auto',
+   699→                    containIntrinsicSize: '0 64px',
+   700→                  }}
+   701→                  onClick={() => handleSongRowTap(song)}
+   702→                  role="button"
+   703→                  tabIndex={0}
+   704→                  aria-label={`Play ${song.name} by ${song.artist}`}
+   705→                  onKeyDown={(e) => {
+   706→                    if (e.key === 'Enter' || e.key === ' ') {
+   707→                      e.preventDefault()
+   708→                      handleSongRowTap(song)
+   709→                    }
+   710→                  }}
+   711→                >
+   712→                  {/* LEFT: Album art (48x48 rounded-lg) or gradient fallback */}
+   713→                  <div className="w-12 h-12 rounded-lg flex-shrink-0 overflow-hidden">
+   714→                    {song.cover ? (
+   715→                      <img
+   716→                        src={song.cover}
+   717→                        alt={`${song.album} artwork`}
+   718→                        className="w-full h-full object-cover"
+   719→                        loading="lazy"
+   720→                      />
+   721→                    ) : (
+   722→                      <div className="w-full h-full bg-gradient-to-br from-[#7C3AED] to-[#16213E] flex items-center justify-center">
+   723→                        <Music size={20} className="text-white/70" />
+   724→                      </div>
+   725→                    )}
+   726→                  </div>
+   727→
+   728→                  {/* CENTER: Song title + Artist */}
+   729→                  <div className="flex-1 min-w-0">
+   730→                    <p className="text-white font-medium text-sm truncate leading-tight">
+   731→                      {song.name}
+   732→                    </p>
+   733→                    <p className="text-[#9CA3AF] text-xs truncate mt-0.5 leading-tight">
+   734→                      {song.artist}
+   735→                    </p>
+   736→                  </div>
+   737→
+   738→                  {/* RIGHT: Duration + 3-dot menu (44x44 touch target) */}
+   739→                  <div className="flex items-center gap-1 flex-shrink-0">
+   740→                    {song.duration > 0 && (
+   741→                      <span className="text-[#9CA3AF] text-xs tabular-nums">
+   742→                        {formatDuration(song.duration)}
+   743→                      </span>
+   744→                    )}
+   745→                    <button
+   746→                      onClick={(e) => handleContextMenuOpen(song, e)}
+   747→                      className="flex items-center justify-center min-h-[44px] min-w-[44px] rounded-lg active:scale-90 transition-transform duration-150 cursor-pointer"
+   748→                      aria-label={`More options for ${song.name}`}
+   749→                    >
+   750→                      <MoreVertical size={16} className="text-[#9CA3AF]" />
+   751→                    </button>
+   752→                  </div>
+   753→                </div>
+   754→              ))}
+   755→            </div>
+   756→          </div>
+   757→        )}
+   758→      </main>
+   759→
+   760→      {/* ════════════════════════════════════════════════════════
+   761→          3. SORT BOTTOM SHEET — pointer-events when closed
+   762→          ════════════════════════════════════════════════════════ */}
+   763→      <div
+   764→        className={`fixed inset-0 z-50 flex items-end justify-center transition-opacity duration-150 ${
+   765→          sortSheetOpen ? 'pointer-events-auto opacity-100' : 'pointer-events-none opacity-0'
+   766→        }`}
+   767→        onClick={closeSortSheet}
+   768→      >
+   769→        {/* Backdrop */}
+   770→        <div className="absolute inset-0 bg-black/60" />
+   771→
+   772→        {/* Slide-up panel */}
+   773→        <div
+   774→          className="relative w-full max-w-lg bg-[#1A1A2E] border-t border-[#2D2D44] rounded-t-2xl animate-slide-up"
+   775→          onClick={(e) => e.stopPropagation()}
+   776→        >
+   777→          {/* Handle */}
+   778→          <div className="flex justify-center pt-3 pb-2">
+   779→            <div className="w-10 h-1 rounded-full bg-[#2D2D44]" />
+   780→          </div>
+   781→
+   782→          <h3 className="text-white font-semibold text-base px-5 pb-3">Sort by</h3>
+   783→
+   784→          <div className="pb-6">
+   785→            {SORT_OPTIONS.map((option) => {
+   786→              const isActive = musicSort === option.key
+   787→              return (
+   788→                <button
+   789→                  key={option.key}
+   790→                  onClick={() => handleSortSelect(option.key)}
+   791→                  className={`flex items-center justify-between w-full px-5 py-3.5 text-sm font-medium transition-colors duration-150 active:bg-[#16213E] min-h-[44px] cursor-pointer ${
+   792→                    isActive ? 'text-[#7C3AED]' : 'text-[#9CA3AF]'
+   793→                  }`}
+   794→                >
+   795→                  <span>{option.label}</span>
+   796→                  {isActive && (
+   797→                    <div className="w-2 h-2 rounded-full bg-[#7C3AED]" />
+   798→                  )}
+   799→                </button>
+   800→              )
+   801→            })}
+   802→          </div>
+   803→        </div>
+   804→      </div>
+   805→
+   806→      {/* ════════════════════════════════════════════════════════
+   807→          TOAST NOTIFICATION — library updated
+   808→          ════════════════════════════════════════════════════════ */}
+   809→      {showToast && toastMsg && (
+   810→        <div className="fixed bottom-20 left-1/2 -translate-x-1/2 z-[60] px-4 py-2.5 bg-[#1A1A2E] border border-[#7C3AED] rounded-xl shadow-lg shadow-black/60 text-white text-sm font-medium animate-slide-up">
+   811→          {toastMsg}
+   812→        </div>
+   813→      )}
+   814→
+   815→      {/* ════════════════════════════════════════════════════════
+   816→          4. SONG CONTEXT MENU BOTTOM SHEET — pointer-events when closed
+   817→          ════════════════════════════════════════════════════════ */}
+   818→      <div
+   819→        className={`fixed inset-0 z-50 flex items-end justify-center transition-opacity duration-150 ${
+   820→          contextSheetOpen && contextSong ? 'pointer-events-auto opacity-100' : 'pointer-events-none opacity-0'
+   821→        }`}
+   822→        onClick={closeContextSheet}
+   823→      >
+   824→        {/* Backdrop */}
+   825→        <div className="absolute inset-0 bg-black/60" />
+   826→
+   827→        {/* Slide-up panel */}
+   828→        <div
+   829→          className="relative w-full max-w-lg bg-[#1A1A2E] border-t border-[#2D2D44] rounded-t-2xl animate-slide-up"
+   830→          onClick={(e) => e.stopPropagation()}
+   831→        >
+   832→          {/* Handle */}
+   833→          <div className="flex justify-center pt-3 pb-2">
+   834→            <div className="w-10 h-1 rounded-full bg-[#2D2D44]" />
+   835→          </div>
+   836→
+   837→          {/* Song preview in sheet header */}
+   838→          <div className="flex items-center gap-3 px-5 pb-4 border-b border-[#2D2D44]">
+   839→            <div className="w-10 h-10 rounded-lg flex-shrink-0 overflow-hidden">
+   840→              {contextSong?.cover ? (
+   841→                <img
+   842→                  src={contextSong.cover}
+   843→                  alt={`${contextSong.album} artwork`}
+   844→                  className="w-full h-full object-cover"
+   845→                />
+   846→              ) : (
+   847→                <div className="w-full h-full bg-gradient-to-br from-[#7C3AED] to-[#16213E] flex items-center justify-center">
+   848→                  <Music size={16} className="text-white/70" />
+   849→                </div>
+   850→              )}
+   851→            </div>
+   852→            <div className="flex-1 min-w-0">
+   853→              <p className="text-white font-medium text-sm truncate">{contextSong?.name}</p>
+   854→              <p className="text-[#9CA3AF] text-xs truncate">{contextSong?.artist}</p>
+   855→            </div>
+   856→            {contextSong && contextSong.duration > 0 && (
+   857→              <span className="text-[#9CA3AF] text-xs flex-shrink-0">
+   858→                {formatDuration(contextSong.duration)}
+   859→              </span>
+   860→            )}
+   861→          </div>
+   862→
+   863→          {/* Actions: Play Next / Add to Playlist / Add to Favorites / Song Info / Share / Delete */}
+   864→          <div className="pb-6 max-h-96 overflow-y-auto">
+   865→            {CONTEXT_ACTIONS.map((action) => {
+   866→              const isFavAction = action.id === 'addToFavorites'
+   867→              const isFavorited = isFavAction && contextSong ? favorites.has(contextSong.id) : false
+   868→              return (
+   869→                <button
+   870→                  key={action.id}
+   871→                  onClick={() => handleContextAction(action.id)}
+   872→                  className="flex items-center gap-4 w-full px-5 py-3.5 text-sm font-medium active:bg-[#16213E] transition-colors duration-150 min-h-[44px] cursor-pointer"
+   873→                >
+   874→                  <span className={isFavorited ? 'text-red-400' : action.color}>
+   875→                    {isFavorited ? (
+   876→                      <Heart size={18} className="fill-current text-red-400" />
+   877→                    ) : (
+   878→                      action.icon
+   879→                    )}
+   880→                  </span>
+   881→                  <span className={isFavorited ? 'text-red-400' : 'text-white'}>
+   882→                    {isFavorited ? 'Remove from Favorites' : action.label}
+   883→                  </span>
+   884→                </button>
+   885→              )
+   886→            })}
+   887→          </div>
+   888→        </div>
+   889→      </div>
+   890→    </div>
+   891→  )
+   892→}
+   893→
