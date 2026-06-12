@@ -40,7 +40,7 @@ export default function GamePlayerPage(
 
   if (!game) {
     return (
-      <div className="min-h-screen bg-[#070B14]
+      <div className="min-h-screen bg-[#0D0D0D]
                       flex flex-col items-center
                       justify-center gap-4">
         <p className="text-5xl">🎮</p>
@@ -50,7 +50,7 @@ export default function GamePlayerPage(
         <button
           onClick={() => router.back()}
           className="px-6 py-3 rounded-xl
-                     bg-[#7C5CFF] text-white
+                     bg-[#7C3AED] text-white
                      text-sm font-semibold
                      min-h-[44px]
                      active:scale-95
@@ -68,10 +68,10 @@ export default function GamePlayerPage(
   ).slice(0, 4)
 
   return (
-    <div className="min-h-screen bg-[#070B14] pb-24">
+    <div className="min-h-screen bg-[#0D0D0D] pb-24">
 
       {/* TopBar */}
-      <div className={`sticky top-0 z-50 bg-[#070B14]
+      <div className={`sticky top-0 z-50 bg-[#0D0D0D]
                        border-b border-[#1E293B]
                        px-4 h-14 flex items-center
                        justify-between
@@ -79,7 +79,7 @@ export default function GamePlayerPage(
         <div className="flex items-center gap-3">
           <button
             onClick={() => router.back()}
-            className="p-2 rounded-full bg-[#111827]
+            className="p-2 rounded-full bg-[#1A1A2E]
                        border border-[#1E293B]
                        active:scale-90
                        transition-transform duration-150
@@ -98,7 +98,7 @@ export default function GamePlayerPage(
         <div className="flex items-center gap-2">
           <button
             onClick={() => setFullscreen(!fullscreen)}
-            className="p-2 rounded-full bg-[#111827]
+            className="p-2 rounded-full bg-[#1A1A2E]
                        border border-[#1E293B]
                        active:scale-90
                        transition-transform duration-150
@@ -121,15 +121,15 @@ export default function GamePlayerPage(
         {/* Loading state */}
         {!loaded && (
           <div className="absolute inset-0 z-10
-                          bg-[#070B14] flex flex-col
+                          bg-[#0D0D0D] flex flex-col
                           items-center justify-center gap-4">
             <div className="relative w-16 h-16">
               <div className="absolute inset-0
                               rounded-full border-2
-                              border-[#7C5CFF]/20" />
+                              border-[#7C3AED]/20" />
               <div className="absolute inset-0
                               rounded-full border-t-2
-                              border-[#7C5CFF]
+                              border-[#7C3AED]
                               animate-spin" />
               <div className="absolute inset-0
                               flex items-center
@@ -140,7 +140,7 @@ export default function GamePlayerPage(
             <p className="text-white font-semibold text-sm">
               Loading {game.title}...
             </p>
-            <p className="text-[#94A3B8] text-xs">
+            <p className="text-[#9CA3AF] text-xs">
               Preparing game engine
             </p>
           </div>
@@ -200,18 +200,18 @@ export default function GamePlayerPage(
                   <Star size={14} fill="currentColor" />
                   {game.rating}
                 </span>
-                <span className="bg-[#7C5CFF]/20
-                                 text-[#7C5CFF]
-                                 border border-[#7C5CFF]/30
+                <span className="bg-[#7C3AED]/20
+                                 text-[#7C3AED]
+                                 border border-[#7C3AED]/30
                                  text-xs rounded-full
                                  px-2 py-0.5">
                   {game.category}
                 </span>
                 {game.isMultiplayer && (
                   <span className="flex items-center gap-1
-                                   bg-[#00D4FF]/20
-                                   text-[#00D4FF]
-                                   border border-[#00D4FF]/30
+                                   bg-[#06B6D4]/20
+                                   text-[#06B6D4]
+                                   border border-[#06B6D4]/30
                                    text-xs rounded-full
                                    px-2 py-0.5">
                     <Users size={10} />
@@ -219,18 +219,18 @@ export default function GamePlayerPage(
                   </span>
                 )}
                 <span className="flex items-center gap-1
-                                 bg-[#111827]
+                                 bg-[#1A1A2E]
                                  border border-[#1E293B]
-                                 text-[#94A3B8] text-xs
+                                 text-[#9CA3AF] text-xs
                                  rounded-full
                                  px-2 py-0.5">
                   <Zap size={10} />
                   {game.sizeLabel}
                 </span>
                 {game.orientation && (
-                  <span className="bg-[#111827]
+                  <span className="bg-[#1A1A2E]
                                    border border-[#1E293B]
-                                   text-[#94A3B8] text-xs
+                                   text-[#9CA3AF] text-xs
                                    rounded-full
                                    px-2 py-0.5">
                     {game.orientation === 'portrait' ? '📱 Portrait' : '🖥️ Landscape'}
@@ -264,7 +264,7 @@ export default function GamePlayerPage(
             <button
               onClick={() => setFullscreen(true)}
               className="flex-1 h-12 rounded-xl
-                         bg-[#7C5CFF] text-white
+                         bg-[#7C3AED] text-white
                          text-sm font-semibold
                          flex items-center
                          justify-center gap-2
@@ -285,7 +285,7 @@ export default function GamePlayerPage(
                 } catch {}
               }}
               className="h-12 px-4 rounded-xl
-                         bg-[#111827] border border-[#1E293B]
+                         bg-[#1A1A2E] border border-[#1E293B]
                          text-white text-sm
                          flex items-center gap-2
                          active:scale-95

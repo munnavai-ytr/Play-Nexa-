@@ -30,7 +30,7 @@ export default function QuickAccessGrid() {
             <Link
               key={card.href}
               href={card.href}
-              className="flex flex-col gap-2 rounded-2xl border border-pn-border bg-pn-card p-4 shadow-[0_0_20px_rgba(124,92,255,0.1)] active:scale-[0.97] transition-transform duration-150"
+              className="flex flex-col gap-2 rounded-2xl border border-pn-border bg-pn-card p-4 shadow-[0_0_20px_rgba(124,58,237,0.1)] active:scale-[0.97] transition-transform duration-150"
             >
               <Icon className="h-7 w-7 text-pn-purple" aria-hidden="true" />
               <div>

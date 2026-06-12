@@ -51,18 +51,18 @@ export default function GamesPage() {
   )
 
   return (
-    <div className="min-h-screen bg-[#070B14] pb-24">
+    <div className="min-h-screen bg-[#0D0D0D] pb-24">
 
       {/* TopBar */}
-      <div className="sticky top-0 z-50 bg-[#070B14]
+      <div className="sticky top-0 z-50 bg-[#0D0D0D]
                       border-b border-[#1E293B]
                       px-4 h-14 flex items-center
                       justify-between">
         <h1 className="text-lg font-bold text-white">
           Game Hub
         </h1>
-        <span className="text-xs text-[#7C5CFF]
-                         bg-[#7C5CFF]/10 rounded-full
+        <span className="text-xs text-[#7C3AED]
+                         bg-[#7C3AED]/10 rounded-full
                          px-3 py-1">
           {games.length} Games
         </span>
@@ -74,7 +74,7 @@ export default function GamesPage() {
                         rounded-2xl overflow-hidden"
              style={{
                background:
-                 'linear-gradient(135deg, #7C5CFF 0%, #00D4FF 100%)'
+                 'linear-gradient(135deg, #7C3AED 0%, #06B6D4 100%)'
              }}>
           <div className="absolute inset-0 p-5
                           flex flex-col justify-end">
@@ -110,8 +110,8 @@ export default function GamesPage() {
                          px-4 py-2 text-xs font-medium
                          transition-all duration-200
                          ${active === cat
-                           ? 'bg-[#7C5CFF] text-white'
-                           : 'bg-[#111827] border border-[#1E293B] text-[#94A3B8]'
+                           ? 'bg-[#7C3AED] text-white'
+                           : 'bg-[#1A1A2E] border border-[#1E293B] text-[#9CA3AF]'
                          }`}
             >
               {cat}
@@ -152,7 +152,7 @@ export default function GamesPage() {
                            text-white">
               ⭐ Featured Games
             </h2>
-            <span className="text-xs text-[#7C5CFF]">
+            <span className="text-xs text-[#7C3AED]">
               See All →
             </span>
           </div>
@@ -179,7 +179,7 @@ export default function GamesPage() {
                            text-white">
               🔥 Trending Games
             </h2>
-            <span className="text-xs text-[#7C5CFF]">
+            <span className="text-xs text-[#7C3AED]">
               See All →
             </span>
           </div>
@@ -204,7 +204,7 @@ export default function GamesPage() {
                          text-white">
             {active === 'All' ? '🎮 All Games' : active}
           </h2>
-          <span className="text-xs text-[#94A3B8]">
+          <span className="text-xs text-[#9CA3AF]">
             {filtered.length} games
           </span>
         </div>

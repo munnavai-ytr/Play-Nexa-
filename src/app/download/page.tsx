@@ -171,7 +171,7 @@ export default function DownloadHubPage() {
   }, [platform, cleanUrl, sources, selectedSource])
 
   return (
-    <div className="min-h-screen bg-[#070B14] pb-24">
+    <div className="min-h-screen bg-[#0D0D0D] pb-24">
 
       {/* ── TOP PROGRESS BAR ── */}
       <div className="fixed top-0 left-0 right-0 z-[9998] h-[3px] bg-transparent pointer-events-none">
@@ -180,25 +180,25 @@ export default function DownloadHubPage() {
             className="h-full transition-all duration-200 ease-out rounded-r-full"
             style={{
               width: `${topBarProgress}%`,
-              backgroundColor: platformColor || '#7C5CFF',
-              boxShadow: `0 0 8px ${platformColor || '#7C5CFF'}80`
+              backgroundColor: platformColor || '#7C3AED',
+              boxShadow: `0 0 8px ${platformColor || '#7C3AED'}80`
             }}
           />
         )}
       </div>
 
       {/* ── HEADER ── */}
-      <div className="sticky top-0 z-50 bg-[#070B14]/95 border-b border-[#1E293B]">
+      <div className="sticky top-0 z-50 bg-[#0D0D0D]/95 border-b border-[#1E293B]">
         <div className="px-4 h-14 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-[#7C5CFF]/20 flex items-center justify-center">
-              <Zap size={16} className="text-[#7C5CFF]" />
+            <div className="w-8 h-8 rounded-lg bg-[#7C3AED]/20 flex items-center justify-center">
+              <Zap size={16} className="text-[#7C3AED]" />
             </div>
             <div>
               <h1 className="text-base font-bold text-white leading-tight">
                 Download Hub
               </h1>
-              <p className="text-[10px] text-[#94A3B8] leading-tight">
+              <p className="text-[10px] text-[#9CA3AF] leading-tight">
                 Universal Deep Linking
               </p>
             </div>
@@ -207,8 +207,8 @@ export default function DownloadHubPage() {
             <div className="px-2 py-1 rounded-full bg-[#22C55E]/10 border border-[#22C55E]/30">
               <span className="text-[10px] text-[#22C55E] font-semibold">FREE</span>
             </div>
-            <div className="px-2 py-1 rounded-full bg-[#7C5CFF]/10 border border-[#7C5CFF]/30">
-              <span className="text-[10px] text-[#7C5CFF] font-semibold">Any Link</span>
+            <div className="px-2 py-1 rounded-full bg-[#7C3AED]/10 border border-[#7C3AED]/30">
+              <span className="text-[10px] text-[#7C3AED] font-semibold">Any Link</span>
             </div>
           </div>
         </div>
@@ -226,18 +226,18 @@ export default function DownloadHubPage() {
           )}
 
           <div className={`relative flex items-center gap-2
-                          bg-[#111827] border rounded-2xl px-4 h-14
+                          bg-[#1A1A2E] border rounded-2xl px-4 h-14
                           transition-colors duration-200
                           ${platform
-                            ? 'border-[#7C5CFF]/60 shadow-[0_0_20px_rgba(124,92,255,0.15)]'
-                            : 'border-[#1E293B] focus-within:border-[#7C5CFF]'
+                            ? 'border-[#7C3AED]/60 shadow-[0_0_20px_rgba(124,58,237,0.15)]'
+                            : 'border-[#1E293B] focus-within:border-[#7C3AED]'
                           }`}>
-            <Link2 size={18} className="text-[#94A3B8] flex-shrink-0" />
+            <Link2 size={18} className="text-[#9CA3AF] flex-shrink-0" />
             <input
               value={url}
               onChange={e => setUrl(e.target.value)}
               placeholder="Paste any video or audio link..."
-              className="flex-1 bg-transparent text-white text-sm outline-none placeholder-[#94A3B8] min-w-0"
+              className="flex-1 bg-transparent text-white text-sm outline-none placeholder-[#9CA3AF] min-w-0"
               readOnly={uiStep === 'processing'}
             />
             {url ? (
@@ -246,13 +246,13 @@ export default function DownloadHubPage() {
                 className="p-1.5 active:scale-90 transition-transform duration-150"
                 disabled={uiStep === 'processing'}
               >
-                <X size={16} className="text-[#94A3B8]" />
+                <X size={16} className="text-[#9CA3AF]" />
               </button>
             ) : (
               <button
                 onClick={handlePaste}
-                className="flex items-center gap-1.5 text-[#7C5CFF] text-xs font-semibold
-                           px-3 py-2 bg-[#7C5CFF]/10 rounded-xl
+                className="flex items-center gap-1.5 text-[#7C3AED] text-xs font-semibold
+                           px-3 py-2 bg-[#7C3AED]/10 rounded-xl
                            active:scale-95 transition-transform duration-150"
               >
                 <ClipboardPaste size={14} />
@@ -288,7 +288,7 @@ export default function DownloadHubPage() {
                   </span>
                 )}
               </div>
-              <p className="text-[#94A3B8] text-xs mt-0.5 truncate max-w-[220px]">
+              <p className="text-[#9CA3AF] text-xs mt-0.5 truncate max-w-[220px]">
                 {ytId ? `ID: ${ytId}` : cleanUrl}
               </p>
             </div>
@@ -301,13 +301,13 @@ export default function DownloadHubPage() {
           <div
             className="flex items-center gap-3 rounded-2xl p-4 border animate-[fade-in_300ms_ease-out]"
             style={{
-              backgroundColor: '#7C5CFF12',
-              borderColor: '#7C5CFF35'
+              backgroundColor: '#7C3AED12',
+              borderColor: '#7C3AED35'
             }}
           >
             <div
               className="w-10 h-10 rounded-xl flex items-center justify-center text-xl"
-              style={{ backgroundColor: '#7C5CFF25' }}
+              style={{ backgroundColor: '#7C3AED25' }}
             >
               🌐
             </div>
@@ -316,15 +316,15 @@ export default function DownloadHubPage() {
                 <p className="text-white font-semibold text-sm">
                   Universal Link Detected
                 </p>
-                <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-[#7C5CFF]/20 text-[#7C5CFF] uppercase tracking-wide">
+                <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-[#7C3AED]/20 text-[#7C3AED] uppercase tracking-wide">
                   Auto-Route
                 </span>
               </div>
-              <p className="text-[#94A3B8] text-xs mt-0.5 truncate max-w-[220px]">
+              <p className="text-[#9CA3AF] text-xs mt-0.5 truncate max-w-[220px]">
                 Will route through universal gateway
               </p>
             </div>
-            <Globe size={20} className="text-[#7C5CFF]" />
+            <Globe size={20} className="text-[#7C3AED]" />
           </div>
         )}
 
@@ -339,8 +339,8 @@ export default function DownloadHubPage() {
                 className={`flex-1 h-12 rounded-xl flex items-center justify-center gap-2
                            text-sm font-medium border transition-all duration-200 active:scale-95
                            ${type === t
-                             ? 'bg-[#7C5CFF] border-[#7C5CFF] text-white shadow-[0_0_15px_rgba(124,92,255,0.3)]'
-                             : 'bg-[#111827] border-[#1E293B] text-[#94A3B8]'
+                             ? 'bg-[#7C3AED] border-[#7C3AED] text-white shadow-[0_0_15px_rgba(124,58,237,0.3)]'
+                             : 'bg-[#1A1A2E] border-[#1E293B] text-[#9CA3AF]'
                            }`}
               >
                 {t === 'video' ? <Video size={16} /> : <Music size={16} />}
@@ -360,13 +360,13 @@ export default function DownloadHubPage() {
             className={`w-full h-14 rounded-2xl text-white font-bold text-base
                        flex items-center justify-center gap-3
                        transition-all duration-200
-                       ${uiStep === 'idle' ? 'active:scale-[0.97] shadow-[0_0_25px_rgba(124,92,255,0.25)]' : ''}
+                       ${uiStep === 'idle' ? 'active:scale-[0.97] shadow-[0_0_25px_rgba(124,58,237,0.25)]' : ''}
                        ${uiStep === 'processing' ? 'opacity-90 scale-[0.98]' : ''}
                        ${uiStep === 'done' ? 'shadow-[0_0_25px_rgba(34,197,94,0.3)]' : ''}`}
             style={{
               backgroundColor: uiStep === 'done'
                 ? '#22C55E'
-                : (platformColor || '#7C5CFF'),
+                : (platformColor || '#7C3AED'),
               cursor: uiStep === 'processing' ? 'wait' : 'pointer'
             }}
           >
@@ -386,10 +386,10 @@ export default function DownloadHubPage() {
         {platform && sources.length > 1 && uiStep !== 'processing' && (
           <div>
             <div className="flex items-center justify-between mb-3">
-              <p className="text-[#94A3B8] text-xs font-medium uppercase tracking-wide">
+              <p className="text-[#9CA3AF] text-xs font-medium uppercase tracking-wide">
                 Download Sources
               </p>
-              <span className="text-[10px] text-[#7C5CFF] bg-[#7C5CFF]/10 px-2 py-0.5 rounded-full font-medium">
+              <span className="text-[10px] text-[#7C3AED] bg-[#7C3AED]/10 px-2 py-0.5 rounded-full font-medium">
                 {sources.length} gateways
               </span>
             </div>
@@ -401,20 +401,20 @@ export default function DownloadHubPage() {
                   className={`w-full flex items-center justify-between p-3.5
                              rounded-xl border transition-all duration-150 active:scale-[0.98]
                              ${idx === 0
-                               ? 'bg-[#7C5CFF]/8 border-[#7C5CFF]/30'
-                               : 'bg-[#111827] border-[#1E293B]'
+                               ? 'bg-[#7C3AED]/8 border-[#7C3AED]/30'
+                               : 'bg-[#1A1A2E] border-[#1E293B]'
                              }`}
                 >
                   <div className="flex items-center gap-3">
-                    <div className={`w-2 h-2 rounded-full ${idx === 0 ? 'bg-[#7C5CFF]' : 'bg-[#1E293B]'}`} />
+                    <div className={`w-2 h-2 rounded-full ${idx === 0 ? 'bg-[#7C3AED]' : 'bg-[#1E293B]'}`} />
                     <p className="text-white text-sm font-medium">{source.name}</p>
                     {idx === 0 && (
-                      <span className="text-[9px] text-[#7C5CFF] bg-[#7C5CFF]/10 rounded-full px-2 py-0.5 font-bold uppercase tracking-wide">
+                      <span className="text-[9px] text-[#7C3AED] bg-[#7C3AED]/10 rounded-full px-2 py-0.5 font-bold uppercase tracking-wide">
                         Best
                       </span>
                     )}
                   </div>
-                  <ChevronRight size={14} className="text-[#94A3B8]" />
+                  <ChevronRight size={14} className="text-[#9CA3AF]" />
                 </button>
               ))}
             </div>
@@ -425,8 +425,8 @@ export default function DownloadHubPage() {
         {!platform && (
           <div>
             <div className="flex items-center gap-2 mb-3">
-              <Globe size={14} className="text-[#7C5CFF]" />
-              <p className="text-[#94A3B8] text-xs font-medium uppercase tracking-wide">
+              <Globe size={14} className="text-[#7C3AED]" />
+              <p className="text-[#9CA3AF] text-xs font-medium uppercase tracking-wide">
                 Supported Platforms
               </p>
             </div>
@@ -437,10 +437,10 @@ export default function DownloadHubPage() {
                   <div
                     key={p.key}
                     className={`relative flex flex-col items-center gap-2
-                               bg-[#111827] border rounded-2xl p-3
+                               bg-[#1A1A2E] border rounded-2xl p-3
                                transition-all duration-300
                                ${isGlowing
-                                 ? 'border-[#7C5CFF]/60 shadow-[0_0_15px_rgba(124,92,255,0.25)] scale-[1.02]'
+                                 ? 'border-[#7C3AED]/60 shadow-[0_0_15px_rgba(124,58,237,0.25)] scale-[1.02]'
                                  : 'border-[#1E293B]'
                                }`}
                   >
@@ -452,7 +452,7 @@ export default function DownloadHubPage() {
                     )}
                     <span className="text-2xl relative z-10">{p.icon}</span>
                     <p className={`text-[10px] text-center leading-tight relative z-10
-                                  ${isGlowing ? 'text-white font-semibold' : 'text-[#94A3B8]'}`}>
+                                  ${isGlowing ? 'text-white font-semibold' : 'text-[#9CA3AF]'}`}>
                       {p.label}
                     </p>
                     {isGlowing && (
@@ -467,9 +467,9 @@ export default function DownloadHubPage() {
             </div>
 
             {/* How It Works */}
-            <div className="mt-5 bg-[#111827] border border-[#1E293B] rounded-2xl p-4">
+            <div className="mt-5 bg-[#1A1A2E] border border-[#1E293B] rounded-2xl p-4">
               <div className="flex items-center gap-2 mb-3">
-                <Sparkles size={14} className="text-[#7C5CFF]" />
+                <Sparkles size={14} className="text-[#7C3AED]" />
                 <p className="text-white text-xs font-semibold">One-Click Download</p>
               </div>
               <div className="space-y-2">
@@ -480,10 +480,10 @@ export default function DownloadHubPage() {
                   { step: '4', text: 'Gateway opens with link pre-filled' },
                 ].map(item => (
                   <div key={item.step} className="flex items-center gap-3">
-                    <div className="w-6 h-6 rounded-full bg-[#7C5CFF]/15 flex items-center justify-center flex-shrink-0">
-                      <span className="text-[10px] text-[#7C5CFF] font-bold">{item.step}</span>
+                    <div className="w-6 h-6 rounded-full bg-[#7C3AED]/15 flex items-center justify-center flex-shrink-0">
+                      <span className="text-[10px] text-[#7C3AED] font-bold">{item.step}</span>
                     </div>
-                    <p className="text-[#94A3B8] text-xs">{item.text}</p>
+                    <p className="text-[#9CA3AF] text-xs">{item.text}</p>
                   </div>
                 ))}
               </div>
@@ -493,7 +493,7 @@ export default function DownloadHubPage() {
             {recentUrls.length > 0 && (
               <div className="mt-5">
                 <div className="flex items-center justify-between mb-3">
-                  <p className="text-[#94A3B8] text-xs font-medium uppercase tracking-wide">
+                  <p className="text-[#9CA3AF] text-xs font-medium uppercase tracking-wide">
                     Recent
                   </p>
                   <button
@@ -508,13 +508,13 @@ export default function DownloadHubPage() {
                     <button
                       key={i}
                       onClick={() => setUrl(u)}
-                      className="w-full flex items-center gap-3 bg-[#111827]
+                      className="w-full flex items-center gap-3 bg-[#1A1A2E]
                                  border border-[#1E293B] rounded-xl p-3
                                  active:scale-[0.98] transition-transform duration-150"
                     >
                       <span className="text-sm">{getPlatformIcon(detectPlatform(u))}</span>
-                      <p className="text-[#94A3B8] text-xs truncate flex-1 text-left">{u}</p>
-                      <RefreshCw size={12} className="text-[#7C5CFF] flex-shrink-0" />
+                      <p className="text-[#9CA3AF] text-xs truncate flex-1 text-left">{u}</p>
+                      <RefreshCw size={12} className="text-[#7C3AED] flex-shrink-0" />
                     </button>
                   ))}
                 </div>
@@ -526,7 +526,7 @@ export default function DownloadHubPage() {
         {/* ── SECURITY BADGE ── */}
         <div className="flex items-center justify-center gap-2 py-2">
           <Shield size={12} className="text-[#22C55E]" />
-          <p className="text-[10px] text-[#94A3B8]">
+          <p className="text-[10px] text-[#9CA3AF]">
             Client-side only • URL sanitized • Deep link auto-fills • Any link works
           </p>
         </div>
@@ -541,38 +541,38 @@ export default function DownloadHubPage() {
             className="absolute inset-0 bg-black/80"
             onClick={() => setShowConfirm(false)}
           />
-          <div className="relative w-full bg-[#111827] border-t border-[#1E293B] rounded-t-3xl p-5 z-10 animate-[slide-up_300ms_ease-out]">
+          <div className="relative w-full bg-[#1A1A2E] border-t border-[#1E293B] rounded-t-3xl p-5 z-10 animate-[slide-up_300ms_ease-out]">
 
             <div className="w-10 h-1 bg-[#1E293B] rounded-full mx-auto mb-5" />
 
             {/* Info */}
-            <div className="bg-[#7C5CFF]/10 border border-[#7C5CFF]/25 rounded-2xl p-4 mb-5">
+            <div className="bg-[#7C3AED]/10 border border-[#7C3AED]/25 rounded-2xl p-4 mb-5">
               <div className="flex items-center gap-2 mb-1.5">
-                <ExternalLink size={14} className="text-[#7C5CFF]" />
-                <p className="text-[#7C5CFF] font-semibold text-sm">
+                <ExternalLink size={14} className="text-[#7C3AED]" />
+                <p className="text-[#7C3AED] font-semibold text-sm">
                   Deep Link Preview
                 </p>
               </div>
-              <p className="text-[#94A3B8] text-sm leading-relaxed">
+              <p className="text-[#9CA3AF] text-sm leading-relaxed">
                 Opens <span className="text-white font-medium">{sources[selectedSource]?.name}</span> with your link
                 already filled in — no need to paste again.
               </p>
             </div>
 
             {/* URL preview */}
-            <div className="bg-[#0F172A] rounded-xl p-3 mb-3 border border-[#1E293B]">
-              <p className="text-[#94A3B8] text-[10px] uppercase tracking-wide mb-1">
+            <div className="bg-[#1A1A2E] rounded-xl p-3 mb-3 border border-[#1E293B]">
+              <p className="text-[#9CA3AF] text-[10px] uppercase tracking-wide mb-1">
                 Your Media URL
               </p>
               <p className="text-white text-xs truncate">{cleanUrl}</p>
             </div>
 
             {/* Deep link preview */}
-            <div className="bg-[#0F172A] rounded-xl p-3 mb-5 border border-[#1E293B]">
-              <p className="text-[#94A3B8] text-[10px] uppercase tracking-wide mb-1">
+            <div className="bg-[#1A1A2E] rounded-xl p-3 mb-5 border border-[#1E293B]">
+              <p className="text-[#9CA3AF] text-[10px] uppercase tracking-wide mb-1">
                 Gateway Deep Link
               </p>
-              <p className="text-[#7C5CFF] text-[11px] truncate break-all leading-relaxed">
+              <p className="text-[#7C3AED] text-[11px] truncate break-all leading-relaxed">
                 {previewDeepLink || 'Preparing...'}
               </p>
             </div>
@@ -581,17 +581,17 @@ export default function DownloadHubPage() {
             <div className="flex gap-3">
               <button
                 onClick={() => setShowConfirm(false)}
-                className="flex-1 h-12 rounded-xl border border-[#1E293B] text-[#94A3B8]
+                className="flex-1 h-12 rounded-xl border border-[#1E293B] text-[#9CA3AF]
                            text-sm font-medium active:scale-95 transition-transform duration-150"
               >
                 Cancel
               </button>
               <button
                 onClick={confirmFromModal}
-                className="flex-1 h-12 rounded-xl bg-[#7C5CFF] text-white
+                className="flex-1 h-12 rounded-xl bg-[#7C3AED] text-white
                            text-sm font-semibold active:scale-95
                            transition-transform duration-150
-                           shadow-[0_0_15px_rgba(124,92,255,0.3)]"
+                           shadow-[0_0_15px_rgba(124,58,237,0.3)]"
               >
                 Open Gateway <ArrowRight size={14} className="inline ml-1" />
               </button>
@@ -600,8 +600,8 @@ export default function DownloadHubPage() {
             {sources.length > 1 && (
               <button
                 onClick={tryNextSource}
-                className="w-full mt-3 text-[#94A3B8] text-xs text-center py-2
-                           active:text-[#7C5CFF] transition-colors duration-150"
+                className="w-full mt-3 text-[#9CA3AF] text-xs text-center py-2
+                           active:text-[#7C3AED] transition-colors duration-150"
               >
                 Try another source instead →
               </button>

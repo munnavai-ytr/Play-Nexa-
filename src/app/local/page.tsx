@@ -124,7 +124,7 @@ export default function LocalHubPage() {
                   className={`relative flex-1 h-7 rounded-md flex items-center justify-center gap-1.5
                              text-[11px] font-semibold tracking-wide transition-all duration-150
                              ${isActive
-                               ? 'bg-[#7C5CFF] text-white shadow-[0_0_10px_rgba(124,92,255,0.25)]'
+                               ? 'bg-[#7C3AED] text-white shadow-[0_0_10px_rgba(124,58,237,0.25)]'
                                : 'text-neutral-500 active:text-neutral-300'
                              }`}
                 >
@@ -141,7 +141,7 @@ export default function LocalHubPage() {
           <div className={`flex items-center gap-2 bg-neutral-900 border rounded-lg px-2.5 h-8
                           transition-colors duration-150
                           ${searchFocused
-                            ? 'border-[#7C5CFF]/40'
+                            ? 'border-[#7C3AED]/40'
                             : 'border-neutral-800/50'
                           }`}>
             <Search size={12} className="text-neutral-600 flex-shrink-0" />
@@ -198,7 +198,7 @@ export default function LocalHubPage() {
         <div className="px-3 pt-4">
           <div className="bg-neutral-900/50 border border-neutral-800/50 rounded-xl p-3">
             <div className="flex items-center gap-1.5 mb-2">
-              <Zap size={10} className="text-[#7C5CFF]" />
+              <Zap size={10} className="text-[#7C3AED]" />
               <p className="text-neutral-400 text-[9px] font-semibold uppercase tracking-wider">
                 Gesture Controls
               </p>
@@ -216,7 +216,7 @@ export default function LocalHubPage() {
                 <p className="text-neutral-600 text-[8px] uppercase tracking-wider mb-0.5">
                   Right half
                 </p>
-                <p className="text-[#00D4FF] text-[10px] font-semibold">
+                <p className="text-[#06B6D4] text-[10px] font-semibold">
                   ↕ Volume
                 </p>
               </div>

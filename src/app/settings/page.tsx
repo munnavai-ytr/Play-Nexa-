@@ -119,15 +119,15 @@ export default function SettingsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[#070B14] pb-24">
+    <div className="min-h-screen bg-[#0D0D0D] pb-24">
 
       {/* TopBar */}
-      <div className="sticky top-0 z-50 bg-[#070B14]
+      <div className="sticky top-0 z-50 bg-[#0D0D0D]
                       border-b border-[#1E293B]
                       px-4 h-14 flex items-center gap-3">
         <button
           onClick={() => router.back()}
-          className="p-2 rounded-full bg-[#111827]
+          className="p-2 rounded-full bg-[#1A1A2E]
                      border border-[#1E293B]
                      active:scale-90
                      transition-transform duration-150"
@@ -166,8 +166,8 @@ export default function SettingsPage() {
                             transition-all duration-200
                             active:scale-95
                             ${settings.theme === t
-                              ? 'border-[#7C5CFF] bg-[#7C5CFF]/10'
-                              : 'border-[#1E293B] bg-[#0F172A]'
+                              ? 'border-[#7C3AED] bg-[#7C3AED]/10'
+                              : 'border-[#1E293B] bg-[#1A1A2E]'
                             }`}
               >
                 <span className="text-2xl">
@@ -178,8 +178,8 @@ export default function SettingsPage() {
                 <p className={`text-xs font-semibold
                                capitalize
                                ${settings.theme === t
-                                 ? 'text-[#7C5CFF]'
-                                 : 'text-[#94A3B8]'
+                                 ? 'text-[#7C3AED]'
+                                 : 'text-[#9CA3AF]'
                                }`}>
                   {t}
                 </p>
@@ -258,8 +258,8 @@ export default function SettingsPage() {
                               transition-all duration-150
                               active:scale-95
                               ${settings.thumbnailQuality === q
-                                ? 'bg-[#7C5CFF] border-[#7C5CFF] text-white'
-                                : 'bg-[#0F172A] border-[#1E293B] text-[#94A3B8]'
+                                ? 'bg-[#7C3AED] border-[#7C3AED] text-white'
+                                : 'bg-[#1A1A2E] border-[#1E293B] text-[#9CA3AF]'
                               }`}
                 >
                   {q}
@@ -282,7 +282,7 @@ export default function SettingsPage() {
                 / {storage.totalMB} MB
               </p>
               <span className="text-xs text-white
-                               bg-[#7C5CFF] rounded-full
+                               bg-[#7C3AED] rounded-full
                                px-2 py-0.5">
                 {usedPct}%
               </span>
@@ -298,7 +298,7 @@ export default function SettingsPage() {
                     ? '#EF4444'
                     : usedPct > 60
                     ? '#F59E0B'
-                    : '#7C5CFF'
+                    : '#7C3AED'
                 }}
               />
             </div>
@@ -321,10 +321,10 @@ export default function SettingsPage() {
               ].map(item => (
                 <div key={item.label}
                      className="flex justify-between">
-                  <p className="text-[#94A3B8] text-sm">
+                  <p className="text-[#9CA3AF] text-sm">
                     {item.label}
                   </p>
-                  <p className="text-[#94A3B8] text-sm">
+                  <p className="text-[#9CA3AF] text-sm">
                     {item.value} MB
                   </p>
                 </div>
@@ -336,28 +336,28 @@ export default function SettingsPage() {
               <button
                 onClick={handleClearCache}
                 className="w-full h-12 rounded-xl
-                           bg-[#0F172A] border border-[#1E293B]
+                           bg-[#1A1A2E] border border-[#1E293B]
                            text-white text-sm font-medium
                            flex items-center justify-center gap-2
                            active:scale-95
                            transition-transform duration-150"
               >
                 <Trash2 size={16}
-                        className="text-[#94A3B8]" />
+                        className="text-[#9CA3AF]" />
                 Clear Cache
               </button>
 
               <button
                 onClick={handleOptimizeMemory}
                 className="w-full h-12 rounded-xl
-                           bg-[#0F172A] border border-[#1E293B]
+                           bg-[#1A1A2E] border border-[#1E293B]
                            text-white text-sm font-medium
                            flex items-center justify-center gap-2
                            active:scale-95
                            transition-transform duration-150"
               >
                 <Settings2 size={16}
-                           className="text-[#94A3B8]" />
+                           className="text-[#9CA3AF]" />
                 Optimize Memory
               </button>
 
@@ -378,7 +378,7 @@ export default function SettingsPage() {
         </Section>
 
         {/* Version */}
-        <p className="text-center text-[#94A3B8]
+        <p className="text-center text-[#9CA3AF]
                       text-xs pb-2">
           Play Nexa v1.0.0 • Made with ❤️
         </p>
@@ -396,12 +396,12 @@ function Section({
   children: React.ReactNode
 }) {
   return (
-    <div className="bg-[#111827] border border-[#1E293B]
+    <div className="bg-[#1A1A2E] border border-[#1E293B]
                     rounded-2xl overflow-hidden">
       <div className="flex items-center gap-2
                       px-4 py-3
                       border-b border-[#1E293B]">
-        <span className="text-[#7C5CFF]">{icon}</span>
+        <span className="text-[#7C3AED]">{icon}</span>
         <p className="text-white font-semibold text-sm">
           {title}
         </p>
@@ -426,7 +426,7 @@ function SettingRow({
         <p className="text-white text-sm font-medium">
           {label}
         </p>
-        <p className="text-[#94A3B8] text-xs mt-0.5">
+        <p className="text-[#9CA3AF] text-xs mt-0.5">
           {desc}
         </p>
       </div>
@@ -436,7 +436,7 @@ function SettingRow({
                     flex-shrink-0
                     transition-colors duration-200
                     ${value
-                      ? 'bg-[#7C5CFF]'
+                      ? 'bg-[#7C3AED]'
                       : 'bg-[#1E293B]'
                     }`}
       >

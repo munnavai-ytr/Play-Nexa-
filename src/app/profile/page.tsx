@@ -12,7 +12,7 @@ import { getSettings, saveSettings } from '@/lib/settings'
 import { applyTheme } from '@/lib/theme'
 
 const AVATAR_COLORS = [
-  '#7C5CFF','#00D4FF','#FF6B6B',
+  '#7C3AED','#06B6D4','#FF6B6B',
   '#FFD93D','#6BCB77','#FF922B'
 ]
 
@@ -93,7 +93,7 @@ export default function ProfilePage() {
   const handleShare = async () => {
     const shareData = {
       title: 'Play Nexa App',
-      text: '🎬 Check out Play Nexa — Premium entertainment platform! Watch movies, shorts, play games and more!',
+      text: '🎬 Check out Play Nexa — Premium entertainment platform! Watch movies, play games and more!',
       url: window.location.origin
     }
 
@@ -150,10 +150,10 @@ export default function ProfilePage() {
   if (loading) return <ProfileSkeleton />
 
   return (
-    <div className="min-h-screen bg-[#070B14] pb-24">
+    <div className="min-h-screen bg-[#0D0D0D] pb-24">
 
       {/* TopBar */}
-      <div className="sticky top-0 z-50 bg-[#070B14]
+      <div className="sticky top-0 z-50 bg-[#0D0D0D]
                       border-b border-[#1E293B]
                       px-4 h-14 flex items-center
                       justify-between">
@@ -162,7 +162,7 @@ export default function ProfilePage() {
         </h1>
         <button
           onClick={() => router.push('/settings')}
-          className="p-2 rounded-full bg-[#111827]
+          className="p-2 rounded-full bg-[#1A1A2E]
                      border border-[#1E293B]
                      active:scale-90
                      transition-transform duration-150"
@@ -174,7 +174,7 @@ export default function ProfilePage() {
       <div className="px-4 pt-4 space-y-4">
 
         {/* Avatar + Info Card */}
-        <div className="bg-[#111827] border border-[#1E293B]
+        <div className="bg-[#1A1A2E] border border-[#1E293B]
                         rounded-2xl p-5 text-center">
 
           {/* Avatar */}
@@ -184,7 +184,7 @@ export default function ProfilePage() {
                        text-white text-3xl font-bold"
             style={{ background:
               `linear-gradient(135deg,
-               ${profile.avatarColor}, #00D4FF)` }}
+               ${profile.avatarColor}, #06B6D4)` }}
           >
             {profile.username.charAt(0).toUpperCase()}
           </div>
@@ -212,16 +212,16 @@ export default function ProfilePage() {
           <h2 className="text-white font-bold text-xl mb-1">
             {profile.username}
           </h2>
-          <p className="text-[#94A3B8] text-sm mb-4">
+          <p className="text-[#9CA3AF] text-sm mb-4">
             {profile.handle}
           </p>
 
           <button
             onClick={openEdit}
             className="px-8 py-2.5 rounded-xl border
-                       border-[#7C5CFF] text-[#7C5CFF]
+                       border-[#7C3AED] text-[#7C3AED]
                        text-sm font-semibold
-                       active:scale-95 active:bg-[#7C5CFF]/10
+                       active:scale-95 active:bg-[#7C3AED]/10
                        transition-all duration-150"
           >
             Edit Profile
@@ -229,19 +229,19 @@ export default function ProfilePage() {
         </div>
 
         {/* Real Stats */}
-        <div className="bg-[#111827] border border-[#1E293B]
+        <div className="bg-[#1A1A2E] border border-[#1E293B]
                         rounded-2xl p-4">
           <div className="grid grid-cols-3 gap-4">
             {[
               {
                 value: profile.downloadCount,
                 label: 'Downloads',
-                color: '#7C5CFF'
+                color: '#7C3AED'
               },
               {
                 value: profile.savedCount,
                 label: 'Saved',
-                color: '#00D4FF'
+                color: '#06B6D4'
               },
               {
                 value: profile.playedCount,
@@ -254,7 +254,7 @@ export default function ProfilePage() {
                    style={{ color: stat.color }}>
                   {stat.value}
                 </p>
-                <p className="text-[#94A3B8] text-xs mt-1">
+                <p className="text-[#9CA3AF] text-xs mt-1">
                   {stat.label}
                 </p>
               </div>
@@ -274,13 +274,13 @@ export default function ProfilePage() {
                 key={item.label}
                 onClick={item.onTap}
                 className="w-full flex items-center gap-4
-                           bg-[#111827] border border-[#1E293B]
+                           bg-[#1A1A2E] border border-[#1E293B]
                            rounded-2xl p-4
                            active:scale-95
                            transition-transform duration-150"
               >
                 <div className="w-9 h-9 rounded-xl
-                                bg-[#0F172A] flex items-center
+                                bg-[#1A1A2E] flex items-center
                                 justify-center flex-shrink-0">
                   {item.icon}
                 </div>
@@ -289,7 +289,7 @@ export default function ProfilePage() {
                   {item.label}
                 </p>
                 <ChevronRight size={16}
-                              className="text-[#94A3B8]" />
+                              className="text-[#9CA3AF]" />
               </button>
             ))}
           </div>
@@ -305,11 +305,11 @@ export default function ProfilePage() {
 
             {/* Dark Mode toggle */}
             <div className="flex items-center gap-4
-                            bg-[#111827] border border-[#1E293B]
+                            bg-[#1A1A2E] border border-[#1E293B]
                             rounded-2xl p-4">
-              <div className="w-9 h-9 rounded-xl bg-[#0F172A]
+              <div className="w-9 h-9 rounded-xl bg-[#1A1A2E]
                               flex items-center justify-center">
-                <Moon size={18} className="text-[#7C5CFF]" />
+                <Moon size={18} className="text-[#7C3AED]" />
               </div>
               <p className="text-white text-sm
                             font-medium flex-1">
@@ -324,23 +324,23 @@ export default function ProfilePage() {
             {/* Notifications — Coming Soon */}
             <div
               className="flex items-center gap-4
-                         bg-[#111827] border border-[#1E293B]
+                         bg-[#1A1A2E] border border-[#1E293B]
                          rounded-2xl p-4"
             >
-              <div className="w-9 h-9 rounded-xl bg-[#0F172A]
+              <div className="w-9 h-9 rounded-xl bg-[#1A1A2E]
                               flex items-center justify-center">
-                <Bell size={18} className="text-[#7C5CFF]" />
+                <Bell size={18} className="text-[#7C3AED]" />
               </div>
               <div className="flex-1">
                 <p className="text-white text-sm font-medium">
                   Notifications
                 </p>
-                <p className="text-[#94A3B8] text-xs mt-0.5">
+                <p className="text-[#9CA3AF] text-xs mt-0.5">
                   Coming Soon
                 </p>
               </div>
-              <span className="text-[10px] text-[#7C5CFF]
-                               bg-[#7C5CFF]/10 rounded-full
+              <span className="text-[10px] text-[#7C3AED]
+                               bg-[#7C3AED]/10 rounded-full
                                px-2.5 py-1 font-medium">
                 Soon
               </span>
@@ -353,11 +353,11 @@ export default function ProfilePage() {
           {/* Help & Support — Coming Soon */}
           <div
             className="w-full flex items-center gap-4
-                       bg-[#111827] border border-[#1E293B]
+                       bg-[#1A1A2E] border border-[#1E293B]
                        rounded-2xl p-4"
           >
             <div className="w-9 h-9 rounded-xl
-                            bg-[#0F172A] flex items-center
+                            bg-[#1A1A2E] flex items-center
                             justify-center flex-shrink-0">
               <HelpCircle size={18} className="text-blue-400" />
             </div>
@@ -365,12 +365,12 @@ export default function ProfilePage() {
               <p className="text-white text-sm font-medium">
                 Help & Support
               </p>
-              <p className="text-[#94A3B8] text-xs mt-0.5">
+              <p className="text-[#9CA3AF] text-xs mt-0.5">
                 Coming Soon
               </p>
             </div>
-            <span className="text-[10px] text-[#7C5CFF]
-                             bg-[#7C5CFF]/10 rounded-full
+            <span className="text-[10px] text-[#7C3AED]
+                             bg-[#7C3AED]/10 rounded-full
                              px-2.5 py-1 font-medium">
               Soon
             </span>
@@ -380,13 +380,13 @@ export default function ProfilePage() {
           <button
             onClick={handleRate}
             className="w-full flex items-center gap-4
-                       bg-[#111827] border border-[#1E293B]
+                       bg-[#1A1A2E] border border-[#1E293B]
                        rounded-2xl p-4
                        active:scale-[0.97]
                        transition-transform duration-150"
           >
             <div className="w-9 h-9 rounded-xl
-                            bg-[#0F172A] flex items-center
+                            bg-[#1A1A2E] flex items-center
                             justify-center flex-shrink-0">
               <Star size={18} className="text-yellow-400" />
             </div>
@@ -397,20 +397,20 @@ export default function ProfilePage() {
                 : 'Rate Play Nexa'}
             </p>
             <ChevronRight size={16}
-                          className="text-[#94A3B8]" />
+                          className="text-[#9CA3AF]" />
           </button>
 
           {/* Share App */}
           <button
             onClick={handleShare}
             className="w-full flex items-center gap-4
-                       bg-[#111827] border border-[#1E293B]
+                       bg-[#1A1A2E] border border-[#1E293B]
                        rounded-2xl p-4
                        active:scale-[0.97]
                        transition-transform duration-150"
           >
             <div className="w-9 h-9 rounded-xl
-                            bg-[#0F172A] flex items-center
+                            bg-[#1A1A2E] flex items-center
                             justify-center flex-shrink-0">
               <Share2 size={18} className="text-green-400" />
             </div>
@@ -419,7 +419,7 @@ export default function ProfilePage() {
               Share App
             </p>
             <ChevronRight size={16}
-                          className="text-[#94A3B8]" />
+                          className="text-[#9CA3AF]" />
           </button>
         </div>
       </div>
@@ -427,7 +427,7 @@ export default function ProfilePage() {
       {/* Share Toast */}
       {shareToast && (
         <div className="fixed top-20 left-4 right-4
-                        z-50 bg-[#7C5CFF] rounded-xl
+                        z-50 bg-[#7C3AED] rounded-xl
                         p-3 text-center text-white
                         text-sm font-semibold
                         transition-all duration-200">
@@ -442,7 +442,7 @@ export default function ProfilePage() {
             className="absolute inset-0 bg-black/80"
             onClick={() => setShowRating(false)}
           />
-          <div className="relative w-full bg-[#111827]
+          <div className="relative w-full bg-[#1A1A2E]
                           border-t border-[#1E293B]
                           rounded-t-3xl p-6 z-10">
 
@@ -454,7 +454,7 @@ export default function ProfilePage() {
               <h3 className="text-white font-bold text-lg">
                 Rate Play Nexa
               </h3>
-              <p className="text-[#94A3B8] text-sm mt-1">
+              <p className="text-[#9CA3AF] text-sm mt-1">
                 How do you like the app?
               </p>
             </div>
@@ -475,7 +475,7 @@ export default function ProfilePage() {
 
             {/* Feedback text */}
             {ratingValue > 0 && (
-              <p className="text-center text-[#94A3B8]
+              <p className="text-center text-[#9CA3AF]
                             text-sm mb-5">
                 {ratingValue === 5 ? '🎉 Awesome! Thank you!'
                  : ratingValue === 4 ? '😊 Great! Thanks!'
@@ -489,7 +489,7 @@ export default function ProfilePage() {
               <button
                 onClick={() => setShowRating(false)}
                 className="flex-1 h-12 rounded-xl border
-                           border-[#1E293B] text-[#94A3B8]
+                           border-[#1E293B] text-[#9CA3AF]
                            text-sm font-medium"
               >
                 Cancel
@@ -502,8 +502,8 @@ export default function ProfilePage() {
                             transition-all duration-150
                             active:scale-95
                             ${ratingValue > 0
-                              ? 'bg-[#7C5CFF]'
-                              : 'bg-[#1E293B] text-[#94A3B8]'
+                              ? 'bg-[#7C3AED]'
+                              : 'bg-[#1E293B] text-[#9CA3AF]'
                             }`}
               >
                 Submit Rating
@@ -520,7 +520,7 @@ export default function ProfilePage() {
             className="absolute inset-0 bg-black/80"
             onClick={() => setShowEdit(false)}
           />
-          <div className="relative w-full bg-[#111827]
+          <div className="relative w-full bg-[#1A1A2E]
                           border-t border-[#1E293B]
                           rounded-t-3xl p-5 z-10">
             <div className="w-10 h-1 bg-[#1E293B]
@@ -532,31 +532,31 @@ export default function ProfilePage() {
 
             <div className="space-y-3 mb-5">
               <div>
-                <p className="text-[#94A3B8] text-xs mb-1.5">
+                <p className="text-[#9CA3AF] text-xs mb-1.5">
                   Display Name
                 </p>
                 <input
                   value={editName}
                   onChange={e => setEditName(e.target.value)}
-                  className="w-full bg-[#0F172A]
+                  className="w-full bg-[#1A1A2E]
                              border border-[#1E293B]
                              rounded-xl h-12 px-4
                              text-white text-sm outline-none
-                             focus:border-[#7C5CFF]
+                             focus:border-[#7C3AED]
                              transition-colors duration-200"
                 />
               </div>
               <div>
-                <p className="text-[#94A3B8] text-xs mb-1.5">
+                <p className="text-[#9CA3AF] text-xs mb-1.5">
                   Username
                 </p>
                 <div className="flex items-center
-                                bg-[#0F172A]
+                                bg-[#1A1A2E]
                                 border border-[#1E293B]
                                 rounded-xl h-12 px-4
-                                focus-within:border-[#7C5CFF]
+                                focus-within:border-[#7C3AED]
                                 transition-colors duration-200">
-                  <span className="text-[#94A3B8] text-sm mr-1">
+                  <span className="text-[#9CA3AF] text-sm mr-1">
                     @
                   </span>
                   <input
@@ -575,7 +575,7 @@ export default function ProfilePage() {
               <button
                 onClick={() => setShowEdit(false)}
                 className="flex-1 h-12 rounded-xl border
-                           border-[#1E293B] text-[#94A3B8]
+                           border-[#1E293B] text-[#9CA3AF]
                            text-sm font-medium"
               >
                 Cancel
@@ -583,7 +583,7 @@ export default function ProfilePage() {
               <button
                 onClick={saveEdit}
                 className="flex-1 h-12 rounded-xl
-                           bg-[#7C5CFF] text-white
+                           bg-[#7C3AED] text-white
                            text-sm font-semibold
                            active:scale-95
                            transition-transform duration-150"
@@ -600,9 +600,9 @@ export default function ProfilePage() {
 
 function ProfileSkeleton() {
   return (
-    <div className="min-h-screen bg-[#070B14] pb-24 px-4 pt-16">
+    <div className="min-h-screen bg-[#0D0D0D] pb-24 px-4 pt-16">
       <div className="space-y-4">
-        <div className="bg-[#111827] rounded-2xl p-5
+        <div className="bg-[#1A1A2E] rounded-2xl p-5
                         flex flex-col items-center gap-3">
           <div className="w-20 h-20 rounded-full
                           bg-[#1E293B] animate-pulse" />
@@ -611,7 +611,7 @@ function ProfileSkeleton() {
           <div className="h-4 w-24 bg-[#1E293B]
                           rounded animate-pulse" />
         </div>
-        <div className="bg-[#111827] rounded-2xl p-4
+        <div className="bg-[#1A1A2E] rounded-2xl p-4
                         h-24 animate-pulse" />
       </div>
     </div>
@@ -631,7 +631,7 @@ function Toggle({
       onClick={() => onChange(!value)}
       className={`w-12 h-6 rounded-full relative
                   transition-colors duration-200
-                  ${value ? 'bg-[#7C5CFF]' : 'bg-[#1E293B]'}`}
+                  ${value ? 'bg-[#7C3AED]' : 'bg-[#1E293B]'}`}
     >
       <div className={`absolute top-0.5 w-5 h-5
                        rounded-full bg-white

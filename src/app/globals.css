@@ -8,13 +8,13 @@
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
-  --color-pn-bg: #070B14;
-  --color-pn-card: #111827;
+  --color-pn-bg: #0D0D0D;
+  --color-pn-card: #1A1A2E;
   --color-pn-border: #1E293B;
-  --color-pn-purple: #7C5CFF;
-  --color-pn-cyan: #00D4FF;
-  --color-pn-muted: #94A3B8;
-  --color-pn-secondary: #0F172A;
+  --color-pn-purple: #7C3AED;
+  --color-pn-cyan: #06B6D4;
+  --color-pn-muted: #9CA3AF;
+  --color-pn-secondary: #1A1A2E;
   --color-pn-success: #22C55E;
   --animate-shimmer: shimmer 1.5s ease-in-out infinite;
   --animate-fade-in: fade-in 300ms ease-out;
@@ -56,24 +56,24 @@
 
 :root {
   --radius: 0.625rem;
-  --background: #070B14;
+  --background: #0D0D0D;
   --foreground: #FFFFFF;
-  --card: #111827;
+  --card: #1A1A2E;
   --card-foreground: #FFFFFF;
-  --popover: #111827;
+  --popover: #1A1A2E;
   --popover-foreground: #FFFFFF;
-  --primary: #7C5CFF;
+  --primary: #7C3AED;
   --primary-foreground: #FFFFFF;
-  --secondary: #0F172A;
+  --secondary: #1A1A2E;
   --secondary-foreground: #FFFFFF;
-  --muted: #0F172A;
-  --muted-foreground: #94A3B8;
-  --accent: #7C5CFF;
+  --muted: #1A1A2E;
+  --muted-foreground: #9CA3AF;
+  --accent: #7C3AED;
   --accent-foreground: #FFFFFF;
   --destructive: #EF4444;
   --border: #1E293B;
   --input: #1E293B;
-  --ring: #7C5CFF;
+  --ring: #7C3AED;
 }
 
 /* Custom scrollbar for dark theme */
@@ -83,7 +83,7 @@
 }
 
 ::-webkit-scrollbar-track {
-  background: #070B14;
+  background: #0D0D0D;
 }
 
 ::-webkit-scrollbar-thumb {
@@ -125,9 +125,9 @@ input[type="range"]::-webkit-slider-thumb {
   height: 14px;
   width: 14px;
   border-radius: 50%;
-  background: #7C5CFF;
+  background: #7C3AED;
   margin-top: -5px;
-  border: 2px solid #070B14;
+  border: 2px solid #0D0D0D;
 }
 
 input[type="range"]::-moz-range-track {
@@ -140,8 +140,8 @@ input[type="range"]::-moz-range-thumb {
   height: 14px;
   width: 14px;
   border-radius: 50%;
-  background: #7C5CFF;
-  border: 2px solid #070B14;
+  background: #7C3AED;
+  border: 2px solid #0D0D0D;
 }
 
 /* Safe area for bottom nav */

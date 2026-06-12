@@ -31,7 +31,7 @@ const GEO_TABS: { key: MovieRegion | 'all'; label: string; icon: string }[] = [
 // ── Genre Categories ──
 
 const GENRE_CATEGORIES = [
-  'Trending', 'Hollywood', 'Bollywood', 'Anime',
+  'Trending', 'Bollywood', 'Anime',
   'Korean', 'Sci-Fi', 'Action', 'Hindi Dubbed',
 ]
 
@@ -174,7 +174,6 @@ function MovieGrid({
 
 const SECTIONS = [
   { label: '🔥 Trending Now', cat: 'Trending' },
-  { label: '🎬 Hollywood Hits', cat: 'Hollywood' },
   { label: '🎭 Bollywood', cat: 'Bollywood' },
   { label: '🎌 Anime Universe', cat: 'Anime' },
   { label: '🌏 Korean Movies', cat: 'Korean' },
@@ -230,12 +229,12 @@ export default function MoviesPage() {
             aria-label={viewMode === 'feed' ? 'Switch to grid' : 'Switch to feed'}
           >
             {viewMode === 'feed' ? (
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#94A3B8" strokeWidth="2">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#9CA3AF" strokeWidth="2">
                 <rect x="3" y="3" width="7" height="7" /><rect x="14" y="3" width="7" height="7" />
                 <rect x="3" y="14" width="7" height="7" /><rect x="14" y="14" width="7" height="7" />
               </svg>
             ) : (
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#94A3B8" strokeWidth="2">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#9CA3AF" strokeWidth="2">
                 <line x1="3" y1="6" x2="21" y2="6" /><line x1="3" y1="12" x2="21" y2="12" /><line x1="3" y1="18" x2="21" y2="18" />
               </svg>
             )}
@@ -248,7 +247,7 @@ export default function MoviesPage() {
             className="p-2 rounded-lg bg-pn-card border border-pn-border active:scale-90 transition-transform duration-150 min-h-[44px] min-w-[44px] flex items-center justify-center"
             aria-label="Search"
           >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#94A3B8" strokeWidth="2" strokeLinecap="round">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#9CA3AF" strokeWidth="2" strokeLinecap="round">
               <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
             </svg>
           </button>

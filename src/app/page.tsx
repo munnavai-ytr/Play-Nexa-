@@ -41,11 +41,11 @@ export default function Home() {
   const [showSearch, setShowSearch] = useState(false)
 
   return (
-    <div className="flex min-h-screen flex-col bg-[#070B14]">
+    <div className="flex min-h-screen flex-col bg-[#0D0D0D]">
 
       {/* Fixed header — proper z-index + touch handling */}
       <div
-        className="sticky top-0 z-50 bg-[#070B14]
+        className="sticky top-0 z-50 bg-[#0D0D0D]
                    border-b border-[#1E293B]
                    px-4 h-14 flex items-center
                    justify-between"
@@ -54,7 +54,7 @@ export default function Home() {
         {/* Logo */}
         <div className="flex items-center gap-2">
           <span className="font-black text-xl tracking-tight select-none">
-            <span style={{ color: '#7C5CFF' }}>Play</span>
+            <span style={{ color: '#7C3AED' }}>Play</span>
             <span className="text-white">Nexa</span>
           </span>
         </div>
@@ -74,7 +74,7 @@ export default function Home() {
               zIndex: 51
             }}
             className="w-10 h-10 rounded-full
-                       bg-[#111827] border border-[#1E293B]
+                       bg-[#1A1A2E] border border-[#1E293B]
                        flex items-center justify-center
                        active:scale-90
                        transition-transform duration-150"
@@ -93,7 +93,7 @@ export default function Home() {
               zIndex: 51
             }}
             className="w-10 h-10 rounded-full
-                       bg-[#111827] border border-[#1E293B]
+                       bg-[#1A1A2E] border border-[#1E293B]
                        flex items-center justify-center
                        active:scale-90
                        transition-transform duration-150"
