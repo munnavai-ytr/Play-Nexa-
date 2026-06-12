@@ -1,7 +1,7 @@
 // ── Play Nexa — Channel Info API Route ────────────────────────
-// Fetches YouTube channel name and ID from RSS feed
+// Fetches YouTube channel name, ID, avatar, and video count from RSS
 // Called from Channel Manager when adding a new channel
-// No API key required — uses YouTube's public RSS
+// No API key required — uses YouTube's public RSS + unavatar
 
 import { NextRequest, NextResponse } from 'next/server'
 
@@ -17,19 +17,19 @@ export async function GET(req: NextRequest) {
 
   try {
     // Build RSS URL based on input type
-    // UCxxxxxx → channel_id parameter
-    // @handle or custom name → user parameter
     let rssUrl: string
     if (channelId.startsWith('UC') && channelId.length >= 20) {
       rssUrl = `https://www.youtube.com/feeds/videos.xml?channel_id=${channelId}`
     } else {
-      // Try as handle/username first
+      // Try as handle/username
       rssUrl = `https://www.youtube.com/feeds/videos.xml?user=${channelId}`
     }
 
     const res = await fetch(rssUrl, {
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Mobile Safari/537.36',
+        'User-Agent':
+          'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 ' +
+          '(KHTML, like Gecko) Chrome/125.0.0.0 Mobile Safari/537.36',
         'Accept': 'application/xml,text/xml,application/rss+xml',
       },
       signal: AbortSignal.timeout(8000),
@@ -49,7 +49,7 @@ export async function GET(req: NextRequest) {
     const authorMatch = xml.match(/<name>(.*?)<\/name>/)
     const idMatch = xml.match(/<yt:channelId>(.*?)<\/yt:channelId>/)
 
-    // Clean up HTML entities in the name
+    // Decode HTML entities
     const decodeHtml = (s: string) =>
       s.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
         .replace(/&quot;/g, '"').replace(/&#39;/g, "'")
@@ -62,15 +62,17 @@ export async function GET(req: NextRequest) {
 
     const realChannelId = idMatch?.[1] || channelId
 
-    // Avatar URL pattern (YouTube serves channel avatars at this endpoint)
-    const avatar = realChannelId.startsWith('UC')
-      ? `https://www.youtube.com/channel/${realChannelId}`
-      : null
+    // Count videos in feed
+    const videoCount = (xml.match(/<entry>/g) || []).length
+
+    // Avatar via unavatar service (reliable, no API key needed)
+    const avatarUrl = `https://unavatar.io/youtube/${realChannelId}`
 
     return NextResponse.json({
       name: channelName,
       channelId: realChannelId,
-      avatar: avatar || '',
+      avatar: avatarUrl,
+      videoCount,
     })
   } catch (err: any) {
     console.error('[Channel Info] Error:', err.message)

@@ -18,3 +18,34 @@ Stage Summary:
 - All files follow existing MovieHub/MovieModal patterns for consistency
 - Uses `supabase` from `@/lib/supabaseAdmin` (anon key, persistSession: true) for auth support
 - Music Library (offline) completely untouched — useMusicPlayer.ts and MiniPlayer.tsx NOT modified
+
+---
+Task ID: gemini-channel-scanner
+Agent: Main Agent
+Task: Build AI-powered YouTube Channel Scanner for Play Nexa Admin Panel using Google Gemini AI
+
+Work Log:
+- Explored existing project structure: channels page (925 lines), Sidebar, API routes, Supabase clients
+- Installed @google/generative-ai npm package
+- Added GEMINI_API_KEY to .env (placeholder - user needs to set their key from https://aistudio.google.com/app/apikey)
+- Created src/lib/rssParser.ts — YouTube RSS feed parser with HTML entity decoding, structured RSSVideo output
+- Created src/lib/geminiScanner.ts — Gemini 1.5 Flash classifier with keyword fallback, ScanResult type
+- Created src/app/api/admin/gemini-scan/route.ts — POST endpoint that fetches RSS, classifies each video via Gemini, inserts into movies/music_tracks tables, tracks progress in ai_scan_jobs
+- Updated src/app/api/admin/channel-info/route.ts — Added avatar via unavatar.io, video count from RSS feed
+- Rewrote src/app/admin/channels/page.tsx — Full Gemini AI Channel Manager with:
+  - Add Channel modal: URL input → Fetch info → Preview → Badge color picker → Save & Scan with Gemini AI
+  - Channel list: Avatar, name, type badge, last scan time, imported count, active status
+  - Re-scan button per channel with scanning indicator
+  - Edit display settings modal with badge color picker and preview
+  - AI Scan History table (last 10 jobs from ai_scan_jobs)
+  - Delete confirmation modal
+  - Toast notifications throughout
+  - AMOLED dark theme, 44px touch targets, no backdrop-blur
+- Sidebar already had Channels link — no changes needed
+- Build compiles successfully with all new routes visible
+
+Stage Summary:
+- 6 files created/modified: rssParser.ts, geminiScanner.ts, gemini-scan/route.ts, channel-info/route.ts, channels/page.tsx, .env
+- Zero placeholder code — all real implementation
+- User needs to set GEMINI_API_KEY in .env (get free key from https://aistudio.google.com/app/apikey)
+- ai_scan_jobs table needs to be created in Supabase for scan history tracking
