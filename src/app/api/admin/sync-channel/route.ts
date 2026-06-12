@@ -1,214 +1,184 @@
-// ── Play Nexa — Channel Sync API Route ────────────────────────
-// Triggers a manual sync for a specific YouTube channel
-// Fetches recent videos from RSS, filters by keywords, and
-// inserts new videos into the movies or music_tracks table
-// Uses service role key to bypass RLS on writes
+// ── Play Nexa — Channel Sync API Route (Phase 2) ────────────────
+// Triggers a manual sync for a specific YouTube channel.
+// Fetches recent videos from RSS, classifies by keywords,
+// and upserts into movies / music_tracks tables.
+// All results logged to sync_logs. Uses shared supabaseAdmin.
+//
+// POST /api/admin/sync-channel
+// Body: { channelId: string }
+// Returns: { success, found, added, skipped, error? }
 
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
-
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
-const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || ''
-
-function getAdminClient() {
-  if (!SUPABASE_URL || !SERVICE_ROLE_KEY) return null
-  return createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
-    auth: { autoRefreshToken: false, persistSession: false },
-  })
-}
+import { supabaseAdmin } from '@/lib/supabaseAdmin'
+import { fetchChannelRSS } from '@/lib/rssParser'
+import { classifyVideo, buildMovieRecord, buildMusicRecord } from '@/lib/videoFilter'
 
 export async function POST(req: NextRequest) {
+  // ── 1. Validate input ──
+  let channelId: string | undefined
   try {
-    const { channelId } = await req.json()
-
-    if (!channelId || typeof channelId !== 'string') {
-      return NextResponse.json(
-        { error: 'channelId is required' },
-        { status: 400 }
-      )
-    }
-
-    const admin = getAdminClient()
-    if (!admin) {
-      return NextResponse.json(
-        { error: 'Server not configured' },
-        { status: 500 }
-      )
-    }
-
-    // 1. Get channel config from yt_channels
-    const { data: channel, error: chErr } = await admin
-      .from('yt_channels')
-      .select('*')
-      .eq('id', channelId)
-      .single()
-
-    if (chErr || !channel) {
-      return NextResponse.json(
-        { error: 'Channel not found in database' },
-        { status: 404 }
-      )
-    }
-
-    // 2. Fetch RSS feed for this channel
-    const rssUrl = `https://www.youtube.com/feeds/videos.xml?channel_id=${channel.channel_id}`
-    const rssRes = await fetch(rssUrl, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36',
-        'Accept': 'application/xml,text/xml',
-      },
-      signal: AbortSignal.timeout(10000),
-    })
-
-    if (!rssRes.ok) {
-      // Log the failure
-      await admin.from('sync_logs').insert([{
-        channel_id: channel.id,
-        channel_name: channel.channel_name,
-        status: 'failed',
-        error_message: `RSS fetch failed: HTTP ${rssRes.status}`,
-      }])
-      return NextResponse.json(
-        { error: 'Failed to fetch channel RSS feed' },
-        { status: 502 }
-      )
-    }
-
-    const xml = await rssRes.text()
-
-    // 3. Parse video entries from RSS
-    // Each <entry> contains: <id>, <title>, <link>, <published>, <media:thumbnail>, <yt:videoId>
-    const entryRegex = /<entry>([\s\S]*?)<\/entry>/g
-    const entries: {
-      videoId: string
-      title: string
-      thumbnail: string
-      published: string
-    }[] = []
-
-    let match
-    while ((match = entryRegex.exec(xml)) !== null) {
-      const entry = match[1]
-      const videoIdMatch = entry.match(/<yt:videoId>(.*?)<\/yt:videoId>/)
-      const titleMatch = entry.match(/<title>(.*?)<\/title>/)
-      const thumbMatch = entry.match(/url="(.*?)"/)
-      const pubMatch = entry.match(/<published>(.*?)<\/published>/)
-
-      if (videoIdMatch) {
-        const decodeHtml = (s: string) =>
-          s.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
-            .replace(/&quot;/g, '"').replace(/&#39;/g, "'")
-
-        entries.push({
-          videoId: videoIdMatch[1].trim(),
-          title: titleMatch ? decodeHtml(titleMatch[1].trim()) : 'Untitled',
-          thumbnail: thumbMatch ? thumbMatch[1] : `https://img.youtube.com/vi/${videoIdMatch[1]}/hqdefault.jpg`,
-          published: pubMatch ? pubMatch[1].trim() : new Date().toISOString(),
-        })
-      }
-    }
-
-    // 4. Filter videos based on keywords
-    const filterKw = channel.filter_keywords || []
-    const excludeKw = channel.exclude_keywords || []
-    const titleLower = (t: string) => t.toLowerCase()
-
-    const filtered = entries.filter(e => {
-      const t = titleLower(e.title)
-      // Must match at least one filter keyword (if any exist)
-      const passesFilter = filterKw.length === 0 || filterKw.some(kw => t.includes(kw.toLowerCase()))
-      // Must NOT match any exclude keyword
-      const passesExclude = excludeKw.length === 0 || !excludeKw.some(kw => t.includes(kw.toLowerCase()))
-      return passesFilter && passesExclude
-    })
-
-    // 5. Check which videos are already imported
-    const targetTable = channel.channel_type === 'music' ? 'music_tracks' : 'movies'
-
-    const videoIds = filtered.map(e => e.videoId)
-    const { data: existing } = await admin
-      .from(targetTable)
-      .select('youtube_id')
-      .in('youtube_id', videoIds.length > 0 ? videoIds : ['__none__'])
-
-    const existingSet = new Set((existing || []).map((r: any) => r.youtube_id))
-    const newVideos = filtered.filter(e => !existingSet.has(e.videoId))
-
-    // 6. Insert new videos
-    let added = 0
-    let skipped = existingSet.size
-
-    if (newVideos.length > 0) {
-      if (targetTable === 'movies') {
-        const rows = newVideos.map(v => ({
-          youtube_id: v.videoId,
-          title: v.title,
-          thumbnail: v.thumbnail,
-          channel_name: channel.channel_name,
-          channel_id: channel.channel_id,
-          published_at: v.published,
-          created_at: new Date().toISOString(),
-        }))
-
-        const { error: insertErr } = await admin.from('movies').insert(rows)
-        if (insertErr) {
-          console.error('[Sync] Insert error:', insertErr.message)
-        } else {
-          added = rows.length
-        }
-      } else {
-        // music_tracks
-        const rows = newVideos.map(v => ({
-          youtube_id: v.videoId,
-          title: v.title,
-          thumbnail: v.thumbnail,
-          channel_name: channel.channel_name,
-          channel_id: channel.channel_id,
-          published_at: v.published,
-          created_at: new Date().toISOString(),
-        }))
-
-        const { error: insertErr } = await admin.from('music_tracks').insert(rows)
-        if (insertErr) {
-          console.error('[Sync] Insert error:', insertErr.message)
-        } else {
-          added = rows.length
-        }
-      }
-    }
-
-    // 7. Update channel stats
-    await admin
-      .from('yt_channels')
-      .update({
-        last_synced_at: new Date().toISOString(),
-        total_imported: channel.total_imported + added,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', channel.id)
-
-    // 8. Log the sync result
-    await admin.from('sync_logs').insert([{
-      channel_id: channel.id,
-      channel_name: channel.channel_name,
-      videos_found: entries.length,
-      videos_added: added,
-      videos_skipped: skipped,
-      status: added > 0 ? 'success' : (entries.length > 0 ? 'partial' : 'success'),
-    }])
-
-    return NextResponse.json({
-      success: true,
-      found: entries.length,
-      added,
-      skipped,
-      total: channel.total_imported + added,
-    })
-  } catch (err: any) {
-    console.error('[Sync Channel] Error:', err.message)
+    const body = await req.json()
+    channelId = body.channelId
+  } catch {
     return NextResponse.json(
-      { error: err.message || 'Internal error' },
+      { error: 'Invalid JSON body' },
+      { status: 400 }
+    )
+  }
+
+  if (!channelId || typeof channelId !== 'string') {
+    return NextResponse.json(
+      { error: 'channelId is required' },
+      { status: 400 }
+    )
+  }
+
+  // ── 2. Check Supabase admin client ──
+  if (!supabaseAdmin) {
+    return NextResponse.json(
+      { error: 'Server not configured — Supabase admin unavailable' },
       { status: 500 }
     )
   }
+
+  // ── 3. Fetch channel config from yt_channels ──
+  const { data: channel, error: chErr } = await supabaseAdmin
+    .from('yt_channels')
+    .select('*')
+    .eq('id', channelId)
+    .single()
+
+  if (chErr || !channel) {
+    return NextResponse.json(
+      { error: 'Channel not found in database' },
+      { status: 404 }
+    )
+  }
+
+  // ── 4. Initialize counters ──
+  let videosFound = 0
+  let videosAdded = 0
+  let videosSkipped = 0
+  let errorMessage: string | null = null
+  let status: 'success' | 'failed' | 'partial' = 'success'
+
+  try {
+    // ── 5. Fetch RSS feed ──
+    const videos = await fetchChannelRSS(channel.channel_id)
+    videosFound = videos.length
+
+    // ── 6. Classify and insert each video ──
+    for (const video of videos) {
+      const { isMovie, isMusic } = classifyVideo(
+        video,
+        channel.channel_type,
+        channel.filter_keywords || [],
+        channel.exclude_keywords || []
+      )
+
+      if (!isMovie && !isMusic) {
+        videosSkipped++
+        continue
+      }
+
+      // Insert into movies table
+      if (isMovie) {
+        const record = buildMovieRecord(video, channelId)
+        const { error } = await supabaseAdmin
+          .from('movies')
+          .upsert([record], {
+            onConflict: 'youtube_id',
+            ignoreDuplicates: true,
+          })
+
+        if (!error) {
+          videosAdded++
+        } else {
+          // Duplicate via upsert = expected, count as skipped
+          if (error.code === '23505') {
+            videosSkipped++
+          } else {
+            console.error(
+              `[Sync] Movie insert error for ${video.videoId}:`,
+              error.message
+            )
+            videosSkipped++
+          }
+        }
+      }
+
+      // Insert into music_tracks table
+      if (isMusic) {
+        const record = buildMusicRecord(video, channelId)
+        const { error } = await supabaseAdmin
+          .from('music_tracks')
+          .upsert([record], {
+            onConflict: 'youtube_id',
+            ignoreDuplicates: true,
+          })
+
+        if (!error) {
+          // Avoid double-counting if a video goes into both tables
+          if (!isMovie) videosAdded++
+        } else {
+          if (error.code === '23505') {
+            if (!isMovie) videosSkipped++
+          } else {
+            console.error(
+              `[Sync] Music insert error for ${video.videoId}:`,
+              error.message
+            )
+            if (!isMovie) videosSkipped++
+          }
+        }
+      }
+    }
+
+    // Determine final status
+    if (videosAdded === 0 && videosFound > 0) {
+      status = 'partial'
+    }
+
+    // ── 7. Update channel last_synced_at + total_imported ──
+    await supabaseAdmin
+      .from('yt_channels')
+      .update({
+        last_synced_at: new Date().toISOString(),
+        total_imported: channel.total_imported + videosAdded,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', channelId)
+
+  } catch (err: any) {
+    status = 'failed'
+    errorMessage = err.message || 'Unknown error during sync'
+    console.error('[Sync Channel] Error:', errorMessage)
+  }
+
+  // ── 8. Log sync result to sync_logs ──
+  try {
+    await supabaseAdmin.from('sync_logs').insert([{
+      channel_id: channelId,
+      channel_name: channel.channel_name,
+      videos_found: videosFound,
+      videos_added: videosAdded,
+      videos_skipped: videosSkipped,
+      status,
+      error_message: errorMessage,
+      synced_at: new Date().toISOString(),
+    }])
+  } catch (logErr: any) {
+    // Log failure should never crash the sync response
+    console.error('[Sync] Failed to write sync_log:', logErr.message)
+  }
+
+  // ── 9. Return result ──
+  return NextResponse.json({
+    success: status !== 'failed',
+    found: videosFound,
+    added: videosAdded,
+    skipped: videosSkipped,
+    total: channel.total_imported + videosAdded,
+    error: errorMessage,
+  })
 }
