@@ -7,7 +7,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { supabaseAdmin } from '@/lib/supabaseAdmin'
+import { supabase } from '@/lib/supabaseAdmin'
 import { useToast } from '@/components/admin/Toast'
 import { logActivity } from '@/lib/adminAuth'
 import ConfirmModal from '@/components/admin/ConfirmModal'
@@ -143,7 +143,7 @@ export default function GameManagerPage() {
   // ── Fetch games ──
 
   const fetchGames = useCallback(async () => {
-    if (!supabaseAdmin) {
+    if (!supabase) {
       setError('Supabase admin client not available')
       setIsLoading(false)
       return
@@ -153,7 +153,7 @@ export default function GameManagerPage() {
     setError(null)
 
     try {
-      const { data, error: fetchError } = await supabaseAdmin
+      const { data, error: fetchError } = await supabase
         .from('games')
         .select('*')
         .order('created_at', { ascending: false })
@@ -228,7 +228,7 @@ export default function GameManagerPage() {
   // ── Save game ──
 
   const saveGame = async () => {
-    if (!supabaseAdmin) return
+    if (!supabase) return
     if (!form.name.trim() || !form.category.trim()) {
       showToast('Name and Category are required', 'error')
       return
@@ -260,7 +260,7 @@ export default function GameManagerPage() {
       }
 
       if (editGame) {
-        const { error } = await supabaseAdmin
+        const { error } = await supabase
           .from('games')
           .update(payload)
           .eq('id', editGame.id)
@@ -270,7 +270,7 @@ export default function GameManagerPage() {
         showToast('Game updated!', 'success')
         logActivity('UPDATE_GAME', editGame.name, { id: editGame.id })
       } else {
-        const { error } = await supabaseAdmin
+        const { error } = await supabase
           .from('games')
           .insert([{
             ...payload,
@@ -298,10 +298,10 @@ export default function GameManagerPage() {
   // ── Delete game ──
 
   const deleteGame = async () => {
-    if (!supabaseAdmin || !deleteTarget) return
+    if (!supabase || !deleteTarget) return
 
     try {
-      const { error } = await supabaseAdmin
+      const { error } = await supabase
         .from('games')
         .delete()
         .eq('id', deleteTarget.id)
@@ -320,10 +320,10 @@ export default function GameManagerPage() {
   // ── Toggle featured ──
 
   const toggleFeatured = async (game: Game) => {
-    if (!supabaseAdmin) return
+    if (!supabase) return
 
     try {
-      const { error } = await supabaseAdmin
+      const { error } = await supabase
         .from('games')
         .update({ is_featured: !game.is_featured, updated_at: new Date().toISOString() })
         .eq('id', game.id)
@@ -341,10 +341,10 @@ export default function GameManagerPage() {
   // ── Toggle hidden ──
 
   const toggleHidden = async (game: Game) => {
-    if (!supabaseAdmin) return
+    if (!supabase) return
 
     try {
-      const { error } = await supabaseAdmin
+      const { error } = await supabase
         .from('games')
         .update({ is_hidden: !game.is_hidden, updated_at: new Date().toISOString() })
         .eq('id', game.id)

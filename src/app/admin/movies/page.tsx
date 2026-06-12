@@ -5,7 +5,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { supabaseAdmin } from '@/lib/supabaseAdmin'
+import { supabase } from '@/lib/supabaseAdmin'
 import { useToast } from '@/components/admin/Toast'
 import { logActivity } from '@/lib/adminAuth'
 import ConfirmModal from '@/components/admin/ConfirmModal'
@@ -97,7 +97,9 @@ export default function MovieManagerPage() {
       const from = page * PAGE_SIZE
       const to = from + PAGE_SIZE - 1
 
-      let query = supabaseAdmin!
+      if (!supabase) return
+
+      let query = supabase
         .from('movies')
         .select('*', { count: 'exact' })
         .order('created_at', { ascending: false })
@@ -123,7 +125,7 @@ export default function MovieManagerPage() {
   }, [page, channelFilter, searchQuery, showToast])
 
   useEffect(() => {
-    if (!supabaseAdmin) {
+    if (!supabase) {
       showToast('Supabase admin client not configured', 'error')
       setIsLoading(false)
       return
@@ -224,7 +226,8 @@ export default function MovieManagerPage() {
       }
 
       if (editMovie) {
-        const { error } = await supabaseAdmin!
+        if (!supabase) return
+        const { error } = await supabase
           .from('movies')
           .update(payload)
           .eq('id', editMovie.id)
@@ -234,7 +237,8 @@ export default function MovieManagerPage() {
         showToast('Movie updated successfully', 'success')
         logActivity('UPDATE_MOVIE', editMovie.title, { id: editMovie.id })
       } else {
-        const { error } = await supabaseAdmin!
+        if (!supabase) return
+        const { error } = await supabase
           .from('movies')
           .insert([payload])
 
@@ -259,7 +263,8 @@ export default function MovieManagerPage() {
     if (!deleteTarget) return
 
     try {
-      const { error } = await supabaseAdmin!
+      if (!supabase) return
+      const { error } = await supabase
         .from('movies')
         .delete()
         .eq('id', deleteTarget.id)
