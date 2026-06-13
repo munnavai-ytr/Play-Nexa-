@@ -1,6 +1,7 @@
 // ── Play Nexa — Gemini AI Video Classifier ────────────────────
 // Uses Google Gemini 1.5 Flash to classify YouTube videos
 // as movie, music, or skip — with keyword fallback
+// Added: GEMINI_API_KEY check, updated keyword arrays
 
 import { GoogleGenerativeAI } from '@google/generative-ai'
 
@@ -9,7 +10,9 @@ const GEMINI_KEY = process.env.GEMINI_API_KEY || ''
 let genAI: GoogleGenerativeAI | null = null
 
 function getGenAI(): GoogleGenerativeAI | null {
-  if (!GEMINI_KEY || GEMINI_KEY === 'your_gemini_api_key_here') return null
+  if (!GEMINI_KEY || GEMINI_KEY === 'your_gemini_api_key_here') {
+    return null
+  }
   if (!genAI) {
     genAI = new GoogleGenerativeAI(GEMINI_KEY)
   }
@@ -31,10 +34,16 @@ export async function classifyVideo(
   description: string,
   channelName: string
 ): Promise<ScanResult> {
+  // ── Check GEMINI_API_KEY availability ──
+  if (!GEMINI_KEY || GEMINI_KEY === 'your_gemini_api_key_here') {
+    console.warn('[Gemini Scanner] GEMINI_API_KEY missing, using fallback classifier')
+    return fallbackClassify(title, description)
+  }
+
   const ai = getGenAI()
 
   if (!ai) {
-    // No API key — use keyword fallback immediately
+    console.warn('[Gemini Scanner] Gemini client init failed, using fallback classifier')
     return fallbackClassify(title, description)
   }
 
@@ -91,8 +100,8 @@ Respond in valid JSON only, no extra text:
     const reason = typeof parsed.reason === 'string' ? parsed.reason : ''
 
     return { type, confidence, reason }
-  } catch {
-    // Gemini failed — fall back to keywords
+  } catch (err: any) {
+    console.warn('[Gemini Scanner] AI classification failed:', err?.message || 'unknown error')
     return fallbackClassify(title, description)
   }
 }
@@ -100,6 +109,7 @@ Respond in valid JSON only, no extra text:
 /**
  * Keyword-based fallback classifier.
  * Used when Gemini API is unavailable or returns invalid results.
+ * Updated keyword arrays with Bengali/Bangla-specific terms.
  */
 function fallbackClassify(
   title: string,
@@ -107,41 +117,50 @@ function fallbackClassify(
 ): ScanResult {
   const text = `${title} ${description}`.toLowerCase()
 
-  const movieKeywords = [
-    'full movie', 'official movie', 'full film',
-    'bangla movie', 'bengali movie', 'natok',
-    'telefilm', 'web series', 'short film',
-    'eid natok', 'special natok', 'bangla film',
-    'bengali film', 'tele drama', 'drama',
+  const MOVIE_WORDS = [
+    'full movie', 'official movie',
+    'bangla movie', 'bengali movie',
+    'full film', 'natok', 'telefilm',
+    'web series', 'short film',
+    'eid natok', 'special natok',
+    'drama', 'full drama',
+    'bangla film', 'bengali film',
+    'tele drama',
   ]
-  const musicKeywords = [
-    'song', 'music video', 'audio', 'lyrics',
-    'official song', 'official audio', 'music',
-    'lyric video', 'acoustic', 'cover song',
+
+  const MUSIC_WORDS = [
+    'official song', 'official audio',
+    'music video', 'lyrics', 'audio song',
+    'new song', 'full song',
     'bangla song', 'bengali song',
+    'lyric video', 'acoustic', 'cover song',
+    'song cover', 'vocal cover',
   ]
-  const skipKeywords = [
-    'trailer', 'teaser', 'making', 'interview',
-    'behind the scene', 'promo', 'preview',
-    '#shorts', 'shorts', 'news', 'vlog',
+
+  const SKIP_WORDS = [
+    'trailer', 'teaser', 'making of',
+    'interview', 'behind the scenes',
+    'promo', 'preview', '#shorts',
+    'short', 'clip', 'news',
+    'vlog', 'update', 'announcement',
   ]
 
   // Check skip first — trailers and promos should not be imported
-  if (skipKeywords.some(k => text.includes(k))) {
+  if (SKIP_WORDS.some(k => text.includes(k))) {
     return {
       type: 'skip',
       confidence: 0.9,
       reason: 'Skip keyword found',
     }
   }
-  if (movieKeywords.some(k => text.includes(k))) {
+  if (MOVIE_WORDS.some(k => text.includes(k))) {
     return {
       type: 'movie',
       confidence: 0.8,
       reason: 'Movie keyword found',
     }
   }
-  if (musicKeywords.some(k => text.includes(k))) {
+  if (MUSIC_WORDS.some(k => text.includes(k))) {
     return {
       type: 'music',
       confidence: 0.8,

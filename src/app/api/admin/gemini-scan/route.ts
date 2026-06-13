@@ -1,7 +1,9 @@
 // ── Play Nexa — Gemini AI Scan API Route ──────────────────────
 // Scans a YouTube channel's RSS feed using Gemini 1.5 Flash
 // Classifies each video as movie/music/skip
+// Routes content based on channel_type: movies | music | mixed
 // Inserts movies into `movies` table, music into `music_tracks`
+// Uses INSERT (not upsert) to avoid missing unique constraint issues
 // Tracks progress in `ai_scan_jobs` table
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -53,6 +55,11 @@ export async function POST(req: NextRequest) {
       )
     }
 
+    console.log('=== GEMINI SCAN START ===')
+    console.log('Channel:', channel.channel_name)
+    console.log('Channel ID:', channel.channel_id)
+    console.log('Channel Type:', channel.channel_type || 'mixed')
+
     // ── Create scan job ──
     const { data: job, error: jobErr } = await admin
       .from('ai_scan_jobs')
@@ -80,6 +87,7 @@ export async function POST(req: NextRequest) {
     try {
       // ── Fetch RSS videos ──
       const videos = await fetchChannelRSS(channel.channel_id)
+      console.log('RSS videos found:', videos.length)
 
       // Update total count
       if (trackProgress) {
@@ -88,6 +96,9 @@ export async function POST(req: NextRequest) {
           .update({ total_videos: videos.length })
           .eq('id', jobId)
       }
+
+      // Get channel_type for routing (default: mixed)
+      const channelType: string = channel.channel_type || 'mixed'
 
       // ── Classify each video with Gemini AI ──
       for (const video of videos) {
@@ -100,68 +111,131 @@ export async function POST(req: NextRequest) {
 
           processed++
 
-          if (result.type === 'movie' && result.confidence >= 0.6) {
-            // Insert into movies table
-            const { error: movieErr } = await admin
-              .from('movies')
-              .upsert(
-                [
-                  {
-                    youtube_id: video.videoId,
-                    title: video.title,
-                    thumbnail: video.thumbnail,
-                    channel_name: channel.channel_name,
-                    channel_id: channel.channel_id,
-                    description: video.description,
-                    published_at: video.publishedAt,
-                    view_count: video.viewCount,
-                    source_channel_id: channelDbId,
-                    language: 'Bangla',
-                  },
-                ],
-                {
-                  onConflict: 'youtube_id',
-                  ignoreDuplicates: true,
-                }
-              )
+          console.log(`Video: ${video.title}`)
+          console.log(`Classified as: ${result.type}`)
+          console.log(`Confidence: ${result.confidence}`)
 
-            if (!movieErr) {
-              moviesFound++
+          // ── Route based on channel_type ──
+          if (channelType === 'movies') {
+            // Movies channel: only insert movies, skip music
+            if (result.type === 'movie' && result.confidence >= 0.5) {
+              const { data: inserted, error: movieErr } = await admin
+                .from('movies')
+                .insert([{
+                  youtube_id: video.videoId,
+                  title: video.title,
+                  thumbnail: video.thumbnail,
+                  channel_name: channel.channel_name,
+                  channel_id: channel.channel_id,
+                  description: video.description || '',
+                  published_at: video.publishedAt,
+                  view_count: video.viewCount || 0,
+                  source_channel_id: channelDbId,
+                  language: 'Bangla',
+                  is_hidden: false,
+                }])
+                .select()
+
+              if (movieErr) {
+                // Duplicate key — safe to ignore
+                if (!movieErr.message.includes('duplicate') && !movieErr.message.includes('unique')) {
+                  console.error('Movie insert error:', movieErr.message, movieErr.details)
+                }
+              } else {
+                moviesFound++
+              }
+            } else {
+              skipped++
             }
-          } else if (
-            result.type === 'music' &&
-            result.confidence >= 0.6
-          ) {
-            // Insert into music_tracks table
-            const { error: musicErr } = await admin
-              .from('music_tracks')
-              .upsert(
-                [
-                  {
-                    youtube_id: video.videoId,
-                    title: video.title,
-                    thumbnail: video.thumbnail,
-                    channel_name: channel.channel_name,
-                    channel_id: channel.channel_id,
-                    published_at: video.publishedAt,
-                    view_count: video.viewCount,
-                    source_channel_id: channelDbId,
-                  },
-                ],
-                {
-                  onConflict: 'youtube_id',
-                  ignoreDuplicates: true,
-                }
-              )
+          } else if (channelType === 'music') {
+            // Music channel: only insert music, skip movies
+            if (result.type === 'music' && result.confidence >= 0.5) {
+              const { data: inserted, error: musicErr } = await admin
+                .from('music_tracks')
+                .insert([{
+                  youtube_id: video.videoId,
+                  title: video.title,
+                  thumbnail: video.thumbnail,
+                  channel_name: channel.channel_name,
+                  channel_id: channel.channel_id,
+                  description: video.description || '',
+                  published_at: video.publishedAt,
+                  view_count: video.viewCount || 0,
+                  source_channel_id: channelDbId,
+                  language: 'Bangla',
+                  is_hidden: false,
+                }])
+                .select()
 
-            if (!musicErr) {
-              musicFound++
+              if (musicErr) {
+                if (!musicErr.message.includes('duplicate') && !musicErr.message.includes('unique')) {
+                  console.error('Music insert error:', musicErr.message, musicErr.details)
+                }
+              } else {
+                musicFound++
+              }
+            } else {
+              skipped++
             }
           } else {
-            skipped++
+            // Mixed channel: insert both movies and music
+            if (result.type === 'movie' && result.confidence >= 0.5) {
+              const { data: inserted, error: movieErr } = await admin
+                .from('movies')
+                .insert([{
+                  youtube_id: video.videoId,
+                  title: video.title,
+                  thumbnail: video.thumbnail,
+                  channel_name: channel.channel_name,
+                  channel_id: channel.channel_id,
+                  description: video.description || '',
+                  published_at: video.publishedAt,
+                  view_count: video.viewCount || 0,
+                  source_channel_id: channelDbId,
+                  language: 'Bangla',
+                  is_hidden: false,
+                }])
+                .select()
+
+              if (movieErr) {
+                if (!movieErr.message.includes('duplicate') && !movieErr.message.includes('unique')) {
+                  console.error('Movie insert error:', movieErr.message, movieErr.details)
+                }
+              } else {
+                moviesFound++
+              }
+            } else if (result.type === 'music' && result.confidence >= 0.5) {
+              const { data: inserted, error: musicErr } = await admin
+                .from('music_tracks')
+                .insert([{
+                  youtube_id: video.videoId,
+                  title: video.title,
+                  thumbnail: video.thumbnail,
+                  channel_name: channel.channel_name,
+                  channel_id: channel.channel_id,
+                  description: video.description || '',
+                  published_at: video.publishedAt,
+                  view_count: video.viewCount || 0,
+                  source_channel_id: channelDbId,
+                  language: 'Bangla',
+                  is_hidden: false,
+                }])
+                .select()
+
+              if (musicErr) {
+                if (!musicErr.message.includes('duplicate') && !musicErr.message.includes('unique')) {
+                  console.error('Music insert error:', musicErr.message, musicErr.details)
+                }
+              } else {
+                musicFound++
+              }
+            } else {
+              skipped++
+            }
           }
-        } catch {
+        } catch (videoErr: any) {
           // Individual video classification failed — skip it
+          console.error('Video processing error:', videoErr?.message || 'unknown')
           skipped++
           processed++
         }
@@ -202,8 +276,15 @@ export async function POST(req: NextRequest) {
         ],
         { onConflict: 'channel_id', ignoreDuplicates: true }
       )
+
+      console.log('=== SCAN COMPLETE ===')
+      console.log(`Movies added: ${moviesFound}`)
+      console.log(`Music added: ${musicFound}`)
+      console.log(`Skipped: ${skipped}`)
+
     } catch (err: any) {
       errorMessage = err.message || 'Unknown error during scan'
+      console.error('Scan error:', errorMessage)
     }
 
     // ── Finalize job ──

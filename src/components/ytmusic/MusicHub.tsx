@@ -71,11 +71,54 @@ export default function MusicHub() {
     return () => subscription.unsubscribe()
   }, [])
 
-  // ── Fetch channels from channel_display + yt_channels ──
+  // ── Fetch music-specific channels from music_tracks ──
   const fetchChannels = useCallback(async () => {
     if (!supabase) return
 
     try {
+      // First try: get channels that have music tracks
+      const { data: trackChannels, error: tcErr } = await supabase
+        .from('music_tracks')
+        .select('channel_id, channel_name')
+        .eq('is_hidden', false)
+
+      if (!tcErr && trackChannels && trackChannels.length > 0) {
+        // Get unique channels from tracks
+        const uniqueMap = new Map<string, { channel_id: string; channel_name: string }>()
+        for (const t of trackChannels) {
+          if (t.channel_id && !uniqueMap.has(t.channel_id)) {
+            uniqueMap.set(t.channel_id, { channel_id: t.channel_id, channel_name: t.channel_name })
+          }
+        }
+
+        // Try to get display settings for these channels
+        const channelIds = Array.from(uniqueMap.keys())
+        const { data: displayData } = await supabase
+          .from('channel_display')
+          .select(`
+            *,
+            yt_channels (
+              channel_id,
+              channel_name,
+              total_imported
+            )
+          `)
+          .eq('is_visible', true)
+
+        if (displayData && displayData.length > 0) {
+          // Filter channel_display to only music-relevant channels
+          const musicDisplays = (displayData as ChannelDisplay[]).filter(ch => {
+            const ytId = ch.yt_channels?.channel_id
+            return ytId && channelIds.includes(ytId)
+          })
+          setChannels(musicDisplays.length > 0 ? musicDisplays : (displayData as ChannelDisplay[]))
+        } else {
+          setChannels([])
+        }
+        return
+      }
+
+      // Fallback: try channel_display (may not be music-specific)
       const { data, error: chErr } = await supabase
         .from('channel_display')
         .select(`

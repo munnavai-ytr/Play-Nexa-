@@ -1,6 +1,7 @@
 // ── Play Nexa — YouTube RSS Parser ────────────────────────────
 // Fetches and parses YouTube channel RSS feeds
 // No API key required — uses YouTube's public RSS endpoint
+// Handles both UC... channel IDs and @handle usernames
 // Returns structured video data for Gemini AI classification
 
 export interface RSSVideo {
@@ -17,15 +18,22 @@ export interface RSSVideo {
 /**
  * Fetch videos from a YouTube channel via its public RSS feed.
  * Returns up to 15 most recent videos (YouTube RSS limit).
+ * Handles both UC... channel IDs and @handle/username formats.
  */
 export async function fetchChannelRSS(
   channelId: string
 ): Promise<RSSVideo[]> {
-  const url =
-    `https://www.youtube.com/feeds/videos.xml` +
-    `?channel_id=${channelId}`
+  // Build the correct RSS URL based on input type
+  let rssUrl: string
+  if (channelId.startsWith('UC') && channelId.length >= 20) {
+    // Standard UC... channel ID
+    rssUrl = `https://www.youtube.com/feeds/videos.xml?channel_id=${channelId}`
+  } else {
+    // @handle or username — use user= parameter
+    rssUrl = `https://www.youtube.com/feeds/videos.xml?user=${channelId}`
+  }
 
-  const res = await fetch(url, {
+  const res = await fetch(rssUrl, {
     headers: {
       'User-Agent':
         'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 ' +
@@ -46,6 +54,7 @@ export async function fetchChannelRSS(
 /**
  * Parse YouTube RSS XML into structured RSSVideo objects.
  * Handles HTML entities, missing fields, and edge cases.
+ * Extracts the real UC... channel ID from <yt:channelId> tag.
  */
 function parseRSSXML(xml: string): RSSVideo[] {
   const videos: RSSVideo[] = []
@@ -58,6 +67,7 @@ function parseRSSXML(xml: string): RSSVideo[] {
     /<author>\s*<name>(.*?)<\/name>/
   )
 
+  // Always prefer the real UC... channel ID from the RSS response
   const channelId = channelIdMatch?.[1]?.trim() || ''
   const channelName = channelNameMatch?.[1]?.trim() || ''
 

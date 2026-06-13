@@ -116,6 +116,7 @@ export default function ChannelManagerPage() {
 
   // Edit modal state
   const [editBadgeColor, setEditBadgeColor] = useState('#7C3AED')
+  const [channelType, setChannelType] = useState<'movies' | 'music' | 'mixed'>('movies')
 
   // ── Toast ──
   const showToast = useCallback((msg: string, type: string) => {
@@ -205,7 +206,7 @@ export default function ChannelManagerPage() {
           channel_id: fetchedInfo.channelId,
           channel_name: fetchedInfo.name,
           channel_avatar: fetchedInfo.avatar,
-          channel_type: 'mixed',
+          channel_type: channelType,
           is_active: true,
           filter_keywords: [],
           exclude_keywords: [],
@@ -364,6 +365,7 @@ export default function ChannelManagerPage() {
     setUrlInput('')
     setFetchedInfo(null)
     setDisplaySettings({ display_name: '', badge_color: '#7C3AED', border_color: '#7C3AED' })
+    setChannelType('movies')
     setShowAddModal(true)
   }
 
@@ -639,6 +641,50 @@ export default function ChannelManagerPage() {
                     )}
                   </button>
                 </div>
+              </div>
+
+              {/* ── Channel Type (always visible) ── */}
+              <div>
+                <label className="text-[#9CA3AF] text-xs font-medium mb-2 block">
+                  Channel Type
+                </label>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setChannelType('movies')}
+                    className={`flex-1 h-12 rounded-xl border-2 flex items-center justify-center gap-2 text-sm font-medium transition-colors duration-150 min-h-[44px] ${
+                      channelType === 'movies'
+                        ? 'border-[#7C3AED] bg-[#7C3AED]/15 text-[#A78BFA]'
+                        : 'border-[#2D2D2D] bg-[#1A1A1A] text-[#9CA3AF] hover:border-[#7C3AED]/50'
+                    }`}
+                  >
+                    <span>🎬</span> Movies
+                  </button>
+                  <button
+                    onClick={() => setChannelType('music')}
+                    className={`flex-1 h-12 rounded-xl border-2 flex items-center justify-center gap-2 text-sm font-medium transition-colors duration-150 min-h-[44px] ${
+                      channelType === 'music'
+                        ? 'border-[#06B6D4] bg-[#06B6D4]/15 text-[#22D3EE]'
+                        : 'border-[#2D2D2D] bg-[#1A1A1A] text-[#9CA3AF] hover:border-[#06B6D4]/50'
+                    }`}
+                  >
+                    <span>🎵</span> Music
+                  </button>
+                  <button
+                    onClick={() => setChannelType('mixed')}
+                    className={`flex-1 h-12 rounded-xl border-2 flex items-center justify-center gap-2 text-sm font-medium transition-colors duration-150 min-h-[44px] ${
+                      channelType === 'mixed'
+                        ? 'border-[#22C55E] bg-[#22C55E]/15 text-[#4ADE80]'
+                        : 'border-[#2D2D2D] bg-[#1A1A1A] text-[#9CA3AF] hover:border-[#22C55E]/50'
+                    }`}
+                  >
+                    <span>🎭</span> Mixed
+                  </button>
+                </div>
+                <p className="text-[#6B7280] text-[10px] mt-1.5">
+                  {channelType === 'movies' && 'Videos will be imported to Movie Hub only'}
+                  {channelType === 'music' && 'Videos will be imported to YT Music only'}
+                  {channelType === 'mixed' && 'Gemini AI will classify videos as movie or music automatically'}
+                </p>
               </div>
 
               {/* ── STEP 2: Channel Preview ── */}
