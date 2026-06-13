@@ -1,6 +1,34 @@
-// ── Play Nexa Video Player Page (Offline Scanner) ─────────────
-// Re-export from /player — the actual VideoLibrary component
-// Route: /video → used by Home page feature card
-// Offline device scanner only — no online video fetching
+'use client'
 
-export { default } from '../player/page'
+import { useState, useCallback } from 'react'
+import VideoLibrary from '@/components/video/VideoLibrary'
+import VideoPlayer from '@/components/video/VideoPlayer'
+import type { VideoFile } from '@/lib/mediaUtils'
+
+export default function VideoPage() {
+  const [selectedVideo, setSelectedVideo] = useState<VideoFile | null>(null)
+
+  const handleVideoSelect = useCallback((video: VideoFile) => {
+    setSelectedVideo(video)
+  }, [])
+
+  const handleBack = useCallback(() => {
+    setSelectedVideo(null)
+  }, [])
+
+  return (
+    <div className="min-h-screen bg-[#0A0A0A]">
+      {selectedVideo ? (
+        <VideoPlayer
+          video={selectedVideo}
+          onBack={handleBack}
+        />
+      ) : (
+        <VideoLibrary
+          onVideoSelect={handleVideoSelect}
+          onBack={handleBack}
+        />
+      )}
+    </div>
+  )
+}
