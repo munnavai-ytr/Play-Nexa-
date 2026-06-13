@@ -1,68 +1,33 @@
 'use client'
 
-// ── Play Nexa Now Playing Screen ──────────────────────────────────
-// Full-screen player overlay with vinyl disc, controls, and visualizer
-// Touch swipe-down to collapse · All interactions wired to useMusicPlayer
-// 2GB RAM safe · Zero placeholders · Production code
-
-import { useState, useRef, useCallback } from 'react'
+import React, { useState, useRef, useCallback, useEffect } from 'react'
 import { useMusicPlayer } from '@/hooks/useMusicPlayer'
+import type { RepeatMode } from '@/hooks/useMusicPlayer'
+import { formatDuration } from '@/lib/mediaUtils'
 import VinylDisc from './VinylDisc'
 import EqualizerBars from './EqualizerBars'
-import type { Song } from '@/lib/mediaUtils'
-import { formatDuration } from '@/lib/mediaUtils'
-import { toast } from '@/hooks/use-toast'
-import {
-  ChevronDown,
-  MoreVertical,
-  Heart,
-  ListMusic,
-  SkipBack,
-  SkipForward,
-  Play,
-  Pause,
-  Shuffle,
-  Repeat,
-  Repeat1,
-  Volume2,
-  Volume1,
-  VolumeX,
-  Gauge,
-  X,
-  Share2,
-  Timer,
-  Music,
-} from 'lucide-react'
-
-// ══════════════════════════════════════════════════════════════
-// PROPS
-// ══════════════════════════════════════════════════════════════
 
 interface NowPlayingProps {
   onCollapse: () => void
 }
 
-// ══════════════════════════════════════════════════════════════
-// SPEED OPTIONS
-// ══════════════════════════════════════════════════════════════
-
 const SPEED_OPTIONS = [0.5, 0.75, 1, 1.25, 1.5, 2]
+const SLEEP_OPTIONS = [5, 10, 15, 30, 60]
 
-// ══════════════════════════════════════════════════════════════
-// MENU OPTIONS
-// ══════════════════════════════════════════════════════════════
-
-const MENU_OPTIONS = [
-  { key: 'playlist', label: 'Add to Playlist', icon: ListMusic },
-  { key: 'share', label: 'Share', icon: Share2 },
-  { key: 'info', label: 'Song Info', icon: Music },
-  { key: 'timer', label: 'Sleep Timer', icon: Timer },
-  { key: 'equalizer', label: 'Equalizer', icon: Gauge },
-] as const
-
-// ══════════════════════════════════════════════════════════════
-// COMPONENT
-// ══════════════════════════════════════════════════════════════
+// Sample lyrics for demo
+const DEMO_LYRICS = [
+  { time: 0, text: '♪ Instrumental ♪' },
+  { time: 8, text: 'Walking through the neon light' },
+  { time: 16, text: 'Shadows dancing in the night' },
+  { time: 24, text: 'Every step takes me higher' },
+  { time: 32, text: 'Burning like a midnight fire' },
+  { time: 40, text: '♪ Instrumental ♪' },
+  { time: 48, text: 'Stars above are calling me' },
+  { time: 56, text: 'To a place where I am free' },
+  { time: 64, text: 'Nothing gonna hold me down' },
+  { time: 72, text: 'I am rising off the ground' },
+  { time: 80, text: '♪ Instrumental ♪' },
+]
 
 export default function NowPlaying({ onCollapse }: NowPlayingProps) {
   const {
@@ -87,22 +52,36 @@ export default function NowPlaying({ onCollapse }: NowPlayingProps) {
     toggleFavorite,
     setSleepTimer,
     setSpeed,
-    addToPlaylist,
   } = useMusicPlayer()
 
-  // ── Local UI state ──────────────────────────────────────────
+  const [showLyrics, setShowLyrics] = useState(false)
+  const [showSleepTimer, setShowSleepTimer] = useState(false)
+  const [showSpeedPicker, setShowSpeedPicker] = useState(false)
   const [showMenu, setShowMenu] = useState(false)
-  const [showSpeedSheet, setShowSpeedSheet] = useState(false)
-  const [isSwiping, setIsSwiping] = useState(false)
-  const [swipeOffset, setSwipeOffset] = useState(0)
+  const [isSeeking, setIsSeeking] = useState(false)
+  const [seekValue, setSeekValue] = useState(0)
 
-  // ── Pointer refs for swipe-down ───────────────────────────────
-  const pointerStartY = useRef(0)
-  const pointerCurrentY = useRef(0)
-  const rootRef = useRef<HTMLDivElement>(null)
+  const seekBarRef = useRef<HTMLDivElement>(null)
+  const lyricsRef = useRef<HTMLDivElement>(null)
+  const seekInputRef = useRef<HTMLInputElement>(null)
 
-  // ── Toggle play/pause ───────────────────────────────────────
-  const handleTogglePlay = useCallback(() => {
+  // Handle seek
+  const handleSeekStart = useCallback(() => {
+    setIsSeeking(true)
+    setSeekValue(currentTime)
+  }, [currentTime])
+
+  const handleSeekChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    setSeekValue(parseFloat(e.target.value))
+  }, [])
+
+  const handleSeekEnd = useCallback(() => {
+    seekTo(seekValue)
+    setIsSeeking(false)
+  }, [seekValue, seekTo])
+
+  // Tap to toggle play/pause on vinyl
+  const handleVinylTap = useCallback(() => {
     if (isPlaying) {
       pause()
     } else {
@@ -110,492 +89,527 @@ export default function NowPlaying({ onCollapse }: NowPlayingProps) {
     }
   }, [isPlaying, pause, resume])
 
-  // ── Volume change handler ───────────────────────────────────
-  const handleVolumeChange = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      const val = parseFloat(e.target.value)
-      if (Number.isFinite(val)) {
-        setVolume(val)
-      }
-    },
-    [setVolume]
-  )
+  // Progress calculation
+  const displayTime = isSeeking ? seekValue : currentTime
+  const progress = duration > 0 ? (displayTime / duration) * 100 : 0
 
-  // ── Speed selection handler ─────────────────────────────────
-  const handleSpeedSelect = useCallback(
-    (speed: number) => {
-      setSpeed(speed)
-      setShowSpeedSheet(false)
-    },
-    [setSpeed]
-  )
-
-  // ── Menu action handler ─────────────────────────────────────
-  const handleMenuAction = useCallback(
-    (key: string) => {
-      setShowMenu(false)
-      switch (key) {
-        case 'playlist':
-          if (currentSong) {
-            addToPlaylist(currentSong)
-            toast({ title: 'Added to playlist' })
-          }
-          break
-        case 'share':
-          toast({ title: 'Share coming soon' })
-          break
-        case 'info':
-          toast({ title: 'Song Info coming soon' })
-          break
-        case 'timer':
-          setShowSpeedSheet(false)
-          if (sleepTimer !== null) {
-            setSleepTimer(null)
-            toast({ title: 'Sleep timer cancelled' })
-          } else {
-            setSleepTimer(15)
-            toast({ title: 'Sleep timer: 15 min' })
-          }
-          break
-        case 'equalizer':
-          toast({ title: 'Equalizer coming soon' })
-          break
-      }
-    },
-    [currentSong, sleepTimer, setSleepTimer, addToPlaylist]
-  )
-
-  // ── Swipe-down pointer handlers (pointer events for compatibility)
-  const handlePointerDown = useCallback((e: React.PointerEvent) => {
-    pointerStartY.current = e.clientY
-    pointerCurrentY.current = e.clientY
-    setIsSwiping(true)
-    setSwipeOffset(0)
-  }, [])
-
-  const handlePointerMove = useCallback((e: React.PointerEvent) => {
-    const deltaY = e.clientY - pointerStartY.current
-    pointerCurrentY.current = e.clientY
-    if (deltaY > 0) {
-      setSwipeOffset(deltaY * 0.5)
+  // Current lyric index
+  const currentLyricIndex = (() => {
+    for (let i = DEMO_LYRICS.length - 1; i >= 0; i--) {
+      if (currentTime >= DEMO_LYRICS[i].time) return i
     }
-  }, [])
+    return 0
+  })()
 
-  const handlePointerUp = useCallback(() => {
-    const deltaY = pointerCurrentY.current - pointerStartY.current
-    setIsSwiping(false)
-    setSwipeOffset(0)
-
-    if (deltaY > 80) {
-      onCollapse()
+  // Scroll active lyric into view
+  useEffect(() => {
+    if (showLyrics && lyricsRef.current) {
+      const activeLine = lyricsRef.current.querySelector('[data-active="true"]')
+      if (activeLine) {
+        activeLine.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      }
     }
-  }, [onCollapse])
+  }, [currentLyricIndex, showLyrics])
 
-  // ── Volume icon ─────────────────────────────────────────────
-  const VolumeIcon = volume === 0 ? VolumeX : volume < 0.5 ? Volume1 : Volume2
-
-  // ── Format sleep timer remaining ────────────────────────────
-  const formatSleepTimer = (minutes: number): string => {
-    const h = Math.floor(minutes / 60)
-    const m = minutes % 60
-    if (h > 0) return `${h}h ${m}m`
-    return `${m}m`
+  if (!currentSong) {
+    return (
+      <div className="fixed inset-0 bg-[#0A0A0A] z-50 flex items-center justify-center">
+        <p className="text-[#9CA3AF] text-sm">No song selected</p>
+      </div>
+    )
   }
 
-  // ── Seekbar progress percentage ─────────────────────────────
-  const seekPercent = duration > 0 ? (currentTime / duration) * 100 : 0
-
-  // ── Volume percentage ──────────────────────────────────────
-  const volumePercent = volume * 100
+  const isLongTitle = currentSong.name.length > 25
 
   return (
-    <div
-      ref={rootRef}
-      className="pn-page-enter fixed inset-0 z-50 flex flex-col bg-[#0D0D0D] overflow-hidden select-none touch-none"
-      style={{
-        transform: isSwiping ? `translateY(${swipeOffset}px)` : undefined,
-        transition: isSwiping ? 'none' : 'transform 150ms ease-out',
-      }}
-      onPointerDown={handlePointerDown}
-      onPointerMove={handlePointerMove}
-      onPointerUp={handlePointerUp}
-    >
-      {/* ═══════════════════════════════════════════════════════════
-          TOP BAR
-          ═══════════════════════════════════════════════════════════ */}
-      <div className="flex items-center justify-between px-4 pt-3 pb-2 shrink-0">
-        {/* Collapse button */}
+    <div className="fixed inset-0 bg-[#0A0A0A] z-50 flex flex-col overflow-hidden">
+      {/* Top bar */}
+      <header className="h-14 flex items-center px-2 flex-shrink-0">
         <button
           onClick={onCollapse}
-          className="min-h-[44px] min-w-[44px] flex items-center justify-center text-white/70 active:text-white transition-colors duration-150 cursor-pointer"
-          aria-label="Collapse player"
+          className="w-11 h-11 flex items-center justify-center text-white music-btn-press"
+          aria-label="Collapse"
         >
-          <ChevronDown size={28} />
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="6 9 12 15 18 9" />
+          </svg>
         </button>
+        <div className="flex-1 text-center">
+          <p className="text-xs text-[#9CA3AF] uppercase tracking-wider">Now Playing</p>
+        </div>
+        <button
+          onClick={() => setShowMenu(!showMenu)}
+          className="w-11 h-11 flex items-center justify-center text-white music-btn-press"
+          aria-label="Menu"
+        >
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+            <circle cx="12" cy="5" r="2" />
+            <circle cx="12" cy="12" r="2" />
+            <circle cx="12" cy="19" r="2" />
+          </svg>
+        </button>
+      </header>
 
-        {/* Center: Sleep timer badge */}
-        <div className="flex-1 flex justify-center">
-          {sleepTimer !== null && (
+      {/* Menu dropdown */}
+      {showMenu && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setShowMenu(false)} />
+          <div className="absolute top-14 right-3 bg-[#1A1A1A] border border-[#252525] rounded-xl py-1 z-50 min-w-[180px] animate-slide-up">
             <button
-              onClick={() => handleMenuAction('timer')}
-              className="flex items-center gap-1.5 bg-[#1A1A2E] border border-[#2D2D44] rounded-full px-3 py-1 text-[11px] text-[#9CA3AF] active:bg-[#2D2D44] transition-colors duration-150 min-h-[36px] cursor-pointer"
-              aria-label={`Sleep timer: ${formatSleepTimer(sleepTimer)} remaining`}
+              onClick={() => { setShowLyrics(true); setShowMenu(false) }}
+              className="w-full text-left px-4 py-3 text-sm text-[#9CA3AF] hover:text-white hover:bg-[#252525] transition-colors duration-200"
             >
-              <Timer size={12} className="text-[#7C3AED]" />
-              <span>{formatSleepTimer(sleepTimer)}</span>
-              <X size={10} className="text-[#9CA3AF]/60" />
+              Lyrics
             </button>
+            <button
+              onClick={() => { setShowSleepTimer(true); setShowMenu(false) }}
+              className="w-full text-left px-4 py-3 text-sm text-[#9CA3AF] hover:text-white hover:bg-[#252525] transition-colors duration-200"
+            >
+              Sleep Timer {sleepTimer !== null ? `(${sleepTimer}m)` : ''}
+            </button>
+            <button
+              onClick={() => { setShowSpeedPicker(true); setShowMenu(false) }}
+              className="w-full text-left px-4 py-3 text-sm text-[#9CA3AF] hover:text-white hover:bg-[#252525] transition-colors duration-200"
+            >
+              Playback Speed ({playbackSpeed}×)
+            </button>
+            <button
+              onClick={() => {
+                if (navigator.share) {
+                  navigator.share({ title: currentSong.name, text: `Listening to ${currentSong.name} by ${currentSong.artist}` }).catch(() => {})
+                }
+                setShowMenu(false)
+              }}
+              className="w-full text-left px-4 py-3 text-sm text-[#9CA3AF] hover:text-white hover:bg-[#252525] transition-colors duration-200"
+            >
+              Share
+            </button>
+          </div>
+        </>
+      )}
+
+      {/* Main content - scrollable */}
+      <div className="flex-1 overflow-y-auto flex flex-col px-6">
+        {/* Vinyl Disc */}
+        <div className="flex-shrink-0 pt-4 pb-2">
+          <VinylDisc
+            artwork={currentSong.cover}
+            isPlaying={isPlaying}
+            onTogglePlay={handleVinylTap}
+          />
+        </div>
+
+        {/* Song Info */}
+        <div className="mt-6 text-center flex-shrink-0">
+          <div className="overflow-hidden">
+            {isLongTitle ? (
+              <div className="overflow-hidden">
+                <p className="text-xl font-bold text-white whitespace-nowrap music-marquee">
+                  {currentSong.name}&nbsp;&nbsp;&nbsp;&nbsp;{currentSong.name}&nbsp;&nbsp;&nbsp;&nbsp;
+                </p>
+              </div>
+            ) : (
+              <p className="text-xl font-bold text-white truncate">{currentSong.name}</p>
+            )}
+          </div>
+          <p className="text-sm text-[#9CA3AF] mt-1 truncate">{currentSong.artist || 'Unknown Artist'}</p>
+          {currentSong.album && currentSong.album !== 'Unknown Album' && (
+            <p className="text-xs text-[#6B7280] mt-0.5 truncate">{currentSong.album}</p>
           )}
         </div>
 
-        {/* 3-dot menu */}
-        <div className="relative">
+        {/* Action Row */}
+        <div className="flex items-center justify-center gap-2 mt-5 flex-shrink-0">
           <button
-            onClick={() => setShowMenu((v) => !v)}
-            className="min-h-[44px] min-w-[44px] flex items-center justify-center text-white/70 active:text-white transition-colors duration-150 cursor-pointer"
-            aria-label="More options"
+            onClick={toggleFavorite}
+            className={`w-11 h-11 flex items-center justify-center rounded-full transition-colors duration-200 music-btn-press ${
+              isFavorite ? 'text-red-500' : 'text-[#9CA3AF]'
+            }`}
+            aria-label={isFavorite ? 'Remove from favorites' : 'Add to favorites'}
           >
-            <MoreVertical size={22} />
+            <svg width="20" height="20" viewBox="0 0 24 24" fill={isFavorite ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z" />
+            </svg>
           </button>
-
-          {/* Dropdown menu — pointer-events-none when closed */}
-          <div
-            className={`fixed inset-0 z-40 transition-opacity duration-150 ${
-              showMenu ? 'pointer-events-auto opacity-100' : 'pointer-events-none opacity-0'
-            }`}
-            onClick={() => setShowMenu(false)}
-          />
-          <div
-            className={`absolute right-0 top-12 z-50 w-52 bg-[#1A1A2E] border border-[#2D2D44] rounded-xl overflow-hidden shadow-lg shadow-black/40 transition-opacity duration-150 ${
-              showMenu ? 'pointer-events-auto opacity-100 animate-slide-up' : 'pointer-events-none opacity-0'
-            }`}
+          <button
+            onClick={() => setShowLyrics(true)}
+            className="w-11 h-11 flex items-center justify-center rounded-full text-[#9CA3AF] transition-colors duration-200 music-btn-press"
+            aria-label="Lyrics"
           >
-            {MENU_OPTIONS.map((opt) => {
-              const Icon = opt.icon
-              return (
-                <button
-                  key={opt.key}
-                  onClick={() => handleMenuAction(opt.key)}
-                  className="w-full flex items-center gap-3 px-4 py-3 text-[13px] text-[#9CA3AF] active:bg-[#2D2D44] transition-colors duration-150 min-h-[44px] cursor-pointer"
-                >
-                  <Icon size={16} className="text-[#7C3AED]" />
-                  <span>{opt.label}</span>
-                </button>
-              )
-            })}
-          </div>
-        </div>
-      </div>
-
-      {/* ═══════════════════════════════════════════════════════════
-          SCROLLABLE CONTENT
-          ═══════════════════════════════════════════════════════════ */}
-      <div className="flex-1 flex flex-col items-center overflow-y-auto scrollbar-hide px-6 pb-6">
-        {/* ── Vinyl Disc ────────────────────────────────────────── */}
-        <div className="flex-shrink-0 mt-2 mb-6">
-          <VinylDisc
-            artwork={currentSong?.cover ?? null}
-            isPlaying={isPlaying}
-            size={260}
-            onTogglePlay={handleTogglePlay}
-          />
-        </div>
-
-        {/* ── Song Info ─────────────────────────────────────────── */}
-        <div className="w-full max-w-[320px] mb-5">
-          {/* Title — marquee animation for long titles */}
-          <div className="overflow-hidden max-w-[320px]">
-            <h2
-              className={`text-[20px] font-bold text-white leading-tight ${
-                (currentSong?.name?.length ?? 0) > 22
-                  ? 'music-marquee inline-block'
-                  : 'truncate'
-              }`}
-              style={
-                (currentSong?.name?.length ?? 0) > 22
-                  ? { width: 'max-content' }
-                  : undefined
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" />
+            </svg>
+          </button>
+          <button
+            onClick={() => {}}
+            className="w-11 h-11 flex items-center justify-center rounded-full text-[#9CA3AF] transition-colors duration-200 music-btn-press"
+            aria-label="Playlist"
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="8" y1="6" x2="21" y2="6" />
+              <line x1="8" y1="12" x2="21" y2="12" />
+              <line x1="8" y1="18" x2="21" y2="18" />
+              <line x1="3" y1="6" x2="3.01" y2="6" />
+              <line x1="3" y1="12" x2="3.01" y2="12" />
+              <line x1="3" y1="18" x2="3.01" y2="18" />
+            </svg>
+          </button>
+          <button
+            onClick={() => {
+              if (navigator.share) {
+                navigator.share({ title: currentSong.name, text: `Listening to ${currentSong.name} by ${currentSong.artist}` }).catch(() => {})
               }
-            >
-              {(currentSong?.name?.length ?? 0) > 22
-                ? `${currentSong?.name ?? 'No Song Playing'}\u00A0\u00A0\u00A0${currentSong?.name ?? 'No Song Playing'}\u00A0\u00A0\u00A0`
-                : (currentSong?.name ?? 'No Song Playing')}
-            </h2>
-          </div>
-
-          {/* Artist */}
-          <p className="text-[14px] text-[#9CA3AF] mt-1 truncate">
-            {currentSong?.artist ?? 'Unknown Artist'}
-          </p>
-
-          {/* Album */}
-          <p className="text-[12px] text-[#9CA3AF] mt-0.5 truncate">
-            {currentSong?.album ?? 'Unknown Album'}
-          </p>
-
-          {/* Action row: Favorite | Lyrics | Playlist */}
-          <div className="flex items-center justify-center gap-2 mt-3">
-            {/* Favorite */}
-            <button
-              onClick={toggleFavorite}
-              className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-full transition-colors duration-150 cursor-pointer"
-              aria-label={isFavorite ? 'Remove from favorites' : 'Add to favorites'}
-            >
-              <Heart
-                size={20}
-                className={`transition-colors duration-150 ${
-                  isFavorite
-                    ? 'text-red-500 fill-red-500'
-                    : 'text-[#9CA3AF] active:text-red-400'
-                }`}
-              />
-            </button>
-
-            {/* Lyrics */}
-            <button
-              onClick={() => toast({ title: 'Lyrics coming soon' })}
-              className="min-h-[44px] min-w-[44px] flex items-center justify-center text-[#9CA3AF] active:text-white transition-colors duration-150 cursor-pointer"
-              aria-label="Lyrics"
-            >
-              <Music size={18} />
-            </button>
-
-            {/* Add to playlist */}
-            <button
-              onClick={() => {
-                if (currentSong) {
-                  addToPlaylist(currentSong)
-                  toast({ title: 'Added to playlist' })
-                }
-              }}
-              className="min-h-[44px] min-w-[44px] flex items-center justify-center text-[#9CA3AF] active:text-white transition-colors duration-150 cursor-pointer"
-              aria-label="Add to playlist"
-            >
-              <ListMusic size={18} />
-            </button>
-          </div>
+            }}
+            className="w-11 h-11 flex items-center justify-center rounded-full text-[#9CA3AF] transition-colors duration-200 music-btn-press"
+            aria-label="Share"
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="18" cy="5" r="3" />
+              <circle cx="6" cy="12" r="3" />
+              <circle cx="18" cy="19" r="3" />
+              <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
+              <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
+            </svg>
+          </button>
+          <button
+            onClick={() => setShowSleepTimer(true)}
+            className={`w-11 h-11 flex items-center justify-center rounded-full transition-colors duration-200 music-btn-press ${
+              sleepTimer !== null ? 'text-[#7C3AED]' : 'text-[#9CA3AF]'
+            }`}
+            aria-label="Sleep timer"
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="10" />
+              <polyline points="12 6 12 12 16 14" />
+            </svg>
+          </button>
         </div>
 
-        {/* ── Seekbar (custom implementation) ────────────────────── */}
-        <div className="w-full max-w-[320px] mb-4">
-          <div className="relative w-full h-[44px] flex items-center">
-            <div className="relative w-full h-1 bg-[#2D2D44] rounded-full">
-              {/* Progress fill */}
-              <div
-                className="absolute left-0 top-0 h-full rounded-full"
-                style={{
-                  width: `${seekPercent}%`,
-                  background: 'linear-gradient(90deg, #7C3AED, #06B6D4)',
-                }}
-              />
-              {/* Thumb */}
-              <div
-                className="absolute top-1/2 w-4 h-4 rounded-full bg-[#7C3AED] shadow-lg music-seek-thumb"
-                style={{
-                  left: `${seekPercent}%`,
-                  transform: 'translate(-50%, -50%)',
-                  boxShadow: '0 0 8px rgba(124, 58, 237, 0.5)',
-                }}
-              />
-            </div>
+        {/* Seek Bar */}
+        <div className="mt-6 flex-shrink-0">
+          <div className="relative h-6 flex items-center">
+            {/* Track background */}
+            <div className="absolute left-0 right-0 h-1 bg-[#252525] rounded-full" />
+            {/* Progress fill */}
+            <div
+              className="absolute left-0 h-1 bg-[#7C3AED] rounded-full"
+              style={{ width: `${progress}%`, transition: isSeeking ? 'none' : 'width 200ms linear' }}
+            />
+            {/* Thumb */}
+            <div
+              className="absolute w-3 h-3 bg-white rounded-full shadow-md"
+              style={{
+                left: `${progress}%`,
+                transform: 'translateX(-50%)',
+                transition: isSeeking ? 'none' : 'left 200ms linear',
+              }}
+            />
             {/* Invisible range input for interaction */}
             <input
+              ref={seekInputRef}
               type="range"
               min={0}
-              max={duration > 0 ? duration : 0}
-              value={currentTime}
+              max={duration || 0}
               step={0.1}
-              onChange={(e) => seekTo(Number(e.target.value))}
-              className="absolute inset-0 w-full opacity-0 cursor-pointer"
-              style={{ height: '44px' }}
+              value={displayTime}
+              onMouseDown={handleSeekStart}
+              onTouchStart={handleSeekStart}
+              onChange={handleSeekChange}
+              onMouseUp={handleSeekEnd}
+              onTouchEnd={handleSeekEnd}
+              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
               aria-label="Seek"
             />
           </div>
-          <div className="flex justify-between mt-0.5">
-            <span className="text-[11px] text-[#9CA3AF] tabular-nums">
-              {formatDuration(currentTime)}
+          <div className="flex justify-between mt-1">
+            <span className="text-[10px] text-[#9CA3AF] tabular-nums">
+              {formatDuration(displayTime)}
             </span>
-            <span className="text-[11px] text-[#9CA3AF] tabular-nums">
+            <span className="text-[10px] text-[#9CA3AF] tabular-nums">
               {formatDuration(duration)}
             </span>
           </div>
         </div>
 
-        {/* ── Controls Row ──────────────────────────────────────── */}
-        <div className="flex items-center justify-center gap-5 mb-5">
+        {/* Controls */}
+        <div className="flex items-center justify-center gap-4 mt-4 flex-shrink-0">
           {/* Shuffle */}
           <button
             onClick={toggleShuffle}
-            className={`min-h-[44px] min-w-[44px] flex items-center justify-center rounded-full transition-colors duration-150 cursor-pointer ${
-              isShuffle
-                ? 'text-[#7C3AED] bg-[#7C3AED]/10'
-                : 'text-[#9CA3AF] active:text-white'
+            className={`w-11 h-11 flex items-center justify-center rounded-full transition-colors duration-200 music-btn-press ${
+              isShuffle ? 'text-[#7C3AED]' : 'text-[#9CA3AF]'
             }`}
-            aria-label={isShuffle ? 'Shuffle on' : 'Shuffle off'}
-            aria-pressed={isShuffle}
+            aria-label="Shuffle"
           >
-            <Shuffle size={18} />
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="16 3 21 3 21 8" />
+              <line x1="4" y1="20" x2="21" y2="3" />
+              <polyline points="21 16 21 21 16 21" />
+              <line x1="15" y1="15" x2="21" y2="21" />
+              <line x1="4" y1="4" x2="9" y2="9" />
+            </svg>
           </button>
 
           {/* Previous */}
           <button
             onClick={previous}
-            className="min-h-[44px] min-w-[44px] flex items-center justify-center text-white active:text-[#7C3AED] transition-colors duration-150 cursor-pointer"
-            aria-label="Previous track"
+            className="w-11 h-11 flex items-center justify-center text-white music-btn-press"
+            aria-label="Previous"
           >
-            <SkipBack size={24} fill="currentColor" />
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M6 6h2v12H6zm3.5 6l8.5 6V6z" />
+            </svg>
           </button>
 
           {/* Play/Pause */}
           <button
-            onClick={handleTogglePlay}
-            className="w-14 h-14 flex items-center justify-center rounded-full bg-[#7C3AED] text-white active:bg-[#7C3AED]/80 transition-colors duration-150 shadow-lg shadow-[#7C3AED]/30 cursor-pointer"
+            onClick={isPlaying ? pause : resume}
+            className="w-14 h-14 flex items-center justify-center bg-[#7C3AED] rounded-full text-white shadow-lg shadow-[#7C3AED]/30 music-btn-press"
             aria-label={isPlaying ? 'Pause' : 'Play'}
           >
             {isPlaying ? (
-              <Pause size={26} fill="currentColor" />
+              <svg width="26" height="26" viewBox="0 0 24 24" fill="currentColor">
+                <rect x="6" y="4" width="4" height="16" rx="1" />
+                <rect x="14" y="4" width="4" height="16" rx="1" />
+              </svg>
             ) : (
-              <Play size={26} fill="currentColor" className="ml-1" />
+              <svg width="26" height="26" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M8 5v14l11-7z" />
+              </svg>
             )}
           </button>
 
           {/* Next */}
           <button
             onClick={next}
-            className="min-h-[44px] min-w-[44px] flex items-center justify-center text-white active:text-[#7C3AED] transition-colors duration-150 cursor-pointer"
-            aria-label="Next track"
+            className="w-11 h-11 flex items-center justify-center text-white music-btn-press"
+            aria-label="Next"
           >
-            <SkipForward size={24} fill="currentColor" />
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z" />
+            </svg>
           </button>
 
           {/* Repeat */}
           <button
             onClick={cycleRepeat}
-            className={`min-h-[44px] min-w-[44px] flex items-center justify-center rounded-full transition-colors duration-150 cursor-pointer ${
-              repeatMode !== 'off'
-                ? 'text-[#7C3AED] bg-[#7C3AED]/10'
-                : 'text-[#9CA3AF] active:text-white'
+            className={`w-11 h-11 flex items-center justify-center rounded-full transition-colors duration-200 music-btn-press ${
+              repeatMode !== 'off' ? 'text-[#7C3AED]' : 'text-[#9CA3AF]'
             }`}
             aria-label={`Repeat: ${repeatMode}`}
-            aria-pressed={repeatMode !== 'off'}
           >
             {repeatMode === 'one' ? (
-              <Repeat1 size={18} />
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="17 1 21 5 17 9" />
+                <path d="M3 11V9a4 4 0 014-4h14" />
+                <polyline points="7 23 3 19 7 15" />
+                <path d="M21 13v2a4 4 0 01-4 4H3" />
+                <text x="12" y="14" textAnchor="middle" fill="currentColor" fontSize="8" fontWeight="bold" stroke="none">1</text>
+              </svg>
             ) : (
-              <Repeat size={18} />
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="17 1 21 5 17 9" />
+                <path d="M3 11V9a4 4 0 014-4h14" />
+                <polyline points="7 23 3 19 7 15" />
+                <path d="M21 13v2a4 4 0 01-4 4H3" />
+              </svg>
             )}
           </button>
         </div>
 
-        {/* ── Volume + Speed Row ─────────────────────────────────── */}
-        <div className="w-full max-w-[320px] mb-5">
-          <div className="flex items-center gap-3">
-            {/* Volume icon */}
-            <button
-              onClick={() => setVolume(volume === 0 ? 0.5 : 0)}
-              className="min-h-[44px] min-w-[44px] flex items-center justify-center text-[#9CA3AF] active:text-white transition-colors duration-150 shrink-0 cursor-pointer"
-              aria-label={volume === 0 ? 'Unmute' : 'Mute'}
-            >
-              <VolumeIcon size={18} />
-            </button>
-
-            {/* Volume slider */}
+        {/* Volume */}
+        <div className="flex items-center gap-3 mt-6 px-2 flex-shrink-0">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#9CA3AF" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+          </svg>
+          <div className="relative flex-1 h-5 flex items-center">
+            <div className="absolute left-0 right-0 h-[3px] bg-[#252525] rounded-full" />
+            <div
+              className="absolute left-0 h-[3px] bg-[#7C3AED] rounded-full"
+              style={{ width: `${volume * 100}%` }}
+            />
             <input
               type="range"
               min={0}
               max={1}
               step={0.01}
               value={volume}
-              onChange={handleVolumeChange}
-              className="np-volume flex-1 h-4 cursor-pointer"
-              style={{
-                background: `linear-gradient(to right, #7C3AED ${volumePercent}%, #2D2D44 ${volumePercent}%)`,
-              }}
+              onChange={(e) => setVolume(parseFloat(e.target.value))}
+              className="np-volume absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
               aria-label="Volume"
             />
-
-            {/* Volume icon right */}
-            <Volume2
-              size={18}
-              className="text-[#9CA3AF] shrink-0"
-            />
           </div>
-
-          {/* Speed button */}
-          <div className="flex justify-center mt-3">
-            <button
-              onClick={() => setShowSpeedSheet(true)}
-              className="flex items-center gap-1.5 bg-[#1A1A2E] border border-[#2D2D44] rounded-full px-4 py-2 text-[12px] text-[#9CA3AF] active:bg-[#2D2D44] active:text-white transition-colors duration-150 min-h-[44px] cursor-pointer"
-              aria-label="Playback speed"
-            >
-              <Gauge size={14} className="text-[#7C3AED]" />
-              <span className="tabular-nums">{playbackSpeed.toFixed(playbackSpeed % 1 === 0 ? 1 : 2)}×</span>
-            </button>
-          </div>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#9CA3AF" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+            <path d="M19.07 4.93a10 10 0 010 14.14" />
+            <path d="M15.54 8.46a5 5 0 010 7.07" />
+          </svg>
         </div>
 
-        {/* ── Equalizer Visualizer ───────────────────────────────── */}
-        <div className="flex justify-center mb-6">
-          <EqualizerBars isPlaying={isPlaying} barCount={5} height={28} />
+        {/* Speed pill */}
+        <div className="flex justify-center mt-4 mb-6 flex-shrink-0">
+          <button
+            onClick={() => setShowSpeedPicker(true)}
+            className="px-4 py-1.5 rounded-full border border-[#252525] text-xs text-[#9CA3AF] hover:text-white hover:border-[#7C3AED] transition-colors duration-200 music-btn-press"
+          >
+            {playbackSpeed}×
+          </button>
         </div>
       </div>
 
-      {/* ═══════════════════════════════════════════════════════════
-          SPEED BOTTOM SHEET
-          ═══════════════════════════════════════════════════════════ */}
-      <div
-        className={`fixed inset-0 z-[60] transition-opacity duration-150 ${
-          showSpeedSheet ? 'pointer-events-auto opacity-100' : 'pointer-events-none opacity-0'
-        }`}
-      >
-        {/* Backdrop */}
-        <div
-          className="absolute inset-0 bg-black/60"
-          onClick={() => setShowSpeedSheet(false)}
-        />
-        <div className="absolute bottom-0 left-0 right-0 bg-[#1A1A2E] border-t border-[#2D2D44] rounded-t-2xl animate-slide-up safe-bottom">
-          {/* Handle bar */}
-          <div className="flex justify-center pt-3 pb-2">
-            <div className="w-10 h-1 rounded-full bg-[#2D2D44]" />
+      {/* Lyrics Overlay */}
+      {showLyrics && (
+        <div className="fixed inset-0 z-50 bg-[#0A0A0A] flex flex-col animate-slide-up">
+          <header className="h-14 flex items-center px-2 flex-shrink-0">
+            <button
+              onClick={() => setShowLyrics(false)}
+              className="w-11 h-11 flex items-center justify-center text-white music-btn-press"
+              aria-label="Close lyrics"
+            >
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="6 9 12 15 18 9" />
+              </svg>
+            </button>
+            <div className="flex-1 text-center">
+              <p className="text-xs text-[#9CA3AF] uppercase tracking-wider">Lyrics</p>
+            </div>
+            <div className="w-11" />
+          </header>
+
+          <div
+            ref={lyricsRef}
+            className="flex-1 overflow-y-auto px-6 py-8"
+          >
+            {DEMO_LYRICS.map((line, i) => (
+              <button
+                key={i}
+                data-active={i === currentLyricIndex ? 'true' : undefined}
+                onClick={() => seekTo(line.time)}
+                className={`block w-full text-center py-3 transition-all duration-200 focus:outline-none ${
+                  i === currentLyricIndex
+                    ? 'text-white font-semibold text-lg scale-105'
+                    : 'text-[#6B7280] text-base'
+                }`}
+              >
+                {line.text}
+              </button>
+            ))}
           </div>
 
-          {/* Title */}
-          <div className="flex items-center justify-between px-6 pb-3">
-            <span className="text-[14px] font-semibold text-white">
-              Playback Speed
-            </span>
+          {/* Mini controls at bottom of lyrics */}
+          <div className="flex items-center justify-center gap-6 py-4 border-t border-[#1F1F1F] flex-shrink-0">
             <button
-              onClick={() => setShowSpeedSheet(false)}
-              className="min-h-[44px] min-w-[44px] flex items-center justify-center text-[#9CA3AF] active:text-white transition-colors duration-150 cursor-pointer"
-              aria-label="Close"
+              onClick={previous}
+              className="w-11 h-11 flex items-center justify-center text-white music-btn-press"
+              aria-label="Previous"
             >
-              <X size={18} />
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M6 6h2v12H6zm3.5 6l8.5 6V6z" />
+              </svg>
+            </button>
+            <button
+              onClick={isPlaying ? pause : resume}
+              className="w-12 h-12 flex items-center justify-center bg-[#7C3AED] rounded-full text-white music-btn-press"
+              aria-label={isPlaying ? 'Pause' : 'Play'}
+            >
+              {isPlaying ? (
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
+                  <rect x="6" y="4" width="4" height="16" rx="1" />
+                  <rect x="14" y="4" width="4" height="16" rx="1" />
+                </svg>
+              ) : (
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M8 5v14l11-7z" />
+                </svg>
+              )}
+            </button>
+            <button
+              onClick={next}
+              className="w-11 h-11 flex items-center justify-center text-white music-btn-press"
+              aria-label="Next"
+            >
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z" />
+              </svg>
             </button>
           </div>
+        </div>
+      )}
 
-          {/* Speed options */}
-          <div className="flex items-center justify-center gap-3 px-6 pb-6">
-            {SPEED_OPTIONS.map((speed) => {
-              const isActive = playbackSpeed === speed
-              return (
+      {/* Sleep Timer Modal */}
+      {showSleepTimer && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center" onClick={() => setShowSleepTimer(false)}>
+          <div className="absolute inset-0 bg-black/60" />
+          <div
+            className="relative bg-[#141414] border border-[#252525] rounded-2xl p-6 w-[280px] animate-slide-up"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-lg font-bold text-white text-center mb-4">Sleep Timer</h3>
+            <div className="grid grid-cols-3 gap-2">
+              {SLEEP_OPTIONS.map((min) => (
+                <button
+                  key={min}
+                  onClick={() => {
+                    setSleepTimer(min)
+                    setShowSleepTimer(false)
+                  }}
+                  className={`py-3 rounded-xl text-sm font-medium transition-colors duration-200 music-btn-press ${
+                    sleepTimer === min
+                      ? 'bg-[#7C3AED] text-white'
+                      : 'bg-[#1A1A1A] text-[#9CA3AF] hover:text-white'
+                  }`}
+                >
+                  {min}m
+                </button>
+              ))}
+              <button
+                onClick={() => {
+                  setSleepTimer(null)
+                  setShowSleepTimer(false)
+                }}
+                className={`py-3 rounded-xl text-sm font-medium transition-colors duration-200 music-btn-press ${
+                  sleepTimer === null
+                    ? 'bg-[#7C3AED] text-white'
+                    : 'bg-[#1A1A1A] text-[#9CA3AF] hover:text-white'
+                }`}
+              >
+                Off
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Speed Picker Modal */}
+      {showSpeedPicker && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center" onClick={() => setShowSpeedPicker(false)}>
+          <div className="absolute inset-0 bg-black/60" />
+          <div
+            className="relative bg-[#141414] border border-[#252525] rounded-2xl p-6 w-[280px] animate-slide-up"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-lg font-bold text-white text-center mb-4">Playback Speed</h3>
+            <div className="grid grid-cols-3 gap-2">
+              {SPEED_OPTIONS.map((speed) => (
                 <button
                   key={speed}
-                  onClick={() => handleSpeedSelect(speed)}
-                  className={`min-w-[44px] min-h-[44px] flex items-center justify-center rounded-xl text-[13px] font-medium transition-colors duration-150 cursor-pointer ${
-                    isActive
+                  onClick={() => {
+                    setSpeed(speed)
+                    setShowSpeedPicker(false)
+                  }}
+                  className={`py-3 rounded-xl text-sm font-medium transition-colors duration-200 music-btn-press ${
+                    playbackSpeed === speed
                       ? 'bg-[#7C3AED] text-white'
-                      : 'bg-[#2D2D44] text-[#9CA3AF] active:bg-[#7C3AED]/20 active:text-white'
+                      : 'bg-[#1A1A1A] text-[#9CA3AF] hover:text-white'
                   }`}
-                  aria-label={`Speed ${speed}x`}
-                  aria-pressed={isActive}
                 >
-                  {speed}x
+                  {speed}×
                 </button>
-              )
-            })}
+              ))}
+            </div>
           </div>
         </div>
-      </div>
+      )}
     </div>
   )
 }

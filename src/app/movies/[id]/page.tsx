@@ -13,11 +13,11 @@ import { useRouter } from 'next/navigation'
 import { Heart, Share2, Globe, Clock, Calendar, MapPin, ChevronLeft } from 'lucide-react'
 import { getMovieById, getRelated } from '@/lib/search'
 import type { Movie } from '@/lib/search'
-import type { YouTubeMovie } from '@/lib/youtube'
+import type { YouTubeMovie } from '@/lib/types'
 import MovieCard from '@/components/movies/MovieCard'
 import StealthPlayer from '@/components/movies/StealthPlayer'
 import SaveButton from '@/components/offline/SaveButton'
-import { detectMovieRegion, detectDubbedTags, type MovieRegion } from '@/lib/movie-authenticator'
+import { detectMovieRegion, detectDubbedTags, type MovieRegion } from '@/lib/types'
 
 // ── Region display names ──
 

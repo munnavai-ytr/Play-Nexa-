@@ -1,54 +1,34 @@
 // ── Play Nexa AI Smart Search — Natural Language Route ──────────
 // Users search with natural language (e.g. "Space movies with a sad ending")
 // Gemini interprets mood/intent → converts to DB query tags
-// Searches Supabase videos table with smart matching
-// Falls back to YouTube API + local JSON if Supabase is empty
+// Searches Supabase movies/music_tracks tables
+// Zero YouTube Data API calls — RSS + Gemini only
 // Server-side ONLY — zero client overhead
 
 import { NextRequest, NextResponse } from 'next/server'
 import { callGeminiJSON, isGeminiReady } from '@/lib/gemini'
-import { getSupabase, isSupabaseReady } from '@/lib/supabase'
-import { searchMovies as ytSearchMovies, type YouTubeMovie } from '@/lib/youtube'
+import { supabaseAdmin } from '@/lib/supabaseAdmin'
+import { searchMoviesFromDB } from '@/lib/db-cache'
+import { formatDurationLong, formatViews, type YouTubeMovie } from '@/lib/types'
 
 // ════════════════════════════════════════════════════════════
 //  TYPES
 // ════════════════════════════════════════════════════════════
 
 interface SearchRequest {
-  query: string       // Natural language query
-  limit?: number      // Max results (default 20)
-  type?: string       // 'movie' | 'music' | 'short' | 'all' (default 'all')
+  query: string
+  limit?: number
+  type?: string
 }
 
 interface ParsedIntent {
-  /** Detected genres: ["Sci-Fi", "Drama"] */
   genres: string[]
-  /** Detected moods: ["sad", "dark", "romantic"] */
   moods: string[]
-  /** Detected languages: ["Korean", "Hindi"] */
   languages: string[]
-  /** Detected time periods: ["2020s", "classic", "recent"] */
   timePeriods: string[]
-  /** Optimized search keywords for database queries */
   searchKeywords: string[]
-  /** Whether this is specifically looking for movies (vs music/shorts) */
   isMovieSearch: boolean
-  /** The interpreted intent — one sentence summary */
   interpretedIntent: string
-}
-
-interface VideoRow {
-  id: number
-  yt_video_id: string
-  title: string
-  thumbnail_url: string | null
-  category: string
-  genre: string[]
-  duration_sec: number
-  channel: string
-  language: string
-  views: number
-  created_at: string
 }
 
 // ════════════════════════════════════════════════════════════
@@ -83,13 +63,12 @@ Respond in JSON format:
 
   try {
     const result = await callGeminiJSON<ParsedIntent>(prompt, {
-      temperature: 0.3,  // Low temp — we want accurate interpretation
+      temperature: 0.3,
       maxTokens: 500,
     })
     return result
   } catch (err) {
     console.warn('Play Nexa AI Search: Gemini intent parsing failed, using fallback', err)
-    // Fallback: simple keyword extraction
     const words = query.toLowerCase().split(/\s+/).filter(w => w.length > 2)
     return {
       genres: [],
@@ -107,238 +86,116 @@ Respond in JSON format:
 //  STEP 2: Search Supabase with parsed intent
 // ════════════════════════════════════════════════════════════
 
-/**
- * Search the Supabase videos table using the parsed intent.
- * Uses multiple strategies:
- * 1. Genre array overlap (any genre matches)
- * 2. Language match
- * 3. Title text search with keywords
- * 4. Category match
- *
- * Results are ranked by: genre match count × views
- */
 const searchSupabase = async (
   intent: ParsedIntent,
   limit = 20,
   type = 'all',
-): Promise<VideoRow[]> => {
-  if (!isSupabaseReady()) return []
+): Promise<YouTubeMovie[]> => {
+  if (!supabaseAdmin) return []
 
-  const sb = getSupabase()
-  if (!sb) return []
+  const results: YouTubeMovie[] = []
+  const seenIds = new Set<string>()
 
-  const results: VideoRow[] = []
-  const seenIds = new Set<number>()
-
-  // Strategy 1: Genre-based search (most accurate)
-  if (intent.genres.length > 0) {
-    try {
-      let query = sb
-        .from('videos')
-        .select('*')
-
-      // Apply category filter
-      if (type === 'movie') {
-        query = query.eq('category', 'movie').gte('duration_sec', 3600)
-      } else if (type !== 'all') {
-        query = query.eq('category', type)
-      }
-
-      // Use contains for genre array overlap
-      for (const genre of intent.genres.slice(0, 3)) {
-        const { data } = await query
-          .contains('genre', [genre])
-          .order('views', { ascending: false })
-          .limit(limit)
-
-        if (data) {
-          for (const row of data as VideoRow[]) {
-            if (!seenIds.has(row.id)) {
-              seenIds.add(row.id)
-              results.push(row)
-            }
-          }
-        }
-      }
-    } catch {
-      // Continue with other strategies
-    }
+  const addResult = (row: any) => {
+    if (seenIds.has(row.youtube_id)) return
+    seenIds.add(row.youtube_id)
+    results.push({
+      id: row.youtube_id,
+      videoId: row.youtube_id,
+      title: row.title || '',
+      thumbnail: row.thumbnail || `https://img.youtube.com/vi/${row.youtube_id}/hqdefault.jpg`,
+      duration: row.duration || '',
+      durationSec: 0,
+      channel: row.channel_name || '',
+      channelId: row.channel_id || '',
+      description: row.description || '',
+      publishedAt: row.published_at || '',
+      views: formatViews(row.view_count || 0),
+      likes: '',
+      comments: '',
+      rawViews: row.view_count || 0,
+      language: row.language || 'English',
+      genre: [],
+      category: 'movie',
+      free: true,
+      source: 'AI-Search',
+      trending: false,
+      viral: false,
+    })
   }
 
-  // Strategy 2: Language-based search
-  if (intent.languages.length > 0) {
-    try {
-      let query = sb
-        .from('videos')
-        .select('*')
-        .in('language', intent.languages)
-        .order('views', { ascending: false })
-        .limit(limit)
-
-      if (type === 'movie') {
-        query = query.eq('category', 'movie').gte('duration_sec', 3600)
-      }
-
-      const { data } = await query
-      if (data) {
-        for (const row of data as VideoRow[]) {
-          if (!seenIds.has(row.id)) {
-            seenIds.add(row.id)
-            results.push(row)
-          }
-        }
-      }
-    } catch {
-      // Continue
-    }
-  }
-
-  // Strategy 3: Keyword text search on titles
+  // Strategy 1: Keyword search on title
   if (intent.searchKeywords.length > 0) {
     try {
-      const searchQuery = intent.searchKeywords.slice(0, 5).join(' | ')
-
-      let query = sb
-        .from('videos')
+      const searchQuery = intent.searchKeywords.slice(0, 3).join(' | ')
+      let query = supabaseAdmin
+        .from('movies')
         .select('*')
-        .textSearch('title', searchQuery, { type: 'websearch', config: 'english' })
+        .eq('is_hidden', false)
+        .ilike('title', `%${searchQuery.split('|')[0].trim()}%`)
         .limit(limit)
 
-      if (type === 'movie') {
-        query = query.eq('category', 'movie').gte('duration_sec', 3600)
-      }
-
       const { data } = await query
-      if (data) {
-        for (const row of data as VideoRow[]) {
-          if (!seenIds.has(row.id)) {
-            seenIds.add(row.id)
-            results.push(row)
-          }
-        }
-      }
-    } catch {
-      // Continue
-    }
+      if (data) data.forEach(addResult)
+    } catch { /* continue */ }
   }
 
-  // Strategy 4: Category-based search
-  for (const genre of intent.genres) {
-    const categoryMap: Record<string, string> = {
-      'Bollywood': 'Bollywood',
-      'Korean': 'Korean',
-      'Anime': 'Anime',
-      'Hindi': 'Hindi Dubbed',
-    }
-    const cat = categoryMap[genre]
-    if (cat) {
-      try {
-        let query = sb
-          .from('videos')
-          .select('*')
-          .eq('category', cat.toLowerCase())
-          .order('views', { ascending: false })
-          .limit(limit)
+  // Strategy 2: Language filter
+  if (intent.languages.length > 0) {
+    try {
+      const { data } = await supabaseAdmin
+        .from('movies')
+        .select('*')
+        .eq('is_hidden', false)
+        .in('language', intent.languages)
+        .order('view_count', { ascending: false })
+        .limit(limit)
 
-        if (type === 'movie') {
-          query = query.gte('duration_sec', 3600)
-        }
-
-        const { data } = await query
-        if (data) {
-          for (const row of data as VideoRow[]) {
-            if (!seenIds.has(row.id)) {
-              seenIds.add(row.id)
-              results.push(row)
-            }
-          }
-        }
-      } catch {
-        // Continue
-      }
-    }
+      if (data) data.forEach(addResult)
+    } catch { /* continue */ }
   }
 
-  // ── Rank results: genre match count + views ──
-  const genreSet = new Set(intent.genres.map(g => g.toLowerCase()))
-  results.sort((a, b) => {
-    const aGenreScore = a.genre.filter(g => genreSet.has(g.toLowerCase())).length
-    const bGenreScore = b.genre.filter(g => genreSet.has(g.toLowerCase())).length
-    if (bGenreScore !== aGenreScore) return bGenreScore - aGenreScore
-    return b.views - a.views
-  })
+  // Strategy 3: Music search
+  if (type === 'all' || type === 'music') {
+    try {
+      const keywords = intent.searchKeywords.slice(0, 3).join(' ')
+      const { data } = await supabaseAdmin
+        .from('music_tracks')
+        .select('*')
+        .ilike('title', `%${keywords}%`)
+        .limit(limit / 2)
+
+      if (data) data.forEach((row: any) => {
+        if (seenIds.has(row.youtube_id)) return
+        seenIds.add(row.youtube_id)
+        results.push({
+          id: row.youtube_id,
+          videoId: row.youtube_id,
+          title: row.title || '',
+          thumbnail: row.thumbnail || `https://img.youtube.com/vi/${row.youtube_id}/hqdefault.jpg`,
+          duration: row.duration || '',
+          durationSec: 0,
+          channel: row.channel_name || '',
+          channelId: row.channel_id || '',
+          description: row.description || '',
+          publishedAt: row.published_at || '',
+          views: formatViews(row.view_count || 0),
+          likes: '',
+          comments: '',
+          rawViews: row.view_count || 0,
+          language: row.language || 'English',
+          genre: [],
+          category: 'music',
+          free: true,
+          source: 'AI-Search',
+          trending: false,
+          viral: false,
+        })
+      })
+    } catch { /* continue */ }
+  }
 
   return results.slice(0, limit)
-}
-
-// ════════════════════════════════════════════════════════════
-//  STEP 3: Convert DB rows to YouTubeMovie format
-// ════════════════════════════════════════════════════════════
-
-const formatDuration = (seconds: number): string => {
-  const h = Math.floor(seconds / 3600)
-  const m = Math.floor((seconds % 3600) / 60)
-  return h > 0 ? `${h}h ${m}m` : `${m}m`
-}
-
-const rowToYouTubeMovie = (row: VideoRow): YouTubeMovie => ({
-  id: row.yt_video_id,
-  videoId: row.yt_video_id,
-  title: row.title,
-  thumbnail: row.thumbnail_url || `https://img.youtube.com/vi/${row.yt_video_id}/hqdefault.jpg`,
-  duration: formatDuration(row.duration_sec),
-  durationSec: row.duration_sec,
-  channel: row.channel,
-  channelId: '',
-  description: '',
-  publishedAt: row.created_at,
-  views: `${row.views.toLocaleString()} views`,
-  likes: '',
-  comments: '',
-  rawViews: row.views,
-  language: row.language,
-  genre: row.genre,
-  category: row.category,
-  free: true,
-  source: 'AI-Search',
-  trending: false,
-  viral: false,
-})
-
-// ════════════════════════════════════════════════════════════
-//  LOG MISSING REQUEST — for future AI Hunter runs
-// ════════════════════════════════════════════════════════════
-
-const logMissingRequest = async (query: string, category: string): Promise<void> => {
-  if (!isSupabaseReady()) return
-
-  const sb = getSupabase()
-  if (!sb) return
-
-  try {
-    // Try RPC first (if the function exists)
-    const { error: rpcError } = await sb.rpc('upsert_missing_request', {
-      p_query: query,
-      p_category: category,
-    })
-
-    if (rpcError) {
-      // Fallback: manual upsert
-      await sb
-        .from('missing_requests')
-        .upsert({
-          search_query: query,
-          category,
-          status: 'pending',
-          request_count: 1,
-        }, {
-          onConflict: 'search_query,category',
-          ignoreDuplicates: true,
-        })
-    }
-  } catch {
-    // Silent fail — non-critical
-  }
 }
 
 // ════════════════════════════════════════════════════════════
@@ -348,8 +205,7 @@ const logMissingRequest = async (query: string, category: string): Promise<void>
 export const POST = async (req: NextRequest) => {
   const startTime = Date.now()
 
-  // ── Rate limiting: simple in-memory (per-process) ──
-  // Max 30 AI searches per minute globally (protects Gemini quota)
+  // Rate limiting
   const now = Date.now()
   if (!globalThis._pnSearchTimestamps) {
     globalThis._pnSearchTimestamps = []
@@ -366,7 +222,6 @@ export const POST = async (req: NextRequest) => {
   recentTimestamps.push(now)
   globalThis._pnSearchTimestamps = recentTimestamps
 
-  // ── Parse request ──
   let body: SearchRequest
   try {
     body = await req.json()
@@ -384,75 +239,21 @@ export const POST = async (req: NextRequest) => {
     return NextResponse.json({ error: 'Query too long (max 500 characters)' }, { status: 400 })
   }
 
-  // ── Check Gemini availability ──
+  // If Gemini is not ready, fall back to direct DB search
   if (!isGeminiReady()) {
-    // Fallback: skip AI interpretation, search directly with YouTube API
-    console.warn('Play Nexa AI Search: Gemini not configured, falling back to YouTube API')
-    try {
-      const ytResults = await ytSearchMovies(query, limit)
-      return NextResponse.json({
-        query,
-        interpretedIntent: query,
-        results: ytResults,
-        source: 'youtube-fallback',
-        aiPowered: false,
-      })
-    } catch {
-      return NextResponse.json({
-        query,
-        results: [],
-        source: 'fallback',
-        aiPowered: false,
-      }, { status: 503 })
-    }
+    const dbResults = await searchMoviesFromDB(query, limit)
+    return NextResponse.json({
+      query,
+      interpretedIntent: query,
+      results: dbResults,
+      source: 'supabase-fallback',
+      aiPowered: false,
+    })
   }
 
-  // ══════════════════════════════════════════════════════════
-  //  PIPELINE: Parse intent → Search DB → Search YouTube → Merge
-  // ══════════════════════════════════════════════════════════
-
-  // Step 1: Gemini parses the natural language query
+  // Pipeline: Parse intent → Search DB
   const intent = await parseUserIntent(query)
-  console.log(`Play Nexa AI Search: Parsed intent for "${query}" → genres: [${intent.genres.join(', ')}], keywords: [${intent.searchKeywords.join(', ')}]`)
-
-  // Step 2: Search Supabase DB
-  const dbResults = await searchSupabase(intent, limit, type)
-  const dbMovies = dbResults.map(rowToYouTubeMovie)
-
-  // Step 3: If DB results are insufficient, also search YouTube API
-  let ytMovies: YouTubeMovie[] = []
-  if (dbMovies.length < limit) {
-    try {
-      const ytQuery = intent.searchKeywords.slice(0, 5).join(' ') +
-        (intent.isMovieSearch ? ' full movie' : '')
-      ytMovies = await ytSearchMovies(ytQuery, limit - dbMovies.length)
-    } catch {
-      // YouTube search failed — continue with DB results only
-    }
-  }
-
-  // Step 4: Merge results, deduplicate by videoId
-  const seenVideoIds = new Set<string>()
-  const merged: YouTubeMovie[] = []
-
-  for (const m of dbMovies) {
-    if (!seenVideoIds.has(m.videoId)) {
-      seenVideoIds.add(m.videoId)
-      merged.push(m)
-    }
-  }
-
-  for (const m of ytMovies) {
-    if (!seenVideoIds.has(m.videoId)) {
-      seenVideoIds.add(m.videoId)
-      merged.push(m)
-    }
-  }
-
-  // Step 5: Log as missing request if results are sparse
-  if (merged.length < 3) {
-    await logMissingRequest(query, type === 'movie' ? 'movie' : 'all')
-  }
+  const results = await searchSupabase(intent, limit, type)
 
   const duration = Date.now() - startTime
 
@@ -461,15 +262,15 @@ export const POST = async (req: NextRequest) => {
     interpretedIntent: intent.interpretedIntent,
     genres: intent.genres,
     moods: intent.moods,
-    results: merged.slice(0, limit),
-    totalResults: merged.length,
-    source: dbMovies.length > 0 ? 'supabase+youtube' : 'youtube',
+    results,
+    totalResults: results.length,
+    source: results.length > 0 ? 'supabase' : 'none',
     aiPowered: true,
     duration_ms: duration,
   })
 }
 
-// GET endpoint for quick health check
+// GET endpoint for health check
 export const GET = async () => {
   return NextResponse.json({
     service: 'Play Nexa AI Smart Search',
@@ -478,12 +279,11 @@ export const GET = async () => {
     parameters: {
       query: 'Natural language search query (required)',
       limit: 'Max results (default 20)',
-      type: '"movie" | "music" | "short" | "all" (default "all")',
+      type: '"movie" | "music" | "all" (default "all")',
     },
   })
 }
 
-// Type augmentation for globalThis rate limit tracker
 declare global {
   var _pnSearchTimestamps: number[] | undefined
 }

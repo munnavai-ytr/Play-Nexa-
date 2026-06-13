@@ -11,8 +11,8 @@
 import { useEffect, useCallback, useRef } from 'react'
 import StealthPlayer from './StealthPlayer'
 import type { Movie } from '@/lib/search'
-import type { YouTubeMovie } from '@/lib/youtube'
-import { detectDubbedTags } from '@/lib/movie-authenticator'
+import type { YouTubeMovie } from '@/lib/types'
+import { detectDubbedTags } from '@/lib/types'
 
 type PlayerModalData = Movie | YouTubeMovie
 

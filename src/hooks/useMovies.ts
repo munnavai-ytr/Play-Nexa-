@@ -1,23 +1,21 @@
 // ── Play Nexa Movie Hooks ─────────────────────────────────────
-// Fixed: no re-fetch loops, no duplicate calls
+// Zero YouTube Data API — uses Supabase + db-cache only
 // useRef guard prevents double useEffect
 // 500ms debounce on search
-// useCallback for stable references
 
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
 import {
-  fetchMoviesByCategory,
-  fetchTrending,
-  searchMovies,
-  fetchVideoDetail,
-  fetchRelated,
-  type YouTubeMovie,
-} from '@/lib/youtube'
+  fetchMoviesFromDB,
+  fetchTrendingFromDB,
+  searchMoviesFromDB,
+  fetchDetailFromDB,
+  fetchRelatedFromDB,
+} from '@/lib/db-cache'
+import type { YouTubeMovie } from '@/lib/types'
 
 // ── useTrending ──
-// Fetches trending movies. Uses useRef to prevent double fetch on re-render.
 
 export const useTrending = () => {
   const [movies, setMovies] = useState<YouTubeMovie[]>([])
@@ -30,7 +28,7 @@ export const useTrending = () => {
     fetchedRef.current = true
 
     let cancelled = false
-    fetchTrending(16)
+    fetchTrendingFromDB(16)
       .then(data => {
         if (!cancelled) {
           setMovies(data)
@@ -51,8 +49,6 @@ export const useTrending = () => {
 }
 
 // ── useMovieCategory ──
-// Fetches movies by a specific category.
-// useRef prevents double fetch on re-render.
 
 export const useMovieCategory = (category: string) => {
   const [movies, setMovies] = useState<YouTubeMovie[]>([])
@@ -68,7 +64,7 @@ export const useMovieCategory = (category: string) => {
     setLoading(true)
     setError(null)
 
-    fetchMoviesByCategory(category, 12)
+    fetchMoviesFromDB(category, 12)
       .then(data => {
         if (!cancelled) {
           setMovies(data)
@@ -89,12 +85,6 @@ export const useMovieCategory = (category: string) => {
 }
 
 // ── useMovieSearch ──
-// Two interfaces:
-// 1. New: { query, setQuery, results, loading } — built-in 500ms debounce
-// 2. Legacy: { results, loading, error, search } — manual search callback
-//
-// The hook uses query/setQuery with built-in debounce for the new pattern.
-// The `search` callback is provided for backward compatibility.
 
 export const useMovieSearch = () => {
   const [query, setQuery] = useState('')
@@ -103,7 +93,6 @@ export const useMovieSearch = () => {
   const [error, setError] = useState<string | null>(null)
   const timerRef = useRef<ReturnType<typeof setTimeout>>()
 
-  // Debounced search — 500ms delay prevents API spam
   useEffect(() => {
     if (!query.trim()) {
       setResults([])
@@ -111,15 +100,13 @@ export const useMovieSearch = () => {
       return
     }
 
-    // Clear previous timer
     if (timerRef.current) clearTimeout(timerRef.current)
 
-    // 500ms debounce — real, prevents API spam
     timerRef.current = setTimeout(async () => {
       setLoading(true)
       setError(null)
       try {
-        const data = await searchMovies(query, 20)
+        const data = await searchMoviesFromDB(query, 20)
         setResults(data)
       } catch {
         setError('Search failed')
@@ -134,7 +121,6 @@ export const useMovieSearch = () => {
     }
   }, [query])
 
-  // Legacy search callback for backward compatibility
   const search = useCallback(async (q: string) => {
     if (!q.trim()) {
       setResults([])
@@ -143,7 +129,7 @@ export const useMovieSearch = () => {
     setLoading(true)
     setError(null)
     try {
-      const data = await searchMovies(q, 20)
+      const data = await searchMoviesFromDB(q, 20)
       setResults(data)
     } catch {
       setError('Search failed')
@@ -157,8 +143,6 @@ export const useMovieSearch = () => {
 }
 
 // ── useVideoDetail ──
-// Fetches full video details for a single movie.
-// Uses useRef to prevent double fetch.
 
 export const useVideoDetail = (videoId: string) => {
   const [movie, setMovie] = useState<YouTubeMovie | null>(null)
@@ -174,7 +158,7 @@ export const useVideoDetail = (videoId: string) => {
     setLoading(true)
     setError(null)
 
-    fetchVideoDetail(videoId)
+    fetchDetailFromDB(videoId)
       .then(data => {
         if (!cancelled) {
           if (data) {
@@ -199,8 +183,6 @@ export const useVideoDetail = (videoId: string) => {
 }
 
 // ── useRelatedMovies ──
-// Fetches related movies based on a search query derived from the current movie.
-// Uses useRef to prevent double fetch.
 
 export const useRelatedMovies = (title: string, currentVideoId: string) => {
   const [movies, setMovies] = useState<YouTubeMovie[]>([])
@@ -215,7 +197,7 @@ export const useRelatedMovies = (title: string, currentVideoId: string) => {
     setLoading(true)
 
     const searchQuery = title.split(' ').slice(0, 4).join(' ')
-    fetchRelated(searchQuery, 10)
+    fetchRelatedFromDB(searchQuery, [], '', 10)
       .then(data => {
         if (!cancelled) {
           setMovies(data.filter(m => m.videoId !== currentVideoId))

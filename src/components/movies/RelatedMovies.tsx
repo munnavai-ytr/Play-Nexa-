@@ -2,7 +2,7 @@
 
 import MovieCard from './MovieCard'
 import LoadingShimmer from '@/components/ui/LoadingShimmer'
-import type { YouTubeMovie } from '@/lib/youtube'
+import type { YouTubeMovie } from '@/lib/types'
 
 interface RelatedMoviesProps {
   movies: YouTubeMovie[]

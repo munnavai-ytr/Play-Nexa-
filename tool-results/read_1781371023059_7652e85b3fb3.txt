@@ -1,0 +1,1250 @@
+     1→'use client'
+     2→
+     3→// ── Play Nexa Video Library ──────────────────────────────────
+     4→// Full Video Library screen with tab filter, grid/list views, search, and context menus
+     5→// Design system: bg-[#0D0D0D] / bg-[#1A1A2E] / bg-[#16213E] / #7C3AED / #06B6D4
+     6→// No backdrop-blur · Tailwind only · Max transition 200ms · 44px touch targets
+     7→// content-visibility: auto on scrollable list · pn_video_ localStorage prefix
+     8→
+     9→import { useState, useCallback, useRef, useEffect, useMemo } from 'react'
+    10→import {
+    11→  ArrowLeft,
+    12→  Search,
+    13→  MoreVertical,
+    14→  Play,
+    15→  Grid3X3,
+    16→  List,
+    17→  FolderOpen,
+    18→  Clock,
+    19→  X,
+    20→  Loader2,
+    21→  Film,
+    22→  Trash2,
+    23→  Share2,
+    24→  Info,
+    25→  RotateCcw,
+    26→  RefreshCw,
+    27→} from 'lucide-react'
+    28→import type { VideoFile } from '@/lib/mediaUtils'
+    29→import {
+    30→  formatDuration,
+    31→  formatFileSize,
+    32→  generateVideoThumbnail,
+    33→  debounce,
+    34→  lsGet,
+    35→  lsSet,
+    36→} from '@/lib/mediaUtils'
+    37→import { useMediaLibrary } from '@/hooks/useMediaLibrary'
+    38→import type { VideoViewMode } from '@/hooks/useMediaLibrary'
+    39→
+    40→// ══════════════════════════════════════════════════════════════
+    41→// PROPS
+    42→// ══════════════════════════════════════════════════════════════
+    43→
+    44→interface VideoLibraryProps {
+    45→  onVideoSelect: (video: VideoFile) => void
+    46→  onBack: () => void
+    47→}
+    48→
+    49→// ══════════════════════════════════════════════════════════════
+    50→// TAB DEFINITIONS
+    51→// ══════════════════════════════════════════════════════════════
+    52→
+    53→type TabKey = 'all' | 'folders' | 'recent'
+    54→
+    55→interface TabDef {
+    56→  key: TabKey
+    57→  label: string
+    58→  icon: React.ReactNode
+    59→}
+    60→
+    61→const TABS: TabDef[] = [
+    62→  { key: 'all', label: 'All Videos', icon: <Film size={14} /> },
+    63→  { key: 'folders', label: 'Folders', icon: <FolderOpen size={14} /> },
+    64→  { key: 'recent', label: 'Recently Played', icon: <Clock size={14} /> },
+    65→]
+    66→
+    67→// ══════════════════════════════════════════════════════════════
+    68→// CONTEXT MENU ACTIONS
+    69→// ══════════════════════════════════════════════════════════════
+    70→
+    71→interface ContextAction {
+    72→  id: string
+    73→  label: string
+    74→  icon: React.ReactNode
+    75→  color: string
+    76→}
+    77→
+    78→const CONTEXT_ACTIONS: ContextAction[] = [
+    79→  { id: 'playNext', label: 'Play Next', icon: <Play size={18} />, color: 'text-[#06B6D4]' },
+    80→  { id: 'addToQueue', label: 'Add to Queue', icon: <List size={18} />, color: 'text-[#7C3AED]' },
+    81→  { id: 'rename', label: 'Rename', icon: <RotateCcw size={18} />, color: 'text-[#06B6D4]' },
+    82→  { id: 'share', label: 'Share', icon: <Share2 size={18} />, color: 'text-[#06B6D4]' },
+    83→  { id: 'info', label: 'Info', icon: <Info size={18} />, color: 'text-[#9CA3AF]' },
+    84→  { id: 'delete', label: 'Delete', icon: <Trash2 size={18} />, color: 'text-red-500' },
+    85→]
+    86→
+    87→// ══════════════════════════════════════════════════════════════
+    88→// LOCAL STORAGE KEYS
+    89→// ══════════════════════════════════════════════════════════════
+    90→
+    91→const TAB_STORAGE_KEY = 'pn_video_active_tab'
+    92→
+    93→// ══════════════════════════════════════════════════════════════
+    94→// VIDEO HISTORY ENTRY TYPE (matches useMediaLibrary)
+    95→// ══════════════════════════════════════════════════════════════
+    96→
+    97→interface VideoHistoryEntry {
+    98→  id: string
+    99→  path: string
+   100→  name: string
+   101→  position: number
+   102→  timestamp: number
+   103→}
+   104→
+   105→// ══════════════════════════════════════════════════════════════
+   106→// FOLDER INFO TYPE
+   107→// ══════════════════════════════════════════════════════════════
+   108→
+   109→interface FolderInfo {
+   110→  name: string
+   111→  path: string
+   112→  count: number
+   113→}
+   114→
+   115→// ══════════════════════════════════════════════════════════════
+   116→// COMPONENT
+   117→// ══════════════════════════════════════════════════════════════
+   118→
+   119→export default function VideoLibrary({ onVideoSelect, onBack }: VideoLibraryProps) {
+   120→  // ── Hook state ──
+   121→  const {
+   122→    videos,
+   123→    scanning,
+   124→    videoView,
+   125→    setVideoView,
+   126→    scanVideoFiles,
+   127→    removeVideo,
+   128→    getVideoHistory,
+   129→  } = useMediaLibrary()
+   130→
+   131→  // ── Local state ──
+   132→  const [activeTab, setActiveTab] = useState<TabKey>(() =>
+   133→    lsGet<TabKey>(TAB_STORAGE_KEY, 'all')
+   134→  )
+   135→  const [searchOpen, setSearchOpen] = useState(false)
+   136→  const [searchQuery, setSearchQuery] = useState('')
+   137→  const [debouncedQuery, setDebouncedQuery] = useState('')
+   138→  const [contextVideo, setContextVideo] = useState<VideoFile | null>(null)
+   139→  const [contextSheetOpen, setContextSheetOpen] = useState(false)
+   140→  const [headerMenuOpen, setHeaderMenuOpen] = useState(false)
+   141→  const [videoHistory, setVideoHistory] = useState<VideoHistoryEntry[]>([])
+   142→  const [thumbnailCache, setThumbnailCache] = useState<Record<string, string | null>>({})
+   143→  const [generatingThumbs, setGeneratingThumbs] = useState<Set<string>>(new Set())
+   144→
+   145→  // ── Refs ──
+   146→  const hasLoadedRef = useRef(false)
+   147→  const tabRefs = useRef<Record<TabKey, HTMLButtonElement | null>>({
+   148→    all: null,
+   149→    folders: null,
+   150→    recent: null,
+   151→  })
+   152→  const tabScrollRef = useRef<HTMLDivElement>(null)
+   153→  const searchInputRef = useRef<HTMLInputElement>(null)
+   154→  const observerRef = useRef<IntersectionObserver | null>(null)
+   155→  const observedElementsRef = useRef<Map<string, HTMLDivElement>>(new Map())
+   156→
+   157→  // ── Toast state for library update notifications ──
+   158→  const [toastMsg, setToastMsg] = useState('')
+   159→  const [showToast, setShowToast] = useState(false)
+   160→
+   161→  // ════════════════════════════════════════════════════════════
+   162→  // DEBOUNCED SEARCH
+   163→  // ════════════════════════════════════════════════════════════
+   164→
+   165→  const updateDebouncedQuery = useMemo(
+   166→    () =>
+   167→      debounce((query: string) => {
+   168→        setDebouncedQuery(query)
+   169→      }, 200),
+   170→    []
+   171→  )
+   172→
+   173→  const handleSearchChange = useCallback(
+   174→    (e: React.ChangeEvent<HTMLInputElement>) => {
+   175→      const value = e.target.value
+   176→      setSearchQuery(value)
+   177→      updateDebouncedQuery(value)
+   178→    },
+   179→    [updateDebouncedQuery]
+   180→  )
+   181→
+   182→  // ════════════════════════════════════════════════════════════
+   183→  // SCROLL ACTIVE TAB INTO VIEW
+   184→  // ════════════════════════════════════════════════════════════
+   185→
+   186→  useEffect(() => {
+   187→    const el = tabRefs.current[activeTab]
+   188→    if (el) {
+   189→      el.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' })
+   190→    }
+   191→  }, [activeTab])
+   192→
+   193→  // ════════════════════════════════════════════════════════════
+   194→  // FOCUS SEARCH INPUT ON OPEN
+   195→  // ════════════════════════════════════════════════════════════
+   196→
+   197→  useEffect(() => {
+   198→    if (searchOpen) {
+   199→      setTimeout(() => searchInputRef.current?.focus(), 160)
+   200→    }
+   201→  }, [searchOpen])
+   202→
+   203→  // ════════════════════════════════════════════════════════════
+   204→  // PERSIST ACTIVE TAB
+   205→  // ════════════════════════════════════════════════════════════
+   206→
+   207→  useEffect(() => {
+   208→    lsSet(TAB_STORAGE_KEY, activeTab)
+   209→  }, [activeTab])
+   210→
+   211→  // ════════════════════════════════════════════════════════════
+   212→  // LOAD VIDEO HISTORY WHEN ON RECENT TAB
+   213→  // ════════════════════════════════════════════════════════════
+   214→
+   215→  useEffect(() => {
+   216→    if (activeTab === 'recent') {
+   217→      const history = getVideoHistory()
+   218→      setVideoHistory(history)
+   219→    }
+   220→  }, [activeTab, getVideoHistory])
+   221→
+   222→  // ════════════════════════════════════════════════════════════
+   223→  // LAZY THUMBNAIL GENERATION WITH INTERSECTION OBSERVER
+   224→  // ════════════════════════════════════════════════════════════
+   225→
+   226→  const generateThumbnailForVideo = useCallback(
+   227→    async (video: VideoFile) => {
+   228→      if (thumbnailCache[video.id] || generatingThumbs.has(video.id)) return
+   229→      if (video.thumbnail) {
+   230→        setThumbnailCache((prev) => ({ ...prev, [video.id]: video.thumbnail }))
+   231→        return
+   232→      }
+   233→
+   234→      setGeneratingThumbs((prev) => new Set(prev).add(video.id))
+   235→
+   236→      try {
+   237→        const thumb = await generateVideoThumbnail(video.url)
+   238→        setThumbnailCache((prev) => ({ ...prev, [video.id]: thumb }))
+   239→      } catch {
+   240→        // Thumbnail generation failed — will show fallback icon
+   241→      } finally {
+   242→        setGeneratingThumbs((prev) => {
+   243→          const next = new Set(prev)
+   244→          next.delete(video.id)
+   245→          return next
+   246→        })
+   247→      }
+   248→    },
+   249→    [thumbnailCache, generatingThumbs]
+   250→  )
+   251→
+   252→  // Set up IntersectionObserver for lazy thumbnail generation
+   253→  useEffect(() => {
+   254→    if (observerRef.current) {
+   255→      observerRef.current.disconnect()
+   256→    }
+   257→
+   258→    const observer = new IntersectionObserver(
+   259→      (entries) => {
+   260→        entries.forEach((entry) => {
+   261→          if (entry.isIntersecting) {
+   262→            const videoId = entry.target.getAttribute('data-video-id')
+   263→            if (videoId) {
+   264→              const video = videos.find((v) => v.id === videoId)
+   265→              if (video && !video.thumbnail && !thumbnailCache[videoId]) {
+   266→                generateThumbnailForVideo(video)
+   267→              }
+   268→            }
+   269→            observer.unobserve(entry.target)
+   270→          }
+   271→        })
+   272→      },
+   273→      { rootMargin: '200px', threshold: 0.1 }
+   274→    )
+   275→
+   276→    observerRef.current = observer
+   277→
+   278→    // Observe all registered elements
+   279→    observedElementsRef.current.forEach((el) => {
+   280→      observer.observe(el)
+   281→    })
+   282→
+   283→    return () => {
+   284→      observer.disconnect()
+   285→    }
+   286→  }, [videos, generateThumbnailForVideo, thumbnailCache])
+   287→
+   288→  // Register element for intersection observation
+   289→  const registerThumbnailRef = useCallback(
+   290→    (videoId: string, el: HTMLDivElement | null) => {
+   291→      if (!el) return
+   292→      observedElementsRef.current.set(videoId, el)
+   293→      if (observerRef.current) {
+   294→        observerRef.current.observe(el)
+   295→      }
+   296→    },
+   297→    []
+   298→  )
+   299→
+   300→  // ════════════════════════════════════════════════════════════
+   301→  // COMPUTED: FOLDERS FROM VIDEO LIST
+   302→  // ════════════════════════════════════════════════════════════
+   303→
+   304→  const folders = useMemo<FolderInfo[]>(() => {
+   305→    const folderMap = new Map<string, { count: number; path: string }>()
+   306→    for (const video of videos) {
+   307→      const dirPath = video.path.includes('/')
+   308→        ? video.path.substring(0, video.path.lastIndexOf('/'))
+   309→        : 'Root'
+   310→      const folderName = dirPath.split('/').pop() || dirPath
+   311→      const existing = folderMap.get(folderName)
+   312→      if (existing) {
+   313→        existing.count += 1
+   314→      } else {
+   315→        folderMap.set(folderName, { count: 1, path: dirPath })
+   316→      }
+   317→    }
+   318→    return Array.from(folderMap.entries()).map(([name, info]) => ({
+   319→      name,
+   320→      path: info.path,
+   321→      count: info.count,
+   322→    }))
+   323→  }, [videos])
+   324→
+   325→  // ════════════════════════════════════════════════════════════
+   326→  // FILTERED + SORTED VIDEOS
+   327→  // ════════════════════════════════════════════════════════════
+   328→
+   329→  const displayedVideos = useMemo(() => {
+   330→    let filtered = videos
+   331→
+   332→    // Apply search filter
+   333→    if (debouncedQuery.trim()) {
+   334→      const q = debouncedQuery.toLowerCase().trim()
+   335→      filtered = filtered.filter(
+   336→        (v) =>
+   337→          v.name.toLowerCase().includes(q) ||
+   338→          v.format.toLowerCase().includes(q) ||
+   339→          v.path.toLowerCase().includes(q)
+   340→      )
+   341→    }
+   342→
+   343→    // Apply tab filter
+   344→    switch (activeTab) {
+   345→      case 'recent':
+   346→        // Show videos that have been played (have lastPlayed or match history)
+   347→        if (videoHistory.length > 0) {
+   348→          const historyIds = new Set(videoHistory.map((h) => h.id))
+   349→          filtered = filtered.filter((v) => historyIds.has(v.id))
+   350→          // Sort by most recently played
+   351→          filtered.sort((a, b) => (b.lastPlayed || 0) - (a.lastPlayed || 0))
+   352→        } else {
+   353→          filtered = []
+   354→        }
+   355→        break
+   356→      case 'folders':
+   357→        break
+   358→      case 'all':
+   359→      default:
+   360→        break
+   361→    }
+   362→
+   363→    return filtered
+   364→  }, [videos, debouncedQuery, activeTab, videoHistory])
+   365→
+   366→  // ════════════════════════════════════════════════════════════
+   367→  // HANDLERS
+   368→  // ════════════════════════════════════════════════════════════
+   369→
+   370→  const handleTabChange = useCallback((tab: TabKey) => {
+   371→    setActiveTab(tab)
+   372→  }, [])
+   373→
+   374→  const handleVideoTap = useCallback(
+   375→    (video: VideoFile) => {
+   376→      onVideoSelect(video)
+   377→    },
+   378→    [onVideoSelect]
+   379→  )
+   380→
+   381→  const handleContextMenuOpen = useCallback((video: VideoFile, e: React.MouseEvent) => {
+   382→    e.stopPropagation()
+   383→    setContextVideo(video)
+   384→    setContextSheetOpen(true)
+   385→  }, [])
+   386→
+   387→  const handleContextAction = useCallback(
+   388→    (actionId: string) => {
+   389→      if (!contextVideo) return
+   390→
+   391→      switch (actionId) {
+   392→        case 'playNext': {
+   393→          try {
+   394→            const playNextList = lsGet<VideoFile[]>('pn_video_play_next', [])
+   395→            playNextList.unshift(contextVideo)
+   396→            lsSet('pn_video_play_next', playNextList)
+   397→          } catch {
+   398→            // storage write failed
+   399→          }
+   400→          break
+   401→        }
+   402→        case 'addToQueue': {
+   403→          try {
+   404→            const queue = lsGet<VideoFile[]>('pn_video_queue', [])
+   405→            queue.push(contextVideo)
+   406→            lsSet('pn_video_queue', queue)
+   407→          } catch {
+   408→            // storage write failed
+   409→          }
+   410→          break
+   411→        }
+   412→        case 'rename': {
+   413→          // In a full app, this would open a rename dialog
+   414→          // For now, store the pending rename in localStorage
+   415→          try {
+   416→            lsSet('pn_video_rename_pending', {
+   417→              id: contextVideo.id,
+   418→              currentName: contextVideo.name,
+   419→            })
+   420→          } catch {
+   421→            // storage write failed
+   422→          }
+   423→          break
+   424→        }
+   425→        case 'share':
+   426→          if (typeof navigator !== 'undefined' && navigator.share) {
+   427→            navigator
+   428→              .share({
+   429→                title: contextVideo.name,
+   430→                text: contextVideo.name,
+   431→              })
+   432→              .catch(() => {
+   433→                // Share cancelled or failed
+   434→              })
+   435→          }
+   436→          break
+   437→        case 'info': {
+   438→          try {
+   439→            lsSet('pn_video_info', {
+   440→              id: contextVideo.id,
+   441→              name: contextVideo.name,
+   442→              format: contextVideo.format,
+   443→              size: contextVideo.size,
+   444→              duration: contextVideo.duration,
+   445→              width: contextVideo.width,
+   446→              height: contextVideo.height,
+   447→              path: contextVideo.path,
+   448→            })
+   449→          } catch {
+   450→            // storage write failed
+   451→          }
+   452→          break
+   453→        }
+   454→        case 'delete':
+   455→          removeVideo(contextVideo.id)
+   456→          break
+   457→      }
+   458→
+   459→      setContextSheetOpen(false)
+   460→      setContextVideo(null)
+   461→    },
+   462→    [contextVideo, removeVideo]
+   463→  )
+   464→
+   465→  // ── Initial load with hasLoadedRef guard ──
+   466→  useEffect(() => {
+   467→    if (hasLoadedRef.current) return
+   468→    hasLoadedRef.current = true
+   469→
+   470→    const loadVideos = async () => {
+   471→      await scanVideoFiles(false) // use cache
+   472→    }
+   473→    loadVideos()
+   474→  }, [scanVideoFiles])
+   475→
+   476→  // ── Listen for pn-library-updated custom event ──
+   477→  useEffect(() => {
+   478→    const handler = (e: Event) => {
+   479→      const detail = (e as CustomEvent).detail
+   480→      if (detail?.type === 'video') {
+   481→        setToastMsg(
+   482→          detail.added > 0
+   483→            ? `+${detail.added} new video${detail.added !== 1 ? 's' : ''} found`
+   484→            : 'Library updated'
+   485→        )
+   486→        setShowToast(true)
+   487→        setTimeout(() => setShowToast(false), 3000)
+   488→      }
+   489→    }
+   490→    window.addEventListener('pn-library-updated', handler as EventListener)
+   491→    return () => window.removeEventListener('pn-library-updated', handler as EventListener)
+   492→  }, [])
+   493→
+   494→  const handleScan = useCallback(async () => {
+   495→    await scanVideoFiles(true) // forceRefresh = true
+   496→  }, [scanVideoFiles])
+   497→
+   498→  const handleSearchToggle = useCallback(() => {
+   499→    setSearchOpen((prev) => !prev)
+   500→    if (searchOpen) {
+   501→      setSearchQuery('')
+   502→      setDebouncedQuery('')
+   503→    }
+   504→  }, [searchOpen])
+   505→
+   506→  const handleHeaderMenuToggle = useCallback(() => {
+   507→    setHeaderMenuOpen((prev) => !prev)
+   508→  }, [])
+   509→
+   510→  const handleViewToggle = useCallback(() => {
+   511→    setVideoView(videoView === 'grid' ? 'list' : 'grid')
+   512→  }, [videoView, setVideoView])
+   513→
+   514→  const closeContextSheet = useCallback(() => {
+   515→    setContextSheetOpen(false)
+   516→    setContextVideo(null)
+   517→  }, [])
+   518→
+   519→  const clearSearch = useCallback(() => {
+   520→    setSearchQuery('')
+   521→    setDebouncedQuery('')
+   522→  }, [])
+   523→
+   524→  const handleResumeVideo = useCallback(
+   525→    (historyEntry: VideoHistoryEntry) => {
+   526→      const video = videos.find((v) => v.id === historyEntry.id)
+   527→      if (video) {
+   528→        onVideoSelect({ ...video, progress: historyEntry.position })
+   529→      }
+   530→    },
+   531→    [videos, onVideoSelect]
+   532→  )
+   533→
+   534→  // ════════════════════════════════════════════════════════════
+   535→  // RENDER: THUMBNAIL COMPONENT
+   536→  // ════════════════════════════════════════════════════════════
+   537→
+   538→  const renderThumbnail = useCallback(
+   539→    (video: VideoFile, size: 'grid' | 'list') => {
+   540→      const thumb = video.thumbnail || thumbnailCache[video.id] || null
+   541→      const isGenerating = generatingThumbs.has(video.id)
+   542→
+   543→      if (thumb) {
+   544→        return (
+   545→          <img
+   546→            src={thumb}
+   547→            alt={video.name}
+   548→            className="w-full h-full object-cover"
+   549→            loading="lazy"
+   550→          />
+   551→        )
+   552→      }
+   553→
+   554→      if (isGenerating) {
+   555→        return (
+   556→          <div className="w-full h-full bg-[#1A1A2E] flex items-center justify-center">
+   557→            <Loader2 size={size === 'grid' ? 20 : 14} className="text-[#7C3AED] animate-spin" />
+   558→          </div>
+   559→        )
+   560→      }
+   561→
+   562→      return (
+   563→        <div className="w-full h-full bg-gradient-to-br from-[#7C3AED]/40 to-[#16213E] flex items-center justify-center">
+   564→          <Film size={size === 'grid' ? 28 : 18} className="text-white/50" />
+   565→        </div>
+   566→      )
+   567→    },
+   568→    [thumbnailCache, generatingThumbs]
+   569→  )
+   570→
+   571→  // ════════════════════════════════════════════════════════════
+   572→  // RENDER: GRID VIEW
+   573→  // ════════════════════════════════════════════════════════════
+   574→
+   575→  const renderGridView = useCallback(() => {
+   576→    return (
+   577→      <div className="grid grid-cols-2 gap-3 p-3">
+   578→        {displayedVideos.map((video) => (
+   579→          <div
+   580→            key={video.id}
+   581→            data-video-id={video.id}
+   582→            ref={(el) => registerThumbnailRef(video.id, el)}
+   583→            className="rounded-xl overflow-hidden bg-[#1A1A2E] border border-[#2D2D44] active:scale-[0.97] transition-transform duration-150 cursor-pointer"
+   584→            style={{
+   585→              contentVisibility: 'auto',
+   586→              containIntrinsicSize: '0 220px',
+   587→            }}
+   588→            onClick={() => handleVideoTap(video)}
+   589→            role="button"
+   590→            tabIndex={0}
+   591→            aria-label={`Play ${video.name}`}
+   592→            onKeyDown={(e) => {
+   593→              if (e.key === 'Enter' || e.key === ' ') {
+   594→                e.preventDefault()
+   595→                handleVideoTap(video)
+   596→              }
+   597→            }}
+   598→          >
+   599→            {/* Thumbnail area — 16:9 ratio */}
+   600→            <div className="relative w-full aspect-video bg-[#0D0D0D] overflow-hidden rounded-t-xl">
+   601→              {renderThumbnail(video, 'grid')}
+   602→
+   603→              {/* Play icon overlay */}
+   604→              <div className="absolute inset-0 flex items-center justify-center">
+   605→                <div className="w-10 h-10 rounded-full bg-black/50 flex items-center justify-center">
+   606→                  <Play size={18} className="text-white ml-0.5" fill="white" />
+   607→                </div>
+   608→              </div>
+   609→
+   610→              {/* Duration badge — bottom-right */}
+   611→              {video.duration > 0 && (
+   612→                <span className="absolute bottom-1.5 right-1.5 bg-black/70 text-white text-xs px-1.5 py-0.5 rounded leading-none">
+   613→                  {formatDuration(video.duration)}
+   614→                </span>
+   615→              )}
+   616→
+   617→              {/* Format badge — top-left */}
+   618→              <span className="absolute top-1.5 left-1.5 bg-[#7C3AED]/80 text-white text-[9px] font-semibold px-1.5 py-0.5 rounded uppercase leading-none">
+   619→                {video.format}
+   620→              </span>
+   621→            </div>
+   622→
+   623→            {/* Info below thumbnail */}
+   624→            <div className="p-2.5">
+   625→              <p className="text-white font-medium text-[13px] truncate leading-tight">
+   626→                {video.name}
+   627→              </p>
+   628→              <div className="flex items-center gap-2 mt-1">
+   629→                <span className="text-[#9CA3AF] text-xs">
+   630→                  {formatFileSize(video.size)}
+   631→                </span>
+   632→                {video.width > 0 && video.height > 0 && (
+   633→                  <>
+   634→                    <span className="text-[#2D2D44] text-xs">·</span>
+   635→                    <span className="text-[#9CA3AF] text-xs">
+   636→                      {video.width}×{video.height}
+   637→                    </span>
+   638→                  </>
+   639→                )}
+   640→              </div>
+   641→            </div>
+   642→          </div>
+   643→        ))}
+   644→      </div>
+   645→    )
+   646→  }, [displayedVideos, registerThumbnailRef, renderThumbnail, handleVideoTap])
+   647→
+   648→  // ════════════════════════════════════════════════════════════
+   649→  // RENDER: LIST VIEW
+   650→  // ════════════════════════════════════════════════════════════
+   651→
+   652→  const renderListView = useCallback(() => {
+   653→    return (
+   654→      <div className="px-3 space-y-1">
+   655→        {displayedVideos.map((video) => (
+   656→          <div
+   657→            key={video.id}
+   658→            data-video-id={video.id}
+   659→            ref={(el) => registerThumbnailRef(video.id, el)}
+   660→            className="flex items-center gap-3 px-2 rounded-xl active:bg-[#1A1A2E] transition-colors duration-150 cursor-pointer"
+   661→            style={{
+   662→              contentVisibility: 'auto',
+   663→              containIntrinsicSize: '0 72px',
+   664→              minHeight: '72px',
+   665→            }}
+   666→            onClick={() => handleVideoTap(video)}
+   667→            role="button"
+   668→            tabIndex={0}
+   669→            aria-label={`Play ${video.name}`}
+   670→            onKeyDown={(e) => {
+   671→              if (e.key === 'Enter' || e.key === ' ') {
+   672→                e.preventDefault()
+   673→                handleVideoTap(video)
+   674→              }
+   675→            }}
+   676→          >
+   677→            {/* LEFT: Thumbnail 96×54 */}
+   678→            <div className="w-24 h-[54px] rounded-lg flex-shrink-0 overflow-hidden bg-[#0D0D0D]">
+   679→              {renderThumbnail(video, 'list')}
+   680→            </div>
+   681→
+   682→            {/* CENTER: Info */}
+   683→            <div className="flex-1 min-w-0">
+   684→              <p className="text-white font-medium text-sm truncate leading-tight">
+   685→                {video.name}
+   686→              </p>
+   687→              <div className="flex items-center gap-2 mt-1">
+   688→                <span className="text-[#7C3AED] text-[10px] font-semibold uppercase">
+   689→                  {video.format}
+   690→                </span>
+   691→                <span className="text-[#2D2D44] text-[10px]">·</span>
+   692→                <span className="text-[#9CA3AF] text-xs">
+   693→                  {formatFileSize(video.size)}
+   694→                </span>
+   695→                {video.duration > 0 && (
+   696→                  <>
+   697→                    <span className="text-[#2D2D44] text-[10px]">·</span>
+   698→                    <span className="text-[#9CA3AF] text-xs">
+   699→                      {formatDuration(video.duration)}
+   700→                    </span>
+   701→                  </>
+   702→                )}
+   703→              </div>
+   704→            </div>
+   705→
+   706→            {/* RIGHT: 3-dot menu button 44×44 */}
+   707→            <button
+   708→              onClick={(e) => handleContextMenuOpen(video, e)}
+   709→              className="flex items-center justify-center w-11 h-11 rounded-lg active:scale-90 transition-transform duration-150 flex-shrink-0"
+   710→              aria-label={`More options for ${video.name}`}
+   711→            >
+   712→              <MoreVertical size={16} className="text-[#9CA3AF]" />
+   713→            </button>
+   714→          </div>
+   715→        ))}
+   716→      </div>
+   717→    )
+   718→  }, [
+   719→    displayedVideos,
+   720→    registerThumbnailRef,
+   721→    renderThumbnail,
+   722→    handleVideoTap,
+   723→    handleContextMenuOpen,
+   724→  ])
+   725→
+   726→  // ════════════════════════════════════════════════════════════
+   727→  // RENDER: FOLDERS TAB
+   728→  // ════════════════════════════════════════════════════════════
+   729→
+   730→  const renderFoldersTab = useCallback(() => {
+   731→    return (
+   732→      <div className="px-4 py-3">
+   733→        {folders.length === 0 ? (
+   734→          <div className="flex flex-col items-center justify-center py-20">
+   735→            <div className="w-16 h-16 rounded-2xl bg-[#1A1A2E] border border-[#2D2D44] flex items-center justify-center mb-4">
+   736→              <FolderOpen size={28} className="text-[#9CA3AF]" />
+   737→            </div>
+   738→            <p className="text-white font-semibold text-base mb-1">Folders</p>
+   739→            <p className="text-[#9CA3AF] text-sm text-center px-8 mb-2">
+   740→              Available on APK
+   741→            </p>
+   742→            <p className="text-[#9CA3AF]/60 text-xs text-center px-10">
+   743→              Folder browsing is available in the Android app. On web, all videos appear in the All Videos tab.
+   744→            </p>
+   745→          </div>
+   746→        ) : (
+   747→          <div className="space-y-1">
+   748→            {folders.map((folder) => (
+   749→              <div
+   750→                key={folder.path}
+   751→                className="flex items-center gap-3 px-3 py-3 rounded-xl active:bg-[#1A1A2E] transition-colors duration-150"
+   752→                style={{
+   753→                  contentVisibility: 'auto',
+   754→                  containIntrinsicSize: '0 56px',
+   755→                }}
+   756→              >
+   757→                <div className="w-11 h-11 rounded-xl bg-[#1A1A2E] border border-[#2D2D44] flex items-center justify-center flex-shrink-0">
+   758→                  <FolderOpen size={20} className="text-[#7C3AED]" />
+   759→                </div>
+   760→                <div className="flex-1 min-w-0">
+   761→                  <p className="text-white font-medium text-sm truncate">
+   762→                    {folder.name}
+   763→                  </p>
+   764→                  <p className="text-[#9CA3AF] text-xs mt-0.5">
+   765→                    {folder.count} video{folder.count !== 1 ? 's' : ''}
+   766→                  </p>
+   767→                </div>
+   768→              </div>
+   769→            ))}
+   770→          </div>
+   771→        )}
+   772→      </div>
+   773→    )
+   774→  }, [folders])
+   775→
+   776→  // ════════════════════════════════════════════════════════════
+   777→  // RENDER: RECENTLY PLAYED TAB
+   778→  // ════════════════════════════════════════════════════════════
+   779→
+   780→  const renderRecentTab = useCallback(() => {
+   781→    if (videoHistory.length === 0) {
+   782→      return (
+   783→        <div className="flex flex-col items-center justify-center py-20">
+   784→          <div className="w-16 h-16 rounded-2xl bg-[#1A1A2E] border border-[#2D2D44] flex items-center justify-center mb-4">
+   785→            <Clock size={28} className="text-[#9CA3AF]" />
+   786→          </div>
+   787→          <p className="text-white font-semibold text-base mb-1">No Recent Plays</p>
+   788→          <p className="text-[#9CA3AF] text-sm text-center px-8">
+   789→            Videos you watch will appear here
+   790→          </p>
+   791→        </div>
+   792→      )
+   793→    }
+   794→
+   795→    return (
+   796→      <div className="px-3 space-y-1">
+   797→        {videoHistory.map((entry) => {
+   798→          const video = videos.find((v) => v.id === entry.id)
+   799→          const thumb = video?.thumbnail || thumbnailCache[entry.id] || null
+   800→
+   801→          return (
+   802→            <div
+   803→              key={entry.id}
+   804→              className="flex items-center gap-3 px-2 py-2 rounded-xl active:bg-[#1A1A2E] transition-colors duration-150"
+   805→              style={{
+   806→                contentVisibility: 'auto',
+   807→                containIntrinsicSize: '0 72px',
+   808→                minHeight: '72px',
+   809→              }}
+   810→            >
+   811→              {/* Thumbnail */}
+   812→              <div className="w-24 h-[54px] rounded-lg flex-shrink-0 overflow-hidden bg-[#0D0D0D]">
+   813→                {thumb ? (
+   814→                  <img
+   815→                    src={thumb}
+   816→                    alt={entry.name}
+   817→                    className="w-full h-full object-cover"
+   818→                    loading="lazy"
+   819→                  />
+   820→                ) : (
+   821→                  <div className="w-full h-full bg-gradient-to-br from-[#7C3AED]/40 to-[#16213E] flex items-center justify-center">
+   822→                    <Film size={18} className="text-white/50" />
+   823→                  </div>
+   824→                )}
+   825→              </div>
+   826→
+   827→              {/* Info */}
+   828→              <div className="flex-1 min-w-0">
+   829→                <p className="text-white font-medium text-sm truncate leading-tight">
+   830→                  {entry.name}
+   831→                </p>
+   832→                <div className="flex items-center gap-2 mt-1">
+   833→                  <span className="text-[#06B6D4] text-xs font-medium">
+   834→                    Stopped at {formatDuration(entry.position)}
+   835→                  </span>
+   836→                </div>
+   837→              </div>
+   838→
+   839→              {/* Resume button */}
+   840→              <button
+   841→                onClick={() => handleResumeVideo(entry)}
+   842→                className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-[#7C3AED] text-white text-xs font-semibold active:scale-95 transition-transform duration-150 flex-shrink-0"
+   843→                aria-label={`Resume ${entry.name}`}
+   844→              >
+   845→                <RotateCcw size={12} />
+   846→                Resume
+   847→              </button>
+   848→            </div>
+   849→          )
+   850→        })}
+   851→      </div>
+   852→    )
+   853→  }, [videoHistory, videos, thumbnailCache, handleResumeVideo])
+   854→
+   855→  // ════════════════════════════════════════════════════════════
+   856→  // RENDER: MAIN CONTENT
+   857→  // ════════════════════════════════════════════════════════════
+   858→
+   859→  const renderContent = useCallback(() => {
+   860→    // Empty state — no videos at all
+   861→    if (videos.length === 0 && !scanning) {
+   862→      return (
+   863→        <div className="flex flex-col items-center justify-center py-20">
+   864→          <div className="w-20 h-20 rounded-2xl bg-[#1A1A2E] border border-[#2D2D44] flex items-center justify-center mb-5">
+   865→            <Film size={36} className="text-[#7C3AED]" />
+   866→          </div>
+   867→          <p className="text-white font-bold text-lg mb-1">No Videos Found</p>
+   868→          <p className="text-[#9CA3AF] text-sm text-center px-8 mb-6">
+   869→            Scan your device for video files to get started
+   870→          </p>
+   871→          <button
+   872→            onClick={handleScan}
+   873→            className="flex items-center gap-2 px-8 py-3 rounded-xl bg-[#7C3AED] text-white text-sm font-semibold active:scale-95 transition-transform duration-150"
+   874→          >
+   875→            <Film size={16} />
+   876→            Scan for Videos
+   877→          </button>
+   878→        </div>
+   879→      )
+   880→    }
+   881→
+   882→    // Scanning spinner state
+   883→    if (scanning) {
+   884→      return (
+   885→        <div className="flex flex-col items-center justify-center py-20">
+   886→          <Loader2 size={40} className="text-[#7C3AED] animate-spin mb-4" />
+   887→          <p className="text-white font-semibold text-base mb-1">Scanning...</p>
+   888→          <p className="text-[#9CA3AF] text-sm">Looking for video files on your device</p>
+   889→        </div>
+   890→      )
+   891→    }
+   892→
+   893→    // Tab-specific rendering
+   894→    if (activeTab === 'folders') {
+   895→      return renderFoldersTab()
+   896→    }
+   897→
+   898→    if (activeTab === 'recent') {
+   899→      return renderRecentTab()
+   900→    }
+   901→
+   902→    // Search / filter empty state
+   903→    if (displayedVideos.length === 0) {
+   904→      return (
+   905→        <div className="flex flex-col items-center justify-center py-20">
+   906→          <div className="w-16 h-16 rounded-2xl bg-[#1A1A2E] border border-[#2D2D44] flex items-center justify-center mb-4">
+   907→            <Search size={28} className="text-[#9CA3AF]" />
+   908→          </div>
+   909→          <p className="text-white font-semibold text-base mb-1">No Results</p>
+   910→          <p className="text-[#9CA3AF] text-sm text-center px-8">
+   911→            {debouncedQuery
+   912→              ? `No videos matching "${debouncedQuery}"`
+   913→              : 'No videos in this category'}
+   914→          </p>
+   915→        </div>
+   916→      )
+   917→    }
+   918→
+   919→    // Grid or List view
+   920→    return videoView === 'grid' ? renderGridView() : renderListView()
+   921→  }, [
+   922→    videos,
+   923→    scanning,
+   924→    activeTab,
+   925→    displayedVideos,
+   926→    debouncedQuery,
+   927→    videoView,
+   928→    handleScan,
+   929→    renderGridView,
+   930→    renderListView,
+   931→    renderFoldersTab,
+   932→    renderRecentTab,
+   933→  ])
+   934→
+   935→  // ════════════════════════════════════════════════════════════
+   936→  // RENDER
+   937→  // ════════════════════════════════════════════════════════════
+   938→
+   939→  return (
+   940→    <div className="flex flex-col min-h-screen bg-[#0D0D0D]">
+   941→      {/* ════════════════════════════════════════════════════════
+   942→          1. HEADER
+   943→          ════════════════════════════════════════════════════════ */}
+   944→      <header className="sticky top-0 z-40 bg-[#0D0D0D] border-b border-[#2D2D44]">
+   945→        <div className="flex items-center justify-between h-14 px-4">
+   946→          {/* Back */}
+   947→          <button
+   948→            onClick={onBack}
+   949→            className="flex items-center justify-center w-11 h-11 rounded-xl active:scale-90 transition-transform duration-150"
+   950→            aria-label="Go back"
+   951→          >
+   952→            <ArrowLeft size={22} className="text-white" />
+   953→          </button>
+   954→
+   955→          {/* Title */}
+   956→          <h1 className="text-white font-bold text-lg absolute left-1/2 -translate-x-1/2">
+   957→            Video Player
+   958→          </h1>
+   959→
+   960→          {/* Right actions */}
+   961→          <div className="flex items-center gap-1">
+   962→            <button
+   963→              onClick={handleScan}
+   964→              className="flex items-center justify-center min-h-[44px] min-w-[44px] rounded-xl active:scale-90 transition-transform duration-150 cursor-pointer"
+   965→              aria-label="Refresh library"
+   966→              title="Refresh library"
+   967→            >
+   968→              <RefreshCw size={20} className={`text-[#9CA3AF] ${scanning ? 'animate-spin' : ''}`} />
+   969→            </button>
+   970→            <button
+   971→              onClick={handleSearchToggle}
+   972→              className="flex items-center justify-center min-h-[44px] min-w-[44px] rounded-xl active:scale-90 transition-transform duration-150 cursor-pointer"
+   973→              aria-label={searchOpen ? 'Close search' : 'Open search'}
+   974→            >
+   975→              {searchOpen ? (
+   976→                <X size={20} className="text-white" />
+   977→              ) : (
+   978→                <Search size={20} className="text-white" />
+   979→              )}
+   980→            </button>
+   981→            <button
+   982→              onClick={handleHeaderMenuToggle}
+   983→              className="flex items-center justify-center min-h-[44px] min-w-[44px] rounded-xl active:scale-90 transition-transform duration-150 cursor-pointer"
+   984→              aria-label="More options"
+   985→            >
+   986→              <MoreVertical size={20} className="text-white" />
+   987→            </button>
+   988→          </div>
+   989→        </div>
+   990→
+   991→        {/* ════════════════════════════════════════════════════════
+   992→            9. SEARCH OVERLAY — slides down (150ms)
+   993→            ════════════════════════════════════════════════════════ */}
+   994→        <div
+   995→          className={`overflow-hidden transition-all duration-150 ease-out ${
+   996→            searchOpen ? 'max-h-16 opacity-100' : 'max-h-0 opacity-0'
+   997→          }`}
+   998→        >
+   999→          <div className="px-4 pb-3">
+  1000→            <div className="flex items-center gap-2 bg-[#1A1A2E] rounded-xl px-3 h-11 border border-[#2D2D44]">
+  1001→              <Search size={16} className="text-[#9CA3AF] flex-shrink-0" />
+  1002→              <input
+  1003→                ref={searchInputRef}
+  1004→                type="text"
+  1005→                value={searchQuery}
+  1006→                onChange={handleSearchChange}
+  1007→                placeholder="Search videos..."
+  1008→                className="flex-1 bg-transparent text-white text-sm outline-none placeholder:text-[#9CA3AF]"
+  1009→              />
+  1010→              {searchQuery && (
+  1011→                <button
+  1012→                  onClick={clearSearch}
+  1013→                  className="flex items-center justify-center w-8 h-8 rounded-lg active:scale-90 transition-transform duration-150"
+  1014→                  aria-label="Clear search"
+  1015→                >
+  1016→                  <X size={14} className="text-[#9CA3AF]" />
+  1017→                </button>
+  1018→              )}
+  1019→            </div>
+  1020→          </div>
+  1021→        </div>
+  1022→      </header>
+  1023→
+  1024→      {/* ════════════════════════════════════════════════════════
+  1025→          HEADER DROPDOWN MENU (3-dot)
+  1026→          ════════════════════════════════════════════════════════ */}
+  1027→      {headerMenuOpen && (
+  1028→        <div
+  1029→          className="fixed inset-0 z-50"
+  1030→          onClick={() => setHeaderMenuOpen(false)}
+  1031→        >
+  1032→          <div
+  1033→            className="absolute top-14 right-4 w-48 bg-[#1A1A2E] border border-[#2D2D44] rounded-xl overflow-hidden shadow-lg shadow-black/60 animate-[fade-in_100ms_ease-out]"
+  1034→            onClick={(e) => e.stopPropagation()}
+  1035→          >
+  1036→            <button
+  1037→              onClick={() => {
+  1038→                handleScan()
+  1039→                setHeaderMenuOpen(false)
+  1040→              }}
+  1041→              className="flex items-center gap-3 w-full px-4 py-3 text-white text-sm active:bg-[#16213E] transition-colors duration-150"
+  1042→            >
+  1043→              <Film size={16} className="text-[#7C3AED]" />
+  1044→              Scan for Videos
+  1045→            </button>
+  1046→            <button
+  1047→              onClick={() => {
+  1048→                setVideoView(videoView === 'grid' ? 'list' : 'grid')
+  1049→                setHeaderMenuOpen(false)
+  1050→              }}
+  1051→              className="flex items-center gap-3 w-full px-4 py-3 text-white text-sm active:bg-[#16213E] transition-colors duration-150"
+  1052→            >
+  1053→              {videoView === 'grid' ? (
+  1054→                <List size={16} className="text-[#06B6D4]" />
+  1055→              ) : (
+  1056→                <Grid3X3 size={16} className="text-[#06B6D4]" />
+  1057→              )}
+  1058→              {videoView === 'grid' ? 'List View' : 'Grid View'}
+  1059→            </button>
+  1060→            <button
+  1061→              onClick={() => {
+  1062→                setHeaderMenuOpen(false)
+  1063→              }}
+  1064→              className="flex items-center gap-3 w-full px-4 py-3 text-white text-sm active:bg-[#16213E] transition-colors duration-150"
+  1065→            >
+  1066→              <Play size={16} className="text-[#7C3AED]" />
+  1067→              Play All
+  1068→            </button>
+  1069→          </div>
+  1070→        </div>
+  1071→      )}
+  1072→
+  1073→      {/* ════════════════════════════════════════════════════════
+  1074→          2. TAB FILTER ROW (horizontal scroll, hide scrollbar)
+  1075→          ════════════════════════════════════════════════════════ */}
+  1076→      <div className="sticky top-14 z-30 bg-[#0D0D0D]">
+  1077→        <div className="flex items-center justify-between">
+  1078→          <div
+  1079→            ref={tabScrollRef}
+  1080→            className="flex gap-2 px-4 py-3 overflow-x-auto scrollbar-hide flex-1"
+  1081→          >
+  1082→            {TABS.map((tab) => {
+  1083→              const isActive = activeTab === tab.key
+  1084→              return (
+  1085→                <button
+  1086→                  key={tab.key}
+  1087→                  ref={(el) => {
+  1088→                    tabRefs.current[tab.key] = el
+  1089→                  }}
+  1090→                  onClick={() => handleTabChange(tab.key)}
+  1091→                  className={`flex items-center gap-1.5 px-4 py-1.5 rounded-full text-sm font-medium whitespace-nowrap transition-colors duration-150 active:scale-95 ${
+  1092→                    isActive
+  1093→                      ? 'bg-[#7C3AED] text-white'
+  1094→                      : 'border border-[#2D2D44] text-[#9CA3AF]'
+  1095→                  }`}
+  1096→                  aria-pressed={isActive}
+  1097→                >
+  1098→                  {tab.icon}
+  1099→                  {tab.label}
+  1100→                </button>
+  1101→              )
+  1102→            })}
+  1103→          </div>
+  1104→
+  1105→          {/* ════════════════════════════════════════════════════════
+  1106→              3. VIEW TOGGLE — Grid / List (top-right of tab row)
+  1107→              ════════════════════════════════════════════════════════ */}
+  1108→          {activeTab === 'all' && (
+  1109→            <button
+  1110→              onClick={handleViewToggle}
+  1111→              className="flex items-center justify-center w-11 h-11 rounded-xl mr-3 active:scale-90 transition-transform duration-150"
+  1112→              aria-label={videoView === 'grid' ? 'Switch to list view' : 'Switch to grid view'}
+  1113→            >
+  1114→              {videoView === 'grid' ? (
+  1115→                <List size={18} className="text-[#9CA3AF]" />
+  1116→              ) : (
+  1117→                <Grid3X3 size={18} className="text-[#9CA3AF]" />
+  1118→              )}
+  1119→            </button>
+  1120→          )}
+  1121→        </div>
+  1122→
+  1123→        {/* Video count */}
+  1124→        {activeTab === 'all' && displayedVideos.length > 0 && (
+  1125→          <div className="flex items-center px-4 pb-2">
+  1126→            <span className="text-[#9CA3AF] text-xs">
+  1127→              {displayedVideos.length} video{displayedVideos.length !== 1 ? 's' : ''}
+  1128→            </span>
+  1129→          </div>
+  1130→        )}
+  1131→      </div>
+  1132→
+  1133→      {/* ════════════════════════════════════════════════════════
+  1134→          4-8. MAIN CONTENT
+  1135→          ════════════════════════════════════════════════════════ */}
+  1136→      <main className="flex-1 pb-4">
+  1137→        <div className="max-h-[calc(100vh-180px)] overflow-y-auto">
+  1138→          {renderContent()}
+  1139→        </div>
+  1140→      </main>
+  1141→
+  1142→      {/* ════════════════════════════════════════════════════════
+  1143→          TOAST NOTIFICATION — library updated
+  1144→          ════════════════════════════════════════════════════════ */}
+  1145→      {showToast && toastMsg && (
+  1146→        <div className="fixed bottom-20 left-1/2 -translate-x-1/2 z-[60] px-4 py-2.5 bg-[#1A1A2E] border border-[#7C3AED] rounded-xl shadow-lg shadow-black/60 text-white text-sm font-medium animate-slide-up">
+  1147→          {toastMsg}
+  1148→        </div>
+  1149→      )}
+  1150→
+  1151→      {/* ════════════════════════════════════════════════════════
+  1152→          6. VIDEO CONTEXT MENU BOTTOM SHEET
+  1153→          ════════════════════════════════════════════════════════ */}
+  1154→      {contextSheetOpen && contextVideo && (
+  1155→        <div
+  1156→          className="fixed inset-0 z-50 flex items-end justify-center"
+  1157→          onClick={closeContextSheet}
+  1158→        >
+  1159→          {/* Backdrop */}
+  1160→          <div className="absolute inset-0 bg-black/60" />
+  1161→
+  1162→          {/* Slide-up panel */}
+  1163→          <div
+  1164→            className="relative w-full max-w-lg bg-[#1A1A2E] border-t border-[#2D2D44] rounded-t-2xl animate-[fade-in_150ms_ease-out]"
+  1165→            onClick={(e) => e.stopPropagation()}
+  1166→          >
+  1167→            {/* Handle */}
+  1168→            <div className="flex justify-center pt-3 pb-2">
+  1169→              <div className="w-10 h-1 rounded-full bg-[#2D2D44]" />
+  1170→            </div>
+  1171→
+  1172→            {/* Video preview in sheet header */}
+  1173→            <div className="flex items-center gap-3 px-5 pb-4 border-b border-[#2D2D44]">
+  1174→              <div className="w-16 h-9 rounded-lg flex-shrink-0 overflow-hidden bg-[#0D0D0D]">
+  1175→                {(() => {
+  1176→                  const thumb =
+  1177→                    contextVideo.thumbnail || thumbnailCache[contextVideo.id]
+  1178→                  if (thumb) {
+  1179→                    return (
+  1180→                      <img
+  1181→                        src={thumb}
+  1182→                        alt={contextVideo.name}
+  1183→                        className="w-full h-full object-cover"
+  1184→                      />
+  1185→                    )
+  1186→                  }
+  1187→                  return (
+  1188→                    <div className="w-full h-full bg-gradient-to-br from-[#7C3AED]/40 to-[#16213E] flex items-center justify-center">
+  1189→                      <Film size={14} className="text-white/50" />
+  1190→                    </div>
+  1191→                  )
+  1192→                })()}
+  1193→              </div>
+  1194→              <div className="flex-1 min-w-0">
+  1195→                <p className="text-white font-medium text-sm truncate">
+  1196→                  {contextVideo.name}
+  1197→                </p>
+  1198→                <div className="flex items-center gap-2 mt-0.5">
+  1199→                  <span className="text-[#7C3AED] text-[10px] font-semibold uppercase">
+  1200→                    {contextVideo.format}
+  1201→                  </span>
+  1202→                  <span className="text-[#9CA3AF] text-xs">
+  1203→                    {formatFileSize(contextVideo.size)}
+  1204→                  </span>
+  1205→                  {contextVideo.duration > 0 && (
+  1206→                    <>
+  1207→                      <span className="text-[#2D2D44] text-xs">·</span>
+  1208→                      <span className="text-[#9CA3AF] text-xs">
+  1209→                        {formatDuration(contextVideo.duration)}
+  1210→                      </span>
+  1211→                    </>
+  1212→                  )}
+  1213→                </div>
+  1214→              </div>
+  1215→            </div>
+  1216→
+  1217→            {/* Actions: Play / Play Next / Add to Queue / Rename / Share / Info / Delete */}
+  1218→            <div className="pb-6 max-h-96 overflow-y-auto">
+  1219→              {/* Play action at top */}
+  1220→              <button
+  1221→                onClick={() => {
+  1222→                  handleVideoTap(contextVideo)
+  1223→                  closeContextSheet()
+  1224→                }}
+  1225→                className="flex items-center gap-4 w-full px-5 py-3.5 text-sm font-medium active:bg-[#16213E] transition-colors duration-150"
+  1226→              >
+  1227→                <span className="text-[#7C3AED]">
+  1228→                  <Play size={18} />
+  1229→                </span>
+  1230→                <span className="text-white">Play</span>
+  1231→              </button>
+  1232→
+  1233→              {CONTEXT_ACTIONS.map((action) => (
+  1234→                <button
+  1235→                  key={action.id}
+  1236→                  onClick={() => handleContextAction(action.id)}
+  1237→                  className="flex items-center gap-4 w-full px-5 py-3.5 text-sm font-medium active:bg-[#16213E] transition-colors duration-150"
+  1238→                >
+  1239→                  <span className={action.color}>{action.icon}</span>
+  1240→                  <span className="text-white">{action.label}</span>
+  1241→                </button>
+  1242→              ))}
+  1243→            </div>
+  1244→          </div>
+  1245→        </div>
+  1246→      )}
+  1247→    </div>
+  1248→  )
+  1249→}
+  1250→

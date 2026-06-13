@@ -1,8 +1,9 @@
-'use client'
+'use client';
 
-import { useState, useRef, useCallback, useEffect } from 'react'
-import type { VideoPlayerState } from '@/hooks/useVideoPlayer'
-import { formatDuration, type SubCue } from '@/lib/mediaUtils'
+import { useState, useRef, useCallback, useEffect } from 'react';
+import type { VideoPlayerState } from '@/hooks/useVideoPlayer';
+import type { AspectRatio } from '@/hooks/useVideoPlayer';
+import { formatDuration, type SubCue } from '@/lib/mediaUtils';
 import {
   ArrowLeft,
   MoreVertical,
@@ -17,161 +18,221 @@ import {
   Gauge,
   Lock,
   PictureInPicture2,
+  Maximize,
+  Repeat,
   X,
-} from 'lucide-react'
+} from 'lucide-react';
+
+// ══════════════════════════════════════════════════════════════
+// PROPS
+// ══════════════════════════════════════════════════════════════
 
 interface PlayerControlsProps {
-  player: VideoPlayerState
-  visible: boolean
-  onBack: () => void
-  videoTitle: string
-  onToggleControls: () => void
+  playerState: VideoPlayerState;
+  onBack: () => void;
+  onAspectChange: (ratio: AspectRatio) => void;
+  onSubtitleLoad: () => void;
+  onSpeedChange: (speed: number) => void;
+  onLockToggle: () => void;
 }
 
-type AspectOption = 'fit' | 'fill' | '16:9' | '4:3' | 'zoom'
+// ══════════════════════════════════════════════════════════════
+// CONSTANTS
+// ══════════════════════════════════════════════════════════════
+
+type AspectOption = AspectRatio;
 const ASPECT_LABELS: Record<AspectOption, string> = {
   fit: 'Fit',
   fill: 'Fill',
   '16:9': '16:9',
   '4:3': '4:3',
   zoom: 'Zoom',
-}
+};
 
-const SPEED_OPTIONS = [0.5, 0.75, 1, 1.25, 1.5, 2]
+const SPEED_OPTIONS = [0.5, 0.75, 1, 1.25, 1.5, 2];
 
 const SUBTITLE_COLORS = [
   { label: 'White', value: '#FFFFFF' },
   { label: 'Yellow', value: '#FFD700' },
   { label: 'Green', value: '#00FF00' },
   { label: 'Cyan', value: '#06B6D4' },
-]
+];
+
+// ══════════════════════════════════════════════════════════════
+// COMPONENT
+// ══════════════════════════════════════════════════════════════
 
 export default function PlayerControls({
-  player,
-  visible,
+  playerState,
   onBack,
-  videoTitle,
-  onToggleControls,
+  onAspectChange,
+  onSubtitleLoad,
+  onSpeedChange,
+  onLockToggle,
 }: PlayerControlsProps) {
-  const [menuOpen, setMenuOpen] = useState(false)
-  const [speedSheetOpen, setSpeedSheetOpen] = useState(false)
-  const [aspectSheetOpen, setAspectSheetOpen] = useState(false)
-  const [subtitlePanelOpen, setSubtitlePanelOpen] = useState(false)
-  const [subtitleFontSize, setSubtitleFontSize] = useState(16)
-  const [subtitleColor, setSubtitleColor] = useState('#FFFFFF')
-  const [subtitlePosition, setSubtitlePosition] = useState<'top' | 'bottom'>('bottom')
-  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const menuRef = useRef<HTMLDivElement>(null)
+  const player = playerState;
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [speedSheetOpen, setSpeedSheetOpen] = useState(false);
+  const [aspectSheetOpen, setAspectSheetOpen] = useState(false);
+  const [subtitlePanelOpen, setSubtitlePanelOpen] = useState(false);
+  const [subtitleFontSize, setSubtitleFontSize] = useState(16);
+  const [subtitleColor, setSubtitleColor] = useState('#FFFFFF');
+  const [subtitlePosition, setSubtitlePosition] = useState<'top' | 'bottom'>('bottom');
+  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
 
-  // Close menus on outside click
+  // ── Close menu on outside click ──
   useEffect(() => {
-    if (!menuOpen) return
+    if (!menuOpen) return;
     const handler = (e: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        setMenuOpen(false)
+        setMenuOpen(false);
       }
-    }
-    document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
-  }, [menuOpen])
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [menuOpen]);
 
-  // Close all sheets on escape
+  // ── Close all sheets on escape ──
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        setSpeedSheetOpen(false)
-        setAspectSheetOpen(false)
-        setSubtitlePanelOpen(false)
-        setMenuOpen(false)
+        setSpeedSheetOpen(false);
+        setAspectSheetOpen(false);
+        setSubtitlePanelOpen(false);
+        setMenuOpen(false);
       }
-    }
-    document.addEventListener('keydown', handler)
-    return () => document.removeEventListener('keydown', handler)
-  }, [])
+    };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, []);
 
+  // ── Seek change handler ──
   const handleSeekChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
-      player.seek(parseFloat(e.target.value))
+      player.seek(parseFloat(e.target.value));
     },
     [player]
-  )
+  );
 
+  // ── Speed select ──
   const handleSpeedSelect = useCallback(
     (speed: number) => {
-      player.setSpeed(speed)
-      setSpeedSheetOpen(false)
-      player.resetHideTimer()
+      onSpeedChange(speed);
+      setSpeedSheetOpen(false);
+      player.resetHideTimer();
     },
-    [player]
-  )
+    [player, onSpeedChange]
+  );
 
+  // ── Aspect select ──
   const handleAspectSelect = useCallback(
     (ratio: AspectOption) => {
-      player.setAspectRatio(ratio)
-      setAspectSheetOpen(false)
-      player.resetHideTimer()
+      onAspectChange(ratio);
+      setAspectSheetOpen(false);
+      player.resetHideTimer();
     },
-    [player]
-  )
+    [player, onAspectChange]
+  );
 
+  // ── Load subtitle file ──
   const handleLoadSubtitle = useCallback(() => {
-    const input = document.createElement('input')
-    input.type = 'file'
-    input.accept = '.srt,.ass,.ssa,.vtt'
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.srt,.ass,.ssa,.vtt';
     input.onchange = async (e) => {
-      const file = (e.target as HTMLInputElement).files?.[0]
+      const file = (e.target as HTMLInputElement).files?.[0];
       if (file) {
-        await player.loadSubtitle(file)
+        await player.loadSubtitle(file);
+        onSubtitleLoad();
       }
-    }
-    input.click()
-  }, [player])
+    };
+    input.click();
+  }, [player, onSubtitleLoad]);
 
-  const handleLockLongPress = useCallback(() => {
-    player.toggleLock()
-    player.resetHideTimer()
-  }, [player])
-
+  // ── Lock long press ──
   const handleLockPointerDown = useCallback(() => {
     longPressTimerRef.current = setTimeout(() => {
-      handleLockLongPress()
-    }, 1000)
-  }, [handleLockLongPress])
+      onLockToggle();
+      player.resetHideTimer();
+    }, 500);
+  }, [player, onLockToggle]);
 
   const handleLockPointerUp = useCallback(() => {
     if (longPressTimerRef.current) {
-      clearTimeout(longPressTimerRef.current)
-      longPressTimerRef.current = null
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
     }
-  }, [])
+  }, []);
 
   // ── Current subtitle cue ──
   const currentCue = player.subtitleTrack?.find(
     (c: SubCue) => player.currentTime >= c.start && player.currentTime <= c.end
-  )
+  );
 
-  const progress = player.duration > 0 ? (player.currentTime / player.duration) * 100 : 0
+  const progress = player.duration > 0 ? (player.currentTime / player.duration) * 100 : 0;
+  const visible = player.showControls;
 
-  // ── Locked overlay ──
+  // ══════════════════════════════════════════════════════════════
+  // LOCKED OVERLAY
+  // ══════════════════════════════════════════════════════════════
+
   if (player.isLocked) {
     return (
-      <div
-        className="absolute inset-0 flex items-center justify-center z-30"
-        style={{ opacity: visible ? 1 : 0, transition: 'opacity 200ms' }}
-      >
-        <button
-          onPointerDown={handleLockPointerDown}
-          onPointerUp={handleLockPointerUp}
-          onPointerCancel={handleLockPointerUp}
-          className="flex items-center justify-center w-16 h-16 rounded-full bg-[#1A1A2E]/80"
-          style={{ minWidth: 44, minHeight: 44 }}
-          aria-label="Long press to unlock"
+      <>
+        <div
+          className="absolute inset-0 flex items-center justify-center z-30"
+          style={{
+            opacity: visible ? 1 : 0,
+            transition: 'opacity 200ms',
+            pointerEvents: visible ? 'auto' : 'none',
+          }}
         >
-          <Lock size={28} className="text-[#7C3AED]" />
-        </button>
-      </div>
-    )
+          <button
+            onPointerDown={handleLockPointerDown}
+            onPointerUp={handleLockPointerUp}
+            onPointerCancel={handleLockPointerUp}
+            className="flex items-center justify-center w-16 h-16 rounded-full"
+            style={{
+              backgroundColor: 'rgba(20,20,20,0.8)',
+              border: '1px solid #1F1F1F',
+              minWidth: 44,
+              minHeight: 44,
+            }}
+            aria-label="Long press to unlock"
+          >
+            <Lock size={28} className="text-[#7C3AED]" />
+          </button>
+        </div>
+
+        {/* ── Subtitle rendering even when locked ── */}
+        {currentCue && (
+          <div
+            className="absolute left-0 right-0 z-10 flex justify-center pointer-events-none px-4"
+            style={{
+              [subtitlePosition === 'top' ? 'top' : 'bottom']: 80,
+            }}
+          >
+            <span
+              className="text-center px-3 py-1 rounded"
+              style={{
+                fontSize: subtitleFontSize,
+                color: subtitleColor,
+                backgroundColor: 'rgba(0,0,0,0.7)',
+                maxWidth: '90%',
+              }}
+            >
+              {currentCue.text}
+            </span>
+          </div>
+        )}
+      </>
+    );
   }
+
+  // ══════════════════════════════════════════════════════════════
+  // FULL CONTROLS
+  // ══════════════════════════════════════════════════════════════
 
   return (
     <>
@@ -200,7 +261,7 @@ export default function PlayerControls({
           </button>
 
           <p className="text-white text-sm font-medium truncate mx-3 flex-1 text-center">
-            {videoTitle}
+            {player.currentVideo?.name || 'Now Playing'}
           </p>
 
           <div className="relative" ref={menuRef}>
@@ -217,22 +278,21 @@ export default function PlayerControls({
             {menuOpen && (
               <div
                 className="absolute right-0 top-12 rounded-xl overflow-hidden shadow-2xl z-50 min-w-[200px]"
-                style={{ backgroundColor: '#1A1A2E', border: '1px solid #2D2D44' }}
+                style={{ backgroundColor: '#141414', border: '1px solid #1F1F1F' }}
               >
                 {[
                   { icon: <Subtitles size={18} />, label: 'Subtitle', action: () => { setSubtitlePanelOpen(true); setMenuOpen(false) } },
-                  { icon: <Volume2 size={18} />, label: 'Audio Track', action: () => { setMenuOpen(false) } },
                   { icon: <Gauge size={18} />, label: 'Playback Speed', action: () => { setSpeedSheetOpen(true); setMenuOpen(false) } },
                   { icon: <div className="w-4 h-3 border border-white/50 rounded-sm" />, label: 'Aspect Ratio', action: () => { setAspectSheetOpen(true); setMenuOpen(false) } },
-                  { icon: <Lock size={18} />, label: 'Lock Screen', action: () => { player.toggleLock(); setMenuOpen(false); player.resetHideTimer() } },
+                  { icon: <Lock size={18} />, label: 'Lock Screen', action: () => { onLockToggle(); setMenuOpen(false); player.resetHideTimer() } },
                   { icon: <PictureInPicture2 size={18} />, label: 'PiP Mode', action: () => { player.togglePip(); setMenuOpen(false) } },
-                  { icon: <RotateCcw size={18} />, label: 'Sleep Timer', action: () => { setMenuOpen(false) } },
-                  { icon: <X size={18} />, label: 'Share', action: () => { setMenuOpen(false) } },
+                  { icon: <Maximize size={18} />, label: 'Fullscreen', action: () => { player.toggleFullscreen(); setMenuOpen(false) } },
+                  { icon: <Repeat size={18} />, label: `Repeat: ${player.repeatMode === 'one' ? 'One' : 'Off'}`, action: () => { player.cycleRepeat(); setMenuOpen(false); player.resetHideTimer() } },
                 ].map((item) => (
                   <button
                     key={item.label}
                     onClick={item.action}
-                    className="w-full flex items-center gap-3 px-4 py-3 text-white text-sm hover:bg-[#2D2D44] active:bg-[#3D3D54]"
+                    className="w-full flex items-center gap-3 px-4 py-3 text-white text-sm hover:bg-[#1F1F1F] active:bg-[#2A2A2A]"
                     style={{ minHeight: 44, transition: 'background 150ms' }}
                   >
                     <span className="text-[#9CA3AF]">{item.icon}</span>
@@ -244,7 +304,7 @@ export default function PlayerControls({
           </div>
         </div>
 
-        {/* ── SPACER (center area is transparent for gestures) ── */}
+        {/* ── SPACER ── */}
         <div className="flex-1" />
 
         {/* ── BOTTOM CONTROLS ── */}
@@ -261,19 +321,26 @@ export default function PlayerControls({
             </span>
             <div className="relative flex-1 h-5 flex items-center">
               {/* Track background */}
-              <div className="absolute w-full h-1 rounded-full bg-white/20" />
-              {/* Progress */}
+              <div className="absolute w-full rounded-full" style={{ height: 3, backgroundColor: 'rgba(255,255,255,0.2)' }} />
+              {/* Progress fill */}
               <div
-                className="absolute h-1 rounded-full"
-                style={{ width: `${progress}%`, backgroundColor: '#7C3AED', transition: 'width 200ms' }}
+                className="absolute rounded-full"
+                style={{
+                  height: 3,
+                  width: `${progress}%`,
+                  backgroundColor: '#7C3AED',
+                  transition: 'width 200ms',
+                }}
               />
               {/* Thumb */}
               <div
-                className="absolute w-3 h-3 rounded-full"
+                className="absolute rounded-full bg-white"
                 style={{
-                  left: `calc(${progress}% - 6px)`,
-                  backgroundColor: '#7C3AED',
+                  width: 14,
+                  height: 14,
+                  left: `calc(${progress}% - 7px)`,
                   transition: 'left 200ms',
+                  boxShadow: '0 0 4px rgba(0,0,0,0.5)',
                 }}
               />
               <input
@@ -295,20 +362,7 @@ export default function PlayerControls({
 
           {/* ── CONTROLS ROW ── */}
           <div className="flex items-center justify-center gap-2 mb-3">
-            {/* Previous video */}
-            <button
-              onClick={() => {
-                player.skip(-30)
-                player.resetHideTimer()
-              }}
-              className="flex items-center justify-center rounded-full hover:bg-white/10 active:scale-90"
-              style={{ width: 44, height: 44, minWidth: 44, minHeight: 44, transition: 'transform 100ms' }}
-              aria-label="Previous"
-            >
-              <SkipBack size={20} className="text-white" />
-            </button>
-
-            {/* Rewind 10 seconds */}
+            {/* -10s */}
             <button
               onClick={() => player.skip(-10)}
               className="flex items-center justify-center rounded-full hover:bg-white/10 active:scale-90"
@@ -318,19 +372,29 @@ export default function PlayerControls({
               <RotateCcw size={20} className="text-white" />
             </button>
 
-            {/* Play / Pause (64px) */}
+            {/* Previous */}
+            <button
+              onClick={() => player.skip(-30)}
+              className="flex items-center justify-center rounded-full hover:bg-white/10 active:scale-90"
+              style={{ width: 44, height: 44, minWidth: 44, minHeight: 44, transition: 'transform 100ms' }}
+              aria-label="Previous"
+            >
+              <SkipBack size={20} className="text-white" />
+            </button>
+
+            {/* Play / Pause (56px circle) */}
             <button
               onClick={() => {
-                if (player.isPlaying) player.pause()
-                else player.play()
-                player.resetHideTimer()
+                if (player.isPlaying) player.pause();
+                else player.play();
+                player.resetHideTimer();
               }}
               className="flex items-center justify-center rounded-full"
               style={{
-                width: 64,
-                height: 64,
-                minWidth: 64,
-                minHeight: 64,
+                width: 56,
+                height: 56,
+                minWidth: 56,
+                minHeight: 56,
                 backgroundColor: '#7C3AED',
                 transition: 'transform 100ms',
               }}
@@ -343,7 +407,17 @@ export default function PlayerControls({
               )}
             </button>
 
-            {/* Forward 10 seconds */}
+            {/* Next */}
+            <button
+              onClick={() => player.skip(30)}
+              className="flex items-center justify-center rounded-full hover:bg-white/10 active:scale-90"
+              style={{ width: 44, height: 44, minWidth: 44, minHeight: 44, transition: 'transform 100ms' }}
+              aria-label="Next"
+            >
+              <SkipForward size={20} className="text-white" />
+            </button>
+
+            {/* +10s */}
             <button
               onClick={() => player.skip(10)}
               className="flex items-center justify-center rounded-full hover:bg-white/10 active:scale-90"
@@ -352,23 +426,11 @@ export default function PlayerControls({
             >
               <RotateCcw size={20} className="text-white" style={{ transform: 'scaleX(-1)' }} />
             </button>
-
-            {/* Next video */}
-            <button
-              onClick={() => {
-                player.skip(30)
-                player.resetHideTimer()
-              }}
-              className="flex items-center justify-center rounded-full hover:bg-white/10 active:scale-90"
-              style={{ width: 44, height: 44, minWidth: 44, minHeight: 44, transition: 'transform 100ms' }}
-              aria-label="Next"
-            >
-              <SkipForward size={20} className="text-white" />
-            </button>
           </div>
 
           {/* ── BOTTOM TOOLBAR ── */}
           <div className="flex items-center justify-between">
+            {/* Aspect */}
             <button
               onClick={() => { setAspectSheetOpen(true); player.resetHideTimer() }}
               className="flex items-center justify-center rounded-lg hover:bg-white/10 active:scale-95 px-2"
@@ -380,6 +442,7 @@ export default function PlayerControls({
               </span>
             </button>
 
+            {/* Subtitle */}
             <button
               onClick={() => { setSubtitlePanelOpen(true); player.resetHideTimer() }}
               className="flex items-center justify-center rounded-lg hover:bg-white/10 active:scale-95 px-2"
@@ -389,6 +452,7 @@ export default function PlayerControls({
               <Subtitles size={20} className="text-white" />
             </button>
 
+            {/* Mute */}
             <button
               onClick={() => { player.toggleMute(); player.resetHideTimer() }}
               className="flex items-center justify-center rounded-lg hover:bg-white/10 active:scale-95 px-2"
@@ -402,6 +466,7 @@ export default function PlayerControls({
               )}
             </button>
 
+            {/* Speed */}
             <button
               onClick={() => { setSpeedSheetOpen(true); player.resetHideTimer() }}
               className="flex items-center justify-center rounded-lg hover:bg-white/10 active:scale-95 px-2"
@@ -413,10 +478,9 @@ export default function PlayerControls({
               </span>
             </button>
 
+            {/* Lock */}
             <button
-              onPointerDown={handleLockPointerDown}
-              onPointerUp={handleLockPointerUp}
-              onPointerCancel={handleLockPointerUp}
+              onClick={() => { onLockToggle(); player.resetHideTimer() }}
               className="flex items-center justify-center rounded-lg hover:bg-white/10 active:scale-95 px-2"
               style={{ height: 44, minHeight: 44, transition: 'transform 100ms' }}
               aria-label="Lock screen"
@@ -427,7 +491,9 @@ export default function PlayerControls({
         </div>
       </div>
 
-      {/* ── SPEED PICKER BOTTOM SHEET ── */}
+      {/* ════════════════════════════════════════════════════════════ */}
+      {/* SPEED PICKER BOTTOM SHEET */}
+      {/* ════════════════════════════════════════════════════════════ */}
       {speedSheetOpen && (
         <div className="absolute inset-0 z-40 flex items-end justify-center">
           <div
@@ -436,7 +502,7 @@ export default function PlayerControls({
           />
           <div
             className="relative w-full max-w-lg rounded-t-2xl p-4 z-10"
-            style={{ backgroundColor: '#1A1A2E', borderTop: '1px solid #2D2D44' }}
+            style={{ backgroundColor: '#141414', borderTop: '1px solid #1F1F1F' }}
           >
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-white font-semibold text-base">Playback Speed</h3>
@@ -458,7 +524,7 @@ export default function PlayerControls({
                   style={{
                     height: 44,
                     minHeight: 44,
-                    backgroundColor: player.playbackSpeed === speed ? '#7C3AED' : '#2D2D44',
+                    backgroundColor: player.playbackSpeed === speed ? '#7C3AED' : '#1F1F1F',
                     color: '#FFFFFF',
                     transition: 'background 150ms',
                   }}
@@ -471,7 +537,9 @@ export default function PlayerControls({
         </div>
       )}
 
-      {/* ── ASPECT RATIO PICKER ── */}
+      {/* ════════════════════════════════════════════════════════════ */}
+      {/* ASPECT RATIO PICKER */}
+      {/* ════════════════════════════════════════════════════════════ */}
       {aspectSheetOpen && (
         <div className="absolute inset-0 z-40 flex items-end justify-center">
           <div
@@ -480,7 +548,7 @@ export default function PlayerControls({
           />
           <div
             className="relative w-full max-w-lg rounded-t-2xl p-4 z-10"
-            style={{ backgroundColor: '#1A1A2E', borderTop: '1px solid #2D2D44' }}
+            style={{ backgroundColor: '#141414', borderTop: '1px solid #1F1F1F' }}
           >
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-white font-semibold text-base">Aspect Ratio</h3>
@@ -502,7 +570,7 @@ export default function PlayerControls({
                   style={{
                     height: 44,
                     minHeight: 44,
-                    backgroundColor: player.aspectRatio === ratio ? '#7C3AED' : '#2D2D44',
+                    backgroundColor: player.aspectRatio === ratio ? '#7C3AED' : '#1F1F1F',
                     color: '#FFFFFF',
                     transition: 'background 150ms',
                   }}
@@ -515,7 +583,9 @@ export default function PlayerControls({
         </div>
       )}
 
-      {/* ── SUBTITLE PANEL ── */}
+      {/* ════════════════════════════════════════════════════════════ */}
+      {/* SUBTITLE PANEL */}
+      {/* ════════════════════════════════════════════════════════════ */}
       {subtitlePanelOpen && (
         <div className="absolute inset-0 z-40 flex items-end justify-center">
           <div
@@ -524,7 +594,7 @@ export default function PlayerControls({
           />
           <div
             className="relative w-full max-w-lg rounded-t-2xl p-4 z-10 max-h-[70vh] overflow-y-auto"
-            style={{ backgroundColor: '#1A1A2E', borderTop: '1px solid #2D2D44' }}
+            style={{ backgroundColor: '#141414', borderTop: '1px solid #1F1F1F' }}
           >
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-white font-semibold text-base">Subtitles</h3>
@@ -545,7 +615,7 @@ export default function PlayerControls({
               style={{
                 height: 44,
                 minHeight: 44,
-                backgroundColor: '#2D2D44',
+                backgroundColor: '#1F1F1F',
                 transition: 'background 150ms',
               }}
             >
@@ -617,7 +687,7 @@ export default function PlayerControls({
                     style={{
                       height: 44,
                       minHeight: 44,
-                      backgroundColor: subtitlePosition === pos ? '#7C3AED' : '#2D2D44',
+                      backgroundColor: subtitlePosition === pos ? '#7C3AED' : '#1F1F1F',
                       color: '#FFFFFF',
                       transition: 'background 150ms',
                     }}
@@ -631,7 +701,9 @@ export default function PlayerControls({
         </div>
       )}
 
-      {/* ── SUBTITLE RENDERING ── */}
+      {/* ════════════════════════════════════════════════════════════ */}
+      {/* SUBTITLE RENDERING */}
+      {/* ════════════════════════════════════════════════════════════ */}
       {currentCue && !player.isLocked && (
         <div
           className="absolute left-0 right-0 z-10 flex justify-center pointer-events-none px-4"
@@ -653,5 +725,5 @@ export default function PlayerControls({
         </div>
       )}
     </>
-  )
+  );
 }

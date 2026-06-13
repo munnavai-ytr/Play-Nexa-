@@ -1,892 +1,883 @@
 'use client'
 
-// ── Play Nexa Music Library ──────────────────────────────────
-// Full Music Library screen with tab filter, sort, search, and context menus
-// Design system: bg-[#0D0D0D] / bg-[#1A1A2E] / bg-[#16213E] / #7C3AED / #06B6D4
-// No backdrop-blur · Tailwind only · Max transition 200ms · 44px touch targets
-// content-visibility: auto on scrollable list · pn_music_ localStorage prefix
-
-import { useState, useCallback, useRef, useEffect, useMemo } from 'react'
-import {
-  ArrowLeft,
-  Search,
-  MoreVertical,
-  Music,
-  Clock,
-  User,
-  FolderOpen,
-  Plus,
-  Shuffle,
-  SortAsc,
-  X,
-  ChevronDown,
-  Heart,
-  Share2,
-  Info,
-  Trash2,
-  Loader2,
-  RefreshCw,
-  Play,
-  SkipForward,
-} from 'lucide-react'
-import type { Song } from '@/lib/mediaUtils'
-import { formatDuration, debounce, lsGet, lsSet } from '@/lib/mediaUtils'
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { useMediaLibrary } from '@/hooks/useMediaLibrary'
-import type { MusicSortMode } from '@/hooks/useMediaLibrary'
-
-// ══════════════════════════════════════════════════════════════
-// PROPS
-// ══════════════════════════════════════════════════════════════
+import { useMusicPlayer } from '@/hooks/useMusicPlayer'
+import { formatDuration, formatFileSize, lsGet, lsSet } from '@/lib/mediaUtils'
+import type { Song } from '@/lib/mediaUtils'
+import EqualizerBars from './EqualizerBars'
 
 interface MusicLibraryProps {
   onSongSelect: (song: Song) => void
   onBack: () => void
 }
 
-// ══════════════════════════════════════════════════════════════
-// TAB DEFINITIONS
-// ══════════════════════════════════════════════════════════════
+type TabKey = 'songs' | 'albums' | 'artists' | 'folders' | 'recent'
 
-type TabKey = 'all' | 'albums' | 'artists' | 'folders' | 'recent'
-
-interface TabDef {
-  key: TabKey
-  label: string
-  icon: React.ReactNode
-}
-
-const TABS: TabDef[] = [
-  { key: 'all', label: 'All', icon: <Music size={14} /> },
-  { key: 'albums', label: 'Albums', icon: <FolderOpen size={14} /> },
-  { key: 'artists', label: 'Artists', icon: <User size={14} /> },
-  { key: 'folders', label: 'Folders', icon: <FolderOpen size={14} /> },
-  { key: 'recent', label: 'Recently Added', icon: <Clock size={14} /> },
+const TABS: { key: TabKey; label: string }[] = [
+  { key: 'songs', label: 'Songs' },
+  { key: 'albums', label: 'Albums' },
+  { key: 'artists', label: 'Artists' },
+  { key: 'folders', label: 'Folders' },
+  { key: 'recent', label: 'Recent' },
 ]
 
-// ══════════════════════════════════════════════════════════════
-// SORT OPTIONS
-// ══════════════════════════════════════════════════════════════
+const SORT_OPTIONS = [
+  { value: 'name', label: 'Name' },
+  { value: 'date', label: 'Date Added' },
+  { value: 'duration', label: 'Duration' },
+  { value: 'artist', label: 'Artist' },
+  { value: 'size', label: 'File Size' },
+] as const
 
-interface SortOption {
-  key: MusicSortMode
-  label: string
+const HISTORY_KEY = 'pn_music_history'
+const VIEW_KEY = 'pn_music_view'
+
+function stripExtension(name: string): string {
+  return name.replace(/\.[^.]+$/, '')
 }
-
-const SORT_OPTIONS: SortOption[] = [
-  { key: 'name', label: 'Name' },
-  { key: 'date', label: 'Date Added' },
-  { key: 'duration', label: 'Duration' },
-  { key: 'artist', label: 'Artist' },
-  { key: 'size', label: 'Size' },
-]
-
-// ══════════════════════════════════════════════════════════════
-// CONTEXT MENU ACTIONS
-// ══════════════════════════════════════════════════════════════
-
-interface ContextAction {
-  id: string
-  label: string
-  icon: React.ReactNode
-  color: string
-}
-
-const CONTEXT_ACTIONS: ContextAction[] = [
-  { id: 'playNow', label: 'Play Now', icon: <Play size={18} />, color: 'text-[#7C3AED]' },
-  { id: 'playNext', label: 'Play Next', icon: <SkipForward size={18} />, color: 'text-[#06B6D4]' },
-  { id: 'addToPlaylist', label: 'Add to Playlist', icon: <Plus size={18} />, color: 'text-[#7C3AED]' },
-  { id: 'addToFavorites', label: 'Add to Favorites', icon: <Heart size={18} />, color: 'text-red-400' },
-  { id: 'songInfo', label: 'Song Info', icon: <Info size={18} />, color: 'text-[#9CA3AF]' },
-  { id: 'share', label: 'Share', icon: <Share2 size={18} />, color: 'text-[#06B6D4]' },
-  { id: 'delete', label: 'Delete', icon: <Trash2 size={18} />, color: 'text-red-500' },
-]
-
-// ══════════════════════════════════════════════════════════════
-// LOCAL STORAGE KEYS
-// ══════════════════════════════════════════════════════════════
-
-const TAB_STORAGE_KEY = 'pn_music_active_tab'
-const FAVORITES_KEY = 'pn_music_favorites'
-
-// ══════════════════════════════════════════════════════════════
-// COMPONENT
-// ══════════════════════════════════════════════════════════════
 
 export default function MusicLibrary({ onSongSelect, onBack }: MusicLibraryProps) {
-  // ── Hook state ──
-  const {
-    songs,
-    scanning,
-    musicSort,
-    setMusicSort,
-    sortSongs,
-    scanMusicFiles,
-    removeSong,
-  } = useMediaLibrary()
+  const { songs, scanning, musicSort, scanMusicFiles, setMusicSort, sortSongs } = useMediaLibrary()
+  const { currentSong, isPlaying, play, setPlaylist, playNext: playNextFn, addToPlaylist: addToPlaylistFn } = useMusicPlayer()
 
-  // ── Local state ──
-  const [activeTab, setActiveTab] = useState<TabKey>(() =>
-    lsGet<TabKey>(TAB_STORAGE_KEY, 'all')
-  )
-  const [searchOpen, setSearchOpen] = useState(false)
+  const [showSearch, setShowSearch] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
-  const [debouncedQuery, setDebouncedQuery] = useState('')
-  const [sortSheetOpen, setSortSheetOpen] = useState(false)
-  const [contextSong, setContextSong] = useState<Song | null>(null)
-  const [contextSheetOpen, setContextSheetOpen] = useState(false)
-  const [headerMenuOpen, setHeaderMenuOpen] = useState(false)
-  const [favorites, setFavorites] = useState<Set<string>>(() => {
-    const stored = lsGet<string[]>(FAVORITES_KEY, [])
-    return new Set(stored)
-  })
+  const [activeTab, setActiveTab] = useState<TabKey>('songs')
+  const [viewMode, setViewMode] = useState<'list' | 'grid'>(() =>
+    lsGet<'list' | 'grid'>(VIEW_KEY, 'list')
+  )
+  const [showSortMenu, setShowSortMenu] = useState(false)
+  const [selectedSong, setSelectedSong] = useState<Song | null>(null)
+  const [showOptions, setShowOptions] = useState(false)
 
-  // ── Refs ──
-  const hasLoadedRef = useRef(false)
-  const tabRefs = useRef<Record<TabKey, HTMLButtonElement | null>>({
-    all: null,
-    albums: null,
-    artists: null,
-    folders: null,
-    recent: null,
-  })
-  const tabScrollRef = useRef<HTMLDivElement>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
+  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [debouncedQuery, setDebouncedQuery] = useState('')
 
-  // ── Toast state for library update notifications ──
-  const [toastMsg, setToastMsg] = useState('')
-  const [showToast, setShowToast] = useState(false)
-
-  // ════════════════════════════════════════════════════════════
-  // DEBOUNCED SEARCH
-  // ════════════════════════════════════════════════════════════
-
-  const updateDebouncedQuery = useMemo(
-    () =>
-      debounce((query: string) => {
-        setDebouncedQuery(query)
-      }, 200),
-    []
-  )
-
-  const handleSearchChange = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      const value = e.target.value
-      setSearchQuery(value)
-      updateDebouncedQuery(value)
-    },
-    [updateDebouncedQuery]
-  )
-
-  // ════════════════════════════════════════════════════════════
-  // SCROLL ACTIVE TAB INTO VIEW
-  // ════════════════════════════════════════════════════════════
-
+  // Auto-scan on mount
   useEffect(() => {
-    const el = tabRefs.current[activeTab]
-    if (el) {
-      el.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' })
+    scanMusicFiles()
+  }, [scanMusicFiles])
+
+  // Debounce search
+  useEffect(() => {
+    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current)
+    debounceTimerRef.current = setTimeout(() => {
+      setDebouncedQuery(searchQuery)
+    }, 200)
+    return () => {
+      if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current)
     }
-  }, [activeTab])
+  }, [searchQuery])
 
-  // ════════════════════════════════════════════════════════════
-  // FOCUS SEARCH INPUT ON OPEN
-  // ════════════════════════════════════════════════════════════
-
+  // Auto-focus search input
   useEffect(() => {
-    if (searchOpen) {
-      setTimeout(() => searchInputRef.current?.focus(), 160)
+    if (showSearch && searchInputRef.current) {
+      searchInputRef.current.focus()
     }
-  }, [searchOpen])
+  }, [showSearch])
 
-  // ════════════════════════════════════════════════════════════
-  // PERSIST ACTIVE TAB
-  // ════════════════════════════════════════════════════════════
-
+  // Save view mode
   useEffect(() => {
-    lsSet(TAB_STORAGE_KEY, activeTab)
-  }, [activeTab])
+    lsSet(VIEW_KEY, viewMode)
+  }, [viewMode])
 
-  // ════════════════════════════════════════════════════════════
-  // PERSIST FAVORITES
-  // ════════════════════════════════════════════════════════════
+  // Sorted + filtered songs
+  const sortedSongs = useMemo(() => {
+    return sortSongs(songs, musicSort)
+  }, [songs, musicSort, sortSongs])
 
-  useEffect(() => {
-    lsSet(FAVORITES_KEY, Array.from(favorites))
-  }, [favorites])
+  const filteredSongs = useMemo(() => {
+    if (!debouncedQuery.trim()) return sortedSongs
+    const q = debouncedQuery.toLowerCase()
+    return sortedSongs.filter(
+      (s) =>
+        s.name.toLowerCase().includes(q) ||
+        s.artist.toLowerCase().includes(q) ||
+        s.album.toLowerCase().includes(q)
+    )
+  }, [sortedSongs, debouncedQuery])
 
-  // ════════════════════════════════════════════════════════════
-  // FILTERED + SORTED SONGS
-  // ════════════════════════════════════════════════════════════
-
-  const displayedSongs = useMemo(() => {
-    let filtered = songs
-
-    // Apply search filter
-    if (debouncedQuery.trim()) {
-      const q = debouncedQuery.toLowerCase().trim()
-      filtered = filtered.filter(
-        (s) =>
-          s.name.toLowerCase().includes(q) ||
-          s.artist.toLowerCase().includes(q) ||
-          s.album.toLowerCase().includes(q)
-      )
-    }
-
-    // Apply tab filter — group by category where applicable
-    switch (activeTab) {
-      case 'albums': {
-        // Show first song per album
-        const albumMap = new Map<string, Song>()
-        filtered.forEach((song) => {
-          const album = song.album || 'Unknown Album'
-          if (!albumMap.has(album)) albumMap.set(album, song)
-        })
-        filtered = Array.from(albumMap.values())
-        break
+  // Grouped data
+  const albums = useMemo(() => {
+    const map = new Map<string, { name: string; songs: Song[]; cover: string | null }>()
+    for (const s of filteredSongs) {
+      const key = s.album || 'Unknown Album'
+      if (!map.has(key)) {
+        map.set(key, { name: key, songs: [], cover: s.cover })
       }
-      case 'artists': {
-        // Show first song per artist
-        const artistMap = new Map<string, Song>()
-        filtered.forEach((song) => {
-          const artist = song.artist || 'Unknown Artist'
-          if (!artistMap.has(artist)) artistMap.set(artist, song)
-        })
-        filtered = Array.from(artistMap.values())
-        break
+      map.get(key)!.songs.push(s)
+      if (s.cover && !map.get(key)!.cover) {
+        map.get(key)!.cover = s.cover
       }
-      case 'folders': {
-        // Show first song per folder
-        const folderMap = new Map<string, Song>()
-        filtered.forEach((song) => {
-          const folder = song.path
-            ? song.path.substring(0, song.path.lastIndexOf('/'))
-            : 'Unknown Folder'
-          if (!folderMap.has(folder)) folderMap.set(folder, song)
-        })
-        filtered = Array.from(folderMap.values())
-        break
-      }
-      case 'recent':
-        // Sort by id descending (proxy for date added), take first 50
-        filtered = [...filtered].sort((a, b) => b.id.localeCompare(a.id)).slice(0, 50)
-        break
-      case 'all':
-      default:
-        break
     }
+    return Array.from(map.values())
+  }, [filteredSongs])
 
-    // Apply sort
-    return sortSongs(filtered, musicSort)
-  }, [songs, debouncedQuery, activeTab, musicSort, sortSongs])
+  const artists = useMemo(() => {
+    const map = new Map<string, { name: string; songs: Song[] }>()
+    for (const s of filteredSongs) {
+      const key = s.artist || 'Unknown Artist'
+      if (!map.has(key)) {
+        map.set(key, { name: key, songs: [] })
+      }
+      map.get(key)!.songs.push(s)
+    }
+    return Array.from(map.values())
+  }, [filteredSongs])
 
-  // ════════════════════════════════════════════════════════════
-  // SORT LABEL
-  // ════════════════════════════════════════════════════════════
+  const folders = useMemo(() => {
+    const map = new Map<string, { name: string; path: string; count: number }>()
+    for (const s of filteredSongs) {
+      const parts = s.path.split('/')
+      const folder = parts.length > 1 ? parts[parts.length - 2] : 'Root'
+      const folderPath = parts.slice(0, -1).join('/')
+      if (!map.has(folderPath)) {
+        map.set(folderPath, { name: folder, path: folderPath, count: 0 })
+      }
+      map.get(folderPath)!.count++
+    }
+    return Array.from(map.values())
+  }, [filteredSongs])
 
-  const currentSortLabel = useMemo(
-    () => SORT_OPTIONS.find((o) => o.key === musicSort)?.label || 'Name',
-    [musicSort]
-  )
+  // Recent history — computed from songs + localStorage
+  const recentSongs = useMemo(() => {
+    const historyIds: string[] = lsGet(HISTORY_KEY, [])
+    if (historyIds.length === 0) return []
+    const songMap = new Map(songs.map((s) => [s.id, s]))
+    const found: Song[] = []
+    for (const id of historyIds) {
+      const song = songMap.get(id)
+      if (song) found.push(song)
+    }
+    return found.slice(0, 50)
+  }, [songs])
 
-  // ════════════════════════════════════════════════════════════
-  // HANDLERS
-  // ════════════════════════════════════════════════════════════
-
-  const handleTabChange = useCallback((tab: TabKey) => {
-    setActiveTab(tab)
-  }, [])
-
-  const handleSortSelect = useCallback(
-    (mode: MusicSortMode) => {
-      setMusicSort(mode)
-      setSortSheetOpen(false)
-    },
-    [setMusicSort]
-  )
-
-  const handleSongRowTap = useCallback(
+  // Handle song play
+  const handlePlaySong = useCallback(
     (song: Song) => {
+      // Save to history
+      const history: string[] = lsGet(HISTORY_KEY, [])
+      const updated = [song.id, ...history.filter((id) => id !== song.id)].slice(0, 50)
+      lsSet(HISTORY_KEY, updated)
+
+      setPlaylist(filteredSongs, filteredSongs.findIndex((s) => s.id === song.id))
       onSongSelect(song)
     },
-    [onSongSelect]
+    [filteredSongs, setPlaylist, onSongSelect]
   )
 
-  const handleContextMenuOpen = useCallback((song: Song, e: React.MouseEvent) => {
-    e.stopPropagation()
-    setContextSong(song)
-    setContextSheetOpen(true)
-  }, [])
+  // Handle option actions
+  const handlePlayNext = useCallback(() => {
+    if (!selectedSong) return
+    playNextFn(selectedSong)
+    setShowOptions(false)
+  }, [selectedSong, playNextFn])
 
-  const handleContextAction = useCallback(
-    (actionId: string) => {
-      if (!contextSong) return
+  const handleAddToQueue = useCallback(() => {
+    if (!selectedSong) return
+    addToPlaylistFn(selectedSong)
+    setShowOptions(false)
+  }, [selectedSong, addToPlaylistFn])
 
-      switch (actionId) {
-        case 'playNow': {
-          onSongSelect(contextSong)
+  const handleSongOption = useCallback(
+    (action: string) => {
+      if (!selectedSong) return
+      switch (action) {
+        case 'play':
+          handlePlaySong(selectedSong)
           break
-        }
-        case 'playNext': {
-          try {
-            const playNextList = lsGet<Song[]>('pn_music_play_next', [])
-            playNextList.unshift(contextSong)
-            lsSet('pn_music_play_next', playNextList)
-          } catch {
-            // storage write failed
+        case 'playNext':
+          handlePlayNext()
+          break
+        case 'addToQueue':
+          handleAddToQueue()
+          break
+        case 'favorite': {
+          const favs: string[] = lsGet('pn_music_favorites', [])
+          if (!favs.includes(selectedSong.id)) {
+            favs.push(selectedSong.id)
+            lsSet('pn_music_favorites', favs)
           }
           break
         }
-        case 'addToPlaylist': {
-          try {
-            lsSet('pn_music_playlist_pending', contextSong.id)
-          } catch {
-            // storage write failed
+        case 'info': {
+          alert(
+            `Title: ${selectedSong.name}\nArtist: ${selectedSong.artist}\nAlbum: ${selectedSong.album}\nFormat: ${selectedSong.format.toUpperCase()}\nSize: ${formatFileSize(selectedSong.size)}\nDuration: ${formatDuration(selectedSong.duration)}`
+          )
+          break
+        }
+        case 'share': {
+          if (navigator.share) {
+            navigator.share({ title: selectedSong.name, text: `Listening to ${selectedSong.name} by ${selectedSong.artist}` }).catch(() => {})
           }
           break
         }
-        case 'addToFavorites':
-          setFavorites((prev) => {
-            const next = new Set(prev)
-            if (next.has(contextSong.id)) {
-              next.delete(contextSong.id)
-            } else {
-              next.add(contextSong.id)
-            }
-            return next
-          })
-          break
-        case 'songInfo': {
-          try {
-            lsSet('pn_music_info_song', {
-              id: contextSong.id,
-              name: contextSong.name,
-              artist: contextSong.artist,
-              album: contextSong.album,
-              duration: contextSong.duration,
-              size: contextSong.size,
-              format: contextSong.format,
-              path: contextSong.path,
-            })
-          } catch {
-            // storage write failed
-          }
-          break
-        }
-        case 'share':
-          if (typeof navigator !== 'undefined' && navigator.share) {
-            navigator.share({
-              title: contextSong.name,
-              text: `${contextSong.name} by ${contextSong.artist}`,
-            }).catch(() => {
-              // Share cancelled or failed
-            })
-          }
-          break
-        case 'delete':
-          removeSong(contextSong.id)
-          break
       }
-
-      setContextSheetOpen(false)
-      setContextSong(null)
+      setShowOptions(false)
+      setSelectedSong(null)
     },
-    [contextSong, removeSong, onSongSelect]
+    [selectedSong, handlePlaySong, handlePlayNext, handleAddToQueue]
   )
 
-  // ── Initial load with hasLoadedRef guard ──
-  useEffect(() => {
-    if (hasLoadedRef.current) return
-    hasLoadedRef.current = true
-
-    const loadSongs = async () => {
-      await scanMusicFiles(false) // use cache
-    }
-    loadSongs()
-  }, [scanMusicFiles])
-
-  // ── Listen for pn-library-updated custom event ──
-  useEffect(() => {
-    const handler = (e: Event) => {
-      const detail = (e as CustomEvent).detail
-      if (detail?.type === 'music') {
-        setToastMsg(
-          detail.added > 0
-            ? `+${detail.added} new song${detail.added !== 1 ? 's' : ''} found`
-            : 'Library updated'
-        )
-        setShowToast(true)
-        setTimeout(() => setShowToast(false), 3000)
-      }
-    }
-    window.addEventListener('pn-library-updated', handler as EventListener)
-    return () => window.removeEventListener('pn-library-updated', handler as EventListener)
-  }, [])
-
-  const handleScan = useCallback(async () => {
-    await scanMusicFiles(true) // forceRefresh = true
-  }, [scanMusicFiles])
-
-  const handleSearchToggle = useCallback(() => {
-    setSearchOpen((prev) => !prev)
-    if (searchOpen) {
-      setSearchQuery('')
-      setDebouncedQuery('')
-    }
-  }, [searchOpen])
-
-  const handleHeaderMenuToggle = useCallback(() => {
-    setHeaderMenuOpen((prev) => !prev)
-  }, [])
-
-  const closeSortSheet = useCallback(() => {
-    setSortSheetOpen(false)
-  }, [])
-
-  const closeContextSheet = useCallback(() => {
-    setContextSheetOpen(false)
-    setContextSong(null)
-  }, [])
-
-  const clearSearch = useCallback(() => {
-    setSearchQuery('')
-    setDebouncedQuery('')
-  }, [])
-
-  // ════════════════════════════════════════════════════════════
-  // RENDER
-  // ════════════════════════════════════════════════════════════
+  const currentSortLabel = SORT_OPTIONS.find((o) => o.value === musicSort)?.label || 'Name'
 
   return (
-    <div className="flex flex-col min-h-screen bg-[#0D0D0D]">
-      {/* ════════════════════════════════════════════════════════
-          1. HEADER
-          ════════════════════════════════════════════════════════ */}
-      <header className="sticky top-0 z-40 bg-[#0D0D0D] border-b border-[#2D2D44]">
-        <div className="flex items-center justify-between h-14 px-4">
-          {/* Back — 44px touch target */}
-          <button
-            onClick={onBack}
-            className="flex items-center justify-center min-h-[44px] min-w-[44px] rounded-xl active:scale-90 transition-transform duration-150 cursor-pointer"
-            aria-label="Go back"
-          >
-            <ArrowLeft size={22} className="text-white" />
-          </button>
-
-          {/* Title */}
-          <h1 className="text-white font-bold text-lg absolute left-1/2 -translate-x-1/2">
-            Music Player
-          </h1>
-
-          {/* Right actions — 44px touch targets */}
-          <div className="flex items-center gap-1">
-            <button
-              onClick={handleScan}
-              className="flex items-center justify-center min-h-[44px] min-w-[44px] rounded-xl active:scale-90 transition-transform duration-150 cursor-pointer"
-              aria-label="Refresh library"
-              title="Refresh library"
-            >
-              <RefreshCw size={20} className={`text-[#9CA3AF] ${scanning ? 'animate-spin' : ''}`} />
-            </button>
-            <button
-              onClick={handleSearchToggle}
-              className="flex items-center justify-center min-h-[44px] min-w-[44px] rounded-xl active:scale-90 transition-transform duration-150 cursor-pointer"
-              aria-label={searchOpen ? 'Close search' : 'Open search'}
-            >
-              {searchOpen ? (
-                <X size={20} className="text-white" />
-              ) : (
-                <Search size={20} className="text-white" />
-              )}
-            </button>
-            <button
-              onClick={handleHeaderMenuToggle}
-              className="flex items-center justify-center min-h-[44px] min-w-[44px] rounded-xl active:scale-90 transition-transform duration-150 cursor-pointer"
-              aria-label="More options"
-            >
-              <MoreVertical size={20} className="text-white" />
-            </button>
-          </div>
-        </div>
-
-        {/* ════════════════════════════════════════════════════════
-            5. SEARCH OVERLAY — slides down (150ms)
-            ════════════════════════════════════════════════════════ */}
-        <div
-          className={`overflow-hidden transition-all duration-150 ease-out ${
-            searchOpen ? 'max-h-16 opacity-100' : 'max-h-0 opacity-0'
-          }`}
+    <div className="min-h-screen bg-[#0A0A0A] flex flex-col">
+      {/* Header */}
+      <header className="h-14 bg-[#0A0A0A] flex items-center px-1 flex-shrink-0">
+        <button
+          onClick={onBack}
+          className="w-11 h-11 flex items-center justify-center text-white music-btn-press"
+          aria-label="Go back"
         >
-          <div className="px-4 pb-3">
-            <div className="flex items-center gap-2 bg-[#1A1A2E] rounded-xl px-3 h-11 border border-[#2D2D44]">
-              <Search size={16} className="text-[#9CA3AF] flex-shrink-0" />
-              <input
-                ref={searchInputRef}
-                type="text"
-                value={searchQuery}
-                onChange={handleSearchChange}
-                placeholder="Search songs, artists, albums..."
-                className="flex-1 bg-transparent text-white text-sm outline-none placeholder:text-[#9CA3AF]"
-              />
-              {searchQuery && (
-                <button
-                  onClick={clearSearch}
-                  className="flex items-center justify-center min-h-[44px] min-w-[44px] rounded-lg active:scale-90 transition-transform duration-150 cursor-pointer"
-                  aria-label="Clear search"
-                >
-                  <X size={14} className="text-[#9CA3AF]" />
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="15 18 9 12 15 6" />
+          </svg>
+        </button>
+        <h1 className="flex-1 text-center font-bold text-lg text-white">Music Library</h1>
+        <button
+          onClick={() => setShowSearch(!showSearch)}
+          className="w-11 h-11 flex items-center justify-center text-white music-btn-press"
+          aria-label="Search"
+        >
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="11" cy="11" r="8" />
+            <line x1="21" y1="21" x2="16.65" y2="16.65" />
+          </svg>
+        </button>
+        <button
+          onClick={() => setShowSortMenu(!showSortMenu)}
+          className="w-11 h-11 flex items-center justify-center text-white music-btn-press"
+          aria-label="Menu"
+        >
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+            <circle cx="12" cy="5" r="2" />
+            <circle cx="12" cy="12" r="2" />
+            <circle cx="12" cy="19" r="2" />
+          </svg>
+        </button>
       </header>
 
-      {/* ════════════════════════════════════════════════════════
-          HEADER DROPDOWN MENU (3-dot) — pointer-events when closed
-          ════════════════════════════════════════════════════════ */}
-      <div
-        className={`fixed inset-0 z-50 transition-opacity duration-150 ${
-          headerMenuOpen ? 'pointer-events-auto opacity-100' : 'pointer-events-none opacity-0'
-        }`}
-        onClick={() => setHeaderMenuOpen(false)}
-      >
-        <div
-          className="absolute top-14 right-4 w-48 bg-[#1A1A2E] border border-[#2D2D44] rounded-xl overflow-hidden shadow-lg shadow-black/60 animate-slide-up"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <button
-            onClick={() => {
-              handleScan()
-              setHeaderMenuOpen(false)
-            }}
-            className="flex items-center gap-3 w-full px-4 py-3 text-white text-sm active:bg-[#16213E] transition-colors duration-150 min-h-[44px] cursor-pointer"
-          >
-            <Music size={16} className="text-[#7C3AED]" />
-            Scan for Music
-          </button>
-          <button
-            onClick={() => {
-              setSortSheetOpen(true)
-              setHeaderMenuOpen(false)
-            }}
-            className="flex items-center gap-3 w-full px-4 py-3 text-white text-sm active:bg-[#16213E] transition-colors duration-150 min-h-[44px] cursor-pointer"
-          >
-            <SortAsc size={16} className="text-[#06B6D4]" />
-            Sort Library
-          </button>
-          <button
-            onClick={() => {
-              setHeaderMenuOpen(false)
-              if (displayedSongs.length > 0) {
-                const randomSong = displayedSongs[Math.floor(Math.random() * displayedSongs.length)]
-                onSongSelect(randomSong)
-              }
-            }}
-            className="flex items-center gap-3 w-full px-4 py-3 text-white text-sm active:bg-[#16213E] transition-colors duration-150 min-h-[44px] cursor-pointer"
-          >
-            <Shuffle size={16} className="text-[#7C3AED]" />
-            Shuffle All
-          </button>
-        </div>
-      </div>
-
-      {/* ════════════════════════════════════════════════════════
-          2. TAB FILTER ROW (horizontal scroll, hide scrollbar)
-          ════════════════════════════════════════════════════════ */}
-      <div className="sticky top-14 z-30 bg-[#0D0D0D]">
-        <div
-          ref={tabScrollRef}
-          className="flex gap-2 px-4 py-3 overflow-x-auto scrollbar-hide"
-        >
-          {TABS.map((tab) => {
-            const isActive = activeTab === tab.key
-            return (
+      {/* Search bar (slide down) */}
+      {showSearch && (
+        <div className="px-4 pb-3 animate-slide-up">
+          <div className="relative">
+            <svg className="absolute left-3 top-1/2 -translate-y-1/2 text-[#9CA3AF]" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="11" cy="11" r="8" />
+              <line x1="21" y1="21" x2="16.65" y2="16.65" />
+            </svg>
+            <input
+              ref={searchInputRef}
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search songs, artists..."
+              className="w-full h-11 bg-[#141414] border border-[#252525] rounded-xl pl-9 pr-4 text-sm text-white placeholder-[#9CA3AF] focus:outline-none focus:border-[#7C3AED] transition-colors duration-200"
+            />
+            {searchQuery && (
               <button
-                key={tab.key}
-                ref={(el) => {
-                  tabRefs.current[tab.key] = el
-                }}
-                onClick={() => handleTabChange(tab.key)}
-                className={`flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-colors duration-150 active:scale-95 min-h-[44px] cursor-pointer ${
-                  isActive
-                    ? 'bg-[#7C3AED] text-white'
-                    : 'border border-[#2D2D44] text-[#9CA3AF]'
-                }`}
-                aria-pressed={isActive}
+                onClick={() => setSearchQuery('')}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-[#9CA3AF]"
+                aria-label="Clear search"
               >
-                {tab.icon}
-                {tab.label}
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="18" y1="6" x2="6" y2="18" />
+                  <line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
               </button>
-            )
-          })}
-        </div>
-
-        {/* ════════════════════════════════════════════════════════
-            3. SORT BAR
-            ════════════════════════════════════════════════════════ */}
-        <div className="flex items-center justify-between px-4 pb-2">
-          <span className="text-[#9CA3AF] text-xs">
-            {displayedSongs.length} song{displayedSongs.length !== 1 ? 's' : ''}
-          </span>
-          <button
-            onClick={() => setSortSheetOpen(true)}
-            className="flex items-center gap-1 px-3 py-2 rounded-lg bg-[#1A1A2E] border border-[#2D2D44] text-[#9CA3AF] text-xs font-medium active:scale-95 transition-transform duration-150 min-h-[44px] cursor-pointer"
-            aria-label="Sort songs"
-          >
-            <SortAsc size={12} />
-            Sort by: {currentSortLabel}
-            <ChevronDown size={12} />
-          </button>
-        </div>
-      </div>
-
-      {/* ════════════════════════════════════════════════════════
-          4. SONG LIST / 5. SEARCH RESULTS / 6. EMPTY STATE
-          ════════════════════════════════════════════════════════ */}
-      <main className="flex-1 px-4 pb-4">
-        {songs.length === 0 && !scanning ? (
-          /* ════════════════════════════════════════════════════════
-              6. EMPTY STATE — "Scan for Music" button
-              ════════════════════════════════════════════════════════ */
-          <div className="flex flex-col items-center justify-center py-20">
-            <div className="w-20 h-20 rounded-2xl bg-[#1A1A2E] border border-[#2D2D44] flex items-center justify-center mb-5">
-              <Music size={36} className="text-[#7C3AED]" />
-            </div>
-            <p className="text-white font-bold text-lg mb-1">No Music Found</p>
-            <p className="text-[#9CA3AF] text-sm text-center px-8 mb-6">
-              Scan your device for music files to get started
-            </p>
-            <button
-              onClick={handleScan}
-              className="flex items-center gap-2 px-8 py-3 rounded-xl bg-[#7C3AED] text-white text-sm font-semibold active:scale-95 transition-transform duration-150 min-h-[44px] cursor-pointer"
-            >
-              <Music size={16} />
-              Scan for Music
-            </button>
+            )}
           </div>
-        ) : scanning ? (
-          /* Scanning spinner state */
-          <div className="flex flex-col items-center justify-center py-20">
-            <Loader2 size={40} className="text-[#7C3AED] animate-spin mb-4" />
-            <p className="text-white font-semibold text-base mb-1">Scanning...</p>
-            <p className="text-[#9CA3AF] text-sm">Looking for music files on your device</p>
-          </div>
-        ) : displayedSongs.length === 0 ? (
-          /* Search / filter empty state */
-          <div className="flex flex-col items-center justify-center py-20">
-            <div className="w-16 h-16 rounded-2xl bg-[#1A1A2E] border border-[#2D2D44] flex items-center justify-center mb-4">
-              <Search size={28} className="text-[#9CA3AF]" />
-            </div>
-            <p className="text-white font-semibold text-base mb-1">No Results</p>
-            <p className="text-[#9CA3AF] text-sm text-center px-8">
-              {debouncedQuery
-                ? `No songs matching "${debouncedQuery}"`
-                : 'No songs in this category'}
-            </p>
-          </div>
-        ) : (
-          /* ════════════════════════════════════════════════════════
-              4. SONG LIST — content-visibility: auto · 64px rows · onClick on entire row
-              ════════════════════════════════════════════════════════ */
-          <div className="max-h-[calc(100vh-220px)] overflow-y-auto">
-            <div className="space-y-1">
-              {displayedSongs.map((song) => (
-                <div
-                  key={song.id}
-                  className="flex items-center gap-3 px-4 min-h-[64px] rounded-xl active:bg-[#1A1A2E] transition-colors duration-150 cursor-pointer"
-                  style={{
-                    contentVisibility: 'auto',
-                    containIntrinsicSize: '0 64px',
-                  }}
-                  onClick={() => handleSongRowTap(song)}
-                  role="button"
-                  tabIndex={0}
-                  aria-label={`Play ${song.name} by ${song.artist}`}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      e.preventDefault()
-                      handleSongRowTap(song)
-                    }
-                  }}
-                >
-                  {/* LEFT: Album art (48x48 rounded-lg) or gradient fallback */}
-                  <div className="w-12 h-12 rounded-lg flex-shrink-0 overflow-hidden">
-                    {song.cover ? (
-                      <img
-                        src={song.cover}
-                        alt={`${song.album} artwork`}
-                        className="w-full h-full object-cover"
-                        loading="lazy"
-                      />
-                    ) : (
-                      <div className="w-full h-full bg-gradient-to-br from-[#7C3AED] to-[#16213E] flex items-center justify-center">
-                        <Music size={20} className="text-white/70" />
-                      </div>
-                    )}
-                  </div>
-
-                  {/* CENTER: Song title + Artist */}
-                  <div className="flex-1 min-w-0">
-                    <p className="text-white font-medium text-sm truncate leading-tight">
-                      {song.name}
-                    </p>
-                    <p className="text-[#9CA3AF] text-xs truncate mt-0.5 leading-tight">
-                      {song.artist}
-                    </p>
-                  </div>
-
-                  {/* RIGHT: Duration + 3-dot menu (44x44 touch target) */}
-                  <div className="flex items-center gap-1 flex-shrink-0">
-                    {song.duration > 0 && (
-                      <span className="text-[#9CA3AF] text-xs tabular-nums">
-                        {formatDuration(song.duration)}
-                      </span>
-                    )}
-                    <button
-                      onClick={(e) => handleContextMenuOpen(song, e)}
-                      className="flex items-center justify-center min-h-[44px] min-w-[44px] rounded-lg active:scale-90 transition-transform duration-150 cursor-pointer"
-                      aria-label={`More options for ${song.name}`}
-                    >
-                      <MoreVertical size={16} className="text-[#9CA3AF]" />
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-      </main>
-
-      {/* ════════════════════════════════════════════════════════
-          3. SORT BOTTOM SHEET — pointer-events when closed
-          ════════════════════════════════════════════════════════ */}
-      <div
-        className={`fixed inset-0 z-50 flex items-end justify-center transition-opacity duration-150 ${
-          sortSheetOpen ? 'pointer-events-auto opacity-100' : 'pointer-events-none opacity-0'
-        }`}
-        onClick={closeSortSheet}
-      >
-        {/* Backdrop */}
-        <div className="absolute inset-0 bg-black/60" />
-
-        {/* Slide-up panel */}
-        <div
-          className="relative w-full max-w-lg bg-[#1A1A2E] border-t border-[#2D2D44] rounded-t-2xl animate-slide-up"
-          onClick={(e) => e.stopPropagation()}
-        >
-          {/* Handle */}
-          <div className="flex justify-center pt-3 pb-2">
-            <div className="w-10 h-1 rounded-full bg-[#2D2D44]" />
-          </div>
-
-          <h3 className="text-white font-semibold text-base px-5 pb-3">Sort by</h3>
-
-          <div className="pb-6">
-            {SORT_OPTIONS.map((option) => {
-              const isActive = musicSort === option.key
-              return (
-                <button
-                  key={option.key}
-                  onClick={() => handleSortSelect(option.key)}
-                  className={`flex items-center justify-between w-full px-5 py-3.5 text-sm font-medium transition-colors duration-150 active:bg-[#16213E] min-h-[44px] cursor-pointer ${
-                    isActive ? 'text-[#7C3AED]' : 'text-[#9CA3AF]'
-                  }`}
-                >
-                  <span>{option.label}</span>
-                  {isActive && (
-                    <div className="w-2 h-2 rounded-full bg-[#7C3AED]" />
-                  )}
-                </button>
-              )
-            })}
-          </div>
-        </div>
-      </div>
-
-      {/* ════════════════════════════════════════════════════════
-          TOAST NOTIFICATION — library updated
-          ════════════════════════════════════════════════════════ */}
-      {showToast && toastMsg && (
-        <div className="fixed bottom-20 left-1/2 -translate-x-1/2 z-[60] px-4 py-2.5 bg-[#1A1A2E] border border-[#7C3AED] rounded-xl shadow-lg shadow-black/60 text-white text-sm font-medium animate-slide-up">
-          {toastMsg}
         </div>
       )}
 
-      {/* ════════════════════════════════════════════════════════
-          4. SONG CONTEXT MENU BOTTOM SHEET — pointer-events when closed
-          ════════════════════════════════════════════════════════ */}
-      <div
-        className={`fixed inset-0 z-50 flex items-end justify-center transition-opacity duration-150 ${
-          contextSheetOpen && contextSong ? 'pointer-events-auto opacity-100' : 'pointer-events-none opacity-0'
-        }`}
-        onClick={closeContextSheet}
-      >
-        {/* Backdrop */}
-        <div className="absolute inset-0 bg-black/60" />
+      {/* Tab row */}
+      <div className="px-4 pb-2 flex-shrink-0">
+        <div className="flex gap-2 overflow-x-auto scrollbar-hide py-1">
+          {TABS.map((tab) => (
+            <button
+              key={tab.key}
+              onClick={() => setActiveTab(tab.key)}
+              className={`flex-shrink-0 px-4 py-2 rounded-full text-sm font-medium transition-colors duration-200 ${
+                activeTab === tab.key
+                  ? 'bg-[#7C3AED] text-white'
+                  : 'border border-[#252525] text-[#9CA3AF] hover:text-white'
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+      </div>
 
-        {/* Slide-up panel */}
-        <div
-          className="relative w-full max-w-lg bg-[#1A1A2E] border-t border-[#2D2D44] rounded-t-2xl animate-slide-up"
-          onClick={(e) => e.stopPropagation()}
-        >
-          {/* Handle */}
-          <div className="flex justify-center pt-3 pb-2">
-            <div className="w-10 h-1 rounded-full bg-[#2D2D44]" />
+      {/* Sort + View row */}
+      <div className="px-4 pb-2 flex items-center justify-between flex-shrink-0">
+        <div className="relative">
+          <button
+            onClick={() => setShowSortMenu(!showSortMenu)}
+            className="flex items-center gap-1 text-xs text-[#9CA3AF] h-9 px-2 rounded-lg hover:bg-[#141414] transition-colors duration-200"
+          >
+            <span>Sort by: {currentSortLabel}</span>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M7 10l5 5 5-5z" />
+            </svg>
+          </button>
+          {showSortMenu && (
+            <div className="absolute top-9 left-0 bg-[#1A1A1A] border border-[#252525] rounded-xl py-1 z-30 min-w-[160px] animate-slide-up">
+              {SORT_OPTIONS.map((opt) => (
+                <button
+                  key={opt.value}
+                  onClick={() => {
+                    setMusicSort(opt.value)
+                    setShowSortMenu(false)
+                  }}
+                  className={`w-full text-left px-4 py-2.5 text-sm transition-colors duration-200 ${
+                    musicSort === opt.value
+                      ? 'text-[#7C3AED] bg-[#7C3AED]/10'
+                      : 'text-[#9CA3AF] hover:text-white hover:bg-[#252525]'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => setViewMode('list')}
+            className={`w-9 h-9 flex items-center justify-center rounded-lg transition-colors duration-200 ${
+              viewMode === 'list' ? 'text-[#7C3AED] bg-[#7C3AED]/10' : 'text-[#9CA3AF]'
+            }`}
+            aria-label="List view"
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+              <rect x="3" y="4" width="18" height="2" rx="1" />
+              <rect x="3" y="11" width="18" height="2" rx="1" />
+              <rect x="3" y="18" width="18" height="2" rx="1" />
+            </svg>
+          </button>
+          <button
+            onClick={() => setViewMode('grid')}
+            className={`w-9 h-9 flex items-center justify-center rounded-lg transition-colors duration-200 ${
+              viewMode === 'grid' ? 'text-[#7C3AED] bg-[#7C3AED]/10' : 'text-[#9CA3AF]'
+            }`}
+            aria-label="Grid view"
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+              <rect x="3" y="3" width="8" height="8" rx="2" />
+              <rect x="13" y="3" width="8" height="8" rx="2" />
+              <rect x="3" y="13" width="8" height="8" rx="2" />
+              <rect x="13" y="13" width="8" height="8" rx="2" />
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      {/* Content area */}
+      <div className="flex-1 overflow-y-auto">
+        {/* Scanning indicator */}
+        {scanning && (
+          <div className="px-4 py-3">
+            <div className="flex items-center gap-2 text-[#9CA3AF] text-sm">
+              <svg className="animate-spin" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M21 12a9 9 0 11-6.219-8.56" />
+              </svg>
+              <span>Scanning music files...</span>
+            </div>
           </div>
+        )}
 
-          {/* Song preview in sheet header */}
-          <div className="flex items-center gap-3 px-5 pb-4 border-b border-[#2D2D44]">
-            <div className="w-10 h-10 rounded-lg flex-shrink-0 overflow-hidden">
-              {contextSong?.cover ? (
-                <img
-                  src={contextSong.cover}
-                  alt={`${contextSong.album} artwork`}
-                  className="w-full h-full object-cover"
-                />
-              ) : (
-                <div className="w-full h-full bg-gradient-to-br from-[#7C3AED] to-[#16213E] flex items-center justify-center">
-                  <Music size={16} className="text-white/70" />
+        {/* Songs Tab */}
+        {activeTab === 'songs' && (
+          <>
+            {filteredSongs.length === 0 && !scanning && (
+              <div className="flex flex-col items-center justify-center py-20 text-[#9CA3AF]">
+                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="mb-3 opacity-50">
+                  <path d="M9 18V5l12-2v13" />
+                  <circle cx="6" cy="18" r="3" />
+                  <circle cx="18" cy="16" r="3" />
+                </svg>
+                <p className="text-sm">
+                  {debouncedQuery ? 'No songs found' : 'No music files found'}
+                </p>
+                {!debouncedQuery && (
+                  <button
+                    onClick={() => scanMusicFiles(true)}
+                    className="mt-3 px-4 py-2 bg-[#7C3AED] text-white text-sm rounded-full music-btn-press"
+                  >
+                    Scan Again
+                  </button>
+                )}
+              </div>
+            )}
+            {viewMode === 'list' ? (
+              <SongList
+                songs={filteredSongs}
+                currentSong={currentSong}
+                isPlaying={isPlaying}
+                onPlay={handlePlaySong}
+                onOptions={(song) => {
+                  setSelectedSong(song)
+                  setShowOptions(true)
+                }}
+              />
+            ) : (
+              <SongGrid
+                songs={filteredSongs}
+                currentSong={currentSong}
+                isPlaying={isPlaying}
+                onPlay={handlePlaySong}
+                onOptions={(song) => {
+                  setSelectedSong(song)
+                  setShowOptions(true)
+                }}
+              />
+            )}
+          </>
+        )}
+
+        {/* Albums Tab */}
+        {activeTab === 'albums' && (
+          <div className="px-4 pb-4 grid grid-cols-2 gap-3">
+            {albums.map((album) => (
+              <button
+                key={album.name}
+                onClick={() => {
+                  if (album.songs.length > 0) {
+                    setPlaylist(album.songs, 0)
+                    onSongSelect(album.songs[0])
+                  }
+                }}
+                className="text-left focus:outline-none music-btn-press"
+              >
+                <div className="aspect-square rounded-xl overflow-hidden bg-gradient-to-br from-[#1A0A3E] to-[#0A1A3E] mb-2">
+                  {album.cover ? (
+                    <img
+                      src={album.cover}
+                      alt={album.name}
+                      className="w-full h-full object-cover"
+                      loading="lazy"
+                    />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center">
+                      <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#7C3AED" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                        <rect x="3" y="3" width="18" height="18" rx="2" />
+                        <circle cx="12" cy="13" r="4" />
+                        <path d="M9 3v3" />
+                        <path d="M15 3v3" />
+                      </svg>
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-white font-medium text-sm truncate">{contextSong?.name}</p>
-              <p className="text-[#9CA3AF] text-xs truncate">{contextSong?.artist}</p>
-            </div>
-            {contextSong && contextSong.duration > 0 && (
-              <span className="text-[#9CA3AF] text-xs flex-shrink-0">
-                {formatDuration(contextSong.duration)}
-              </span>
+                <p className="text-sm font-medium text-white truncate">{album.name}</p>
+                <p className="text-xs text-[#9CA3AF]">{album.songs.length} song{album.songs.length !== 1 ? 's' : ''}</p>
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* Artists Tab */}
+        {activeTab === 'artists' && (
+          <div className="px-4 pb-4">
+            {artists.map((artist) => (
+              <button
+                key={artist.name}
+                onClick={() => {
+                  if (artist.songs.length > 0) {
+                    setPlaylist(artist.songs, 0)
+                    onSongSelect(artist.songs[0])
+                  }
+                }}
+                className="w-full flex items-center gap-3 min-h-[56px] px-2 py-2 hover:bg-[#141414] active:bg-[#141414] transition-colors duration-200 rounded-lg focus:outline-none"
+              >
+                <div
+                  className="w-11 h-11 rounded-full flex items-center justify-center flex-shrink-0"
+                  style={{
+                    background: `linear-gradient(135deg, #7C3AED, #06B6D4)`,
+                  }}
+                >
+                  <span className="text-white font-bold text-sm">
+                    {artist.name.charAt(0).toUpperCase()}
+                  </span>
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium text-white truncate">{artist.name}</p>
+                  <p className="text-xs text-[#9CA3AF]">
+                    {artist.songs.length} song{artist.songs.length !== 1 ? 's' : ''}
+                  </p>
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* Folders Tab */}
+        {activeTab === 'folders' && (
+          <div className="px-4 pb-4">
+            {folders.map((folder) => (
+              <button
+                key={folder.path}
+                onClick={() => {
+                  const folderSongs = filteredSongs.filter((s) =>
+                    s.path.startsWith(folder.path + '/')
+                  )
+                  if (folderSongs.length > 0) {
+                    setPlaylist(folderSongs, 0)
+                    onSongSelect(folderSongs[0])
+                  }
+                }}
+                className="w-full flex items-center gap-3 min-h-[56px] px-2 py-2 hover:bg-[#141414] active:bg-[#141414] transition-colors duration-200 rounded-lg focus:outline-none"
+              >
+                <div className="w-11 h-11 rounded-xl bg-[#1A1A1A] flex items-center justify-center flex-shrink-0">
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="#7C3AED">
+                    <path d="M10 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z" />
+                  </svg>
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium text-white truncate">{folder.name}</p>
+                  <p className="text-xs text-[#9CA3AF]">
+                    {folder.count} song{folder.count !== 1 ? 's' : ''}
+                  </p>
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* Recent Tab */}
+        {activeTab === 'recent' && (
+          <>
+            {recentSongs.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-20 text-[#9CA3AF]">
+                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="mb-3 opacity-50">
+                  <circle cx="12" cy="12" r="10" />
+                  <polyline points="12 6 12 12 16 14" />
+                </svg>
+                <p className="text-sm">No recently played songs</p>
+              </div>
+            ) : (
+              <SongList
+                songs={recentSongs}
+                currentSong={currentSong}
+                isPlaying={isPlaying}
+                onPlay={handlePlaySong}
+                onOptions={(song) => {
+                  setSelectedSong(song)
+                  setShowOptions(true)
+                }}
+              />
+            )}
+          </>
+        )}
+      </div>
+
+      {/* Click-away for sort menu */}
+      {showSortMenu && (
+        <div
+          className="fixed inset-0 z-20"
+          onClick={() => setShowSortMenu(false)}
+        />
+      )}
+
+      {/* Song Options Bottom Sheet */}
+      {showOptions && selectedSong && (
+        <OptionsSheet
+          song={selectedSong}
+          onAction={handleSongOption}
+          onClose={() => {
+            setShowOptions(false)
+            setSelectedSong(null)
+          }}
+        />
+      )}
+    </div>
+  )
+}
+
+// ── Song List View ──────────────────────────────────────────────
+function SongList({
+  songs,
+  currentSong,
+  isPlaying,
+  onPlay,
+  onOptions,
+}: {
+  songs: Song[]
+  currentSong: Song | null
+  isPlaying: boolean
+  onPlay: (song: Song) => void
+  onOptions: (song: Song) => void
+}) {
+  return (
+    <div className="pb-4">
+      {songs.map((song) => {
+        const isActive = currentSong?.id === song.id
+        return (
+          <div
+            key={song.id}
+            className={`flex items-center gap-3 min-h-[64px] px-4 transition-colors duration-100 ${
+              isActive ? 'bg-[#141414]' : 'hover:bg-[#141414]'
+            }`}
+            style={{ contentVisibility: 'auto' }}
+          >
+            <button
+              onClick={() => onPlay(song)}
+              className="flex items-center gap-3 flex-1 min-w-0 min-h-[64px] focus:outline-none"
+            >
+              {/* Icon */}
+              <div className="w-12 h-12 rounded-xl flex-shrink-0 overflow-hidden bg-gradient-to-br from-[#1A0A3E] to-[#0A1A3E]">
+                {song.cover ? (
+                  <img
+                    src={song.cover}
+                    alt={song.name}
+                    className="w-full h-full object-cover"
+                    loading="lazy"
+                  />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center">
+                    {isActive && isPlaying ? (
+                      <EqualizerBars isPlaying={true} className="scale-75" />
+                    ) : (
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#7C3AED" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M9 18V5l12-2v13" />
+                        <circle cx="6" cy="18" r="3" />
+                        <circle cx="18" cy="16" r="3" />
+                      </svg>
+                    )}
+                  </div>
+                )}
+              </div>
+              {/* Info */}
+              <div className="min-w-0 flex-1">
+                <p className={`text-sm font-medium truncate ${isActive ? 'text-[#7C3AED]' : 'text-white'}`}>
+                  {stripExtension(song.name)}
+                </p>
+                <p className="text-xs text-[#9CA3AF] truncate">
+                  {song.artist || 'Unknown Artist'} &bull; {formatDuration(song.duration)} &bull; {formatFileSize(song.size)}
+                </p>
+              </div>
+            </button>
+            {/* Options button */}
+            <button
+              onClick={() => onOptions(song)}
+              className="w-11 h-11 flex items-center justify-center text-[#9CA3AF] music-btn-press"
+              aria-label="Song options"
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                <circle cx="12" cy="5" r="2" />
+                <circle cx="12" cy="12" r="2" />
+                <circle cx="12" cy="19" r="2" />
+              </svg>
+            </button>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+// ── Song Grid View ──────────────────────────────────────────────
+function SongGrid({
+  songs,
+  currentSong,
+  isPlaying,
+  onPlay,
+  onOptions,
+}: {
+  songs: Song[]
+  currentSong: Song | null
+  isPlaying: boolean
+  onPlay: (song: Song) => void
+  onOptions: (song: Song) => void
+}) {
+  return (
+    <div className="px-4 pb-4 grid grid-cols-2 gap-3">
+      {songs.map((song) => {
+        const isActive = currentSong?.id === song.id
+        return (
+          <div key={song.id} className="relative" style={{ contentVisibility: 'auto' }}>
+            <button
+              onClick={() => onPlay(song)}
+              className="w-full text-left focus:outline-none music-btn-press"
+            >
+              <div className="aspect-square rounded-xl overflow-hidden bg-gradient-to-br from-[#1A0A3E] to-[#0A1A3E] mb-2">
+                {song.cover ? (
+                  <img
+                    src={song.cover}
+                    alt={song.name}
+                    className="w-full h-full object-cover"
+                    loading="lazy"
+                  />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center">
+                    {isActive && isPlaying ? (
+                      <EqualizerBars isPlaying={true} />
+                    ) : (
+                      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#7C3AED" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M9 18V5l12-2v13" />
+                        <circle cx="6" cy="18" r="3" />
+                        <circle cx="18" cy="16" r="3" />
+                      </svg>
+                    )}
+                  </div>
+                )}
+              </div>
+              <p className={`text-xs font-medium truncate ${isActive ? 'text-[#7C3AED]' : 'text-white'}`}>
+                {stripExtension(song.name)}
+              </p>
+              <p className="text-[10px] text-[#9CA3AF] truncate">{song.artist || 'Unknown Artist'}</p>
+            </button>
+            <button
+              onClick={() => onOptions(song)}
+              className="absolute top-2 right-2 w-8 h-8 flex items-center justify-center rounded-full bg-[#0A0A0A]/60 text-[#9CA3AF]"
+              aria-label="Song options"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                <circle cx="12" cy="5" r="2" />
+                <circle cx="12" cy="12" r="2" />
+                <circle cx="12" cy="19" r="2" />
+              </svg>
+            </button>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+// ── Options Bottom Sheet ────────────────────────────────────────
+function OptionsSheet({
+  song,
+  onAction,
+  onClose,
+}: {
+  song: Song
+  onAction: (action: string) => void
+  onClose: () => void
+}) {
+  const options = [
+    { key: 'play', label: 'Play Now', icon: PlayIcon },
+    { key: 'playNext', label: 'Play Next', icon: PlayNextIcon },
+    { key: 'addToQueue', label: 'Add to Queue', icon: QueueIcon },
+    { key: 'favorite', label: 'Add to Favorites', icon: HeartIcon },
+    { key: 'info', label: 'Song Info', icon: InfoIcon },
+    { key: 'share', label: 'Share', icon: ShareIcon },
+  ]
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center" onClick={onClose}>
+      {/* Backdrop */}
+      <div className="absolute inset-0 bg-black/60" />
+
+      {/* Sheet */}
+      <div
+        className="relative w-full max-w-lg bg-[#141414] rounded-t-2xl animate-slide-up"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Drag handle */}
+        <div className="flex justify-center pt-3 pb-2">
+          <div className="w-10 h-1 rounded-full bg-[#333333]" />
+        </div>
+
+        {/* Song info header */}
+        <div className="flex items-center gap-3 px-4 pb-4 border-b border-[#252525]">
+          <div className="w-12 h-12 rounded-xl overflow-hidden bg-gradient-to-br from-[#1A0A3E] to-[#0A1A3E] flex-shrink-0">
+            {song.cover ? (
+              <img src={song.cover} alt={song.name} className="w-full h-full object-cover" />
+            ) : (
+              <div className="w-full h-full flex items-center justify-center">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#7C3AED" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M9 18V5l12-2v13" />
+                  <circle cx="6" cy="18" r="3" />
+                  <circle cx="18" cy="16" r="3" />
+                </svg>
+              </div>
             )}
           </div>
-
-          {/* Actions: Play Next / Add to Playlist / Add to Favorites / Song Info / Share / Delete */}
-          <div className="pb-6 max-h-96 overflow-y-auto">
-            {CONTEXT_ACTIONS.map((action) => {
-              const isFavAction = action.id === 'addToFavorites'
-              const isFavorited = isFavAction && contextSong ? favorites.has(contextSong.id) : false
-              return (
-                <button
-                  key={action.id}
-                  onClick={() => handleContextAction(action.id)}
-                  className="flex items-center gap-4 w-full px-5 py-3.5 text-sm font-medium active:bg-[#16213E] transition-colors duration-150 min-h-[44px] cursor-pointer"
-                >
-                  <span className={isFavorited ? 'text-red-400' : action.color}>
-                    {isFavorited ? (
-                      <Heart size={18} className="fill-current text-red-400" />
-                    ) : (
-                      action.icon
-                    )}
-                  </span>
-                  <span className={isFavorited ? 'text-red-400' : 'text-white'}>
-                    {isFavorited ? 'Remove from Favorites' : action.label}
-                  </span>
-                </button>
-              )
-            })}
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-medium text-white truncate">{stripExtension(song.name)}</p>
+            <p className="text-xs text-[#9CA3AF] truncate">{song.artist || 'Unknown Artist'}</p>
           </div>
+        </div>
+
+        {/* Options */}
+        <div className="py-2 pb-6">
+          {options.map((opt) => (
+            <button
+              key={opt.key}
+              onClick={() => onAction(opt.key)}
+              className="w-full flex items-center gap-4 px-4 py-3 hover:bg-[#1F1F1F] active:bg-[#252525] transition-colors duration-200 focus:outline-none"
+            >
+              <opt.icon />
+              <span className="text-sm text-white">{opt.label}</span>
+            </button>
+          ))}
         </div>
       </div>
     </div>
+  )
+}
+
+// ── Icon Components ─────────────────────────────────────────────
+
+function PlayIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="#9CA3AF">
+      <path d="M8 5v14l11-7z" />
+    </svg>
+  )
+}
+
+function PlayNextIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#9CA3AF" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <line x1="3" y1="12" x2="21" y2="12" />
+      <polyline points="15 6 21 12 15 18" />
+    </svg>
+  )
+}
+
+function QueueIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#9CA3AF" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <line x1="8" y1="6" x2="21" y2="6" />
+      <line x1="8" y1="12" x2="21" y2="12" />
+      <line x1="8" y1="18" x2="21" y2="18" />
+      <line x1="3" y1="6" x2="3.01" y2="6" />
+      <line x1="3" y1="12" x2="3.01" y2="12" />
+      <line x1="3" y1="18" x2="3.01" y2="18" />
+    </svg>
+  )
+}
+
+function HeartIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#9CA3AF" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z" />
+    </svg>
+  )
+}
+
+function InfoIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#9CA3AF" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="10" />
+      <line x1="12" y1="16" x2="12" y2="12" />
+      <line x1="12" y1="8" x2="12.01" y2="8" />
+    </svg>
+  )
+}
+
+function ShareIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#9CA3AF" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="18" cy="5" r="3" />
+      <circle cx="6" cy="12" r="3" />
+      <circle cx="18" cy="19" r="3" />
+      <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
+      <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
+    </svg>
   )
 }

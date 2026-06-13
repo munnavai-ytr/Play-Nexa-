@@ -1,13 +1,15 @@
-// ── Play Nexa Movie Card — Supabase-Powered ───────────────────
-// Movie card for the Movie Hub (online streaming from Supabase)
-// Channel badge with colored style from channel_display table
-// Lazy-loaded thumbnails, duration badge, 44px touch targets
-// No backdrop-blur, no styled-jsx, no download buttons
+// ── Play Nexa Movie Card ─────────────────────────────────────
+// 16:9 thumbnail with channel badge, duration, play overlay
+// Channel badge: top-left with border_color and badge_color
+// Duration: bottom-right
+// Play overlay: center 50px semi-transparent
+// AMOLED dark theme, 44px touch targets, no backdrop-blur
 
 'use client'
 
 import Image from 'next/image'
 import { useState, useCallback } from 'react'
+import { formatCount } from '@/lib/types'
 
 // ── Movie interface (matches Supabase movies table) ──
 
@@ -20,6 +22,9 @@ export interface Movie {
   channel_id: string
   published_at: string | null
   view_count: number
+  like_count: number
+  save_count: number
+  watch_count: number
   description: string | null
   duration: string | null
   is_hidden: boolean
@@ -35,10 +40,12 @@ export interface ChannelDisplay {
   channel_id: string
   display_name: string
   logo_url: string | null
+  avatar_url: string | null
   badge_color: string
   border_color: string
   is_visible: boolean
   sort_order: number
+  channel_type: string
   yt_channels?: {
     channel_id: string
     channel_name: string
@@ -46,19 +53,7 @@ export interface ChannelDisplay {
   }
 }
 
-const DEFAULT_BADGE_COLOR = '#9CA3AF'
-const DEFAULT_BORDER_COLOR = '#2D2D2D'
-
-// ── Utility: format view count (e.g., 1.2M, 340K) ──
-
-export function formatViewCount(count: number): string {
-  if (count >= 1_000_000_000) return (count / 1_000_000_000).toFixed(1).replace(/\.0$/, '') + 'B'
-  if (count >= 1_000_000) return (count / 1_000_000).toFixed(1).replace(/\.0$/, '') + 'M'
-  if (count >= 1_000) return (count / 1_000).toFixed(1).replace(/\.0$/, '') + 'K'
-  return count.toString()
-}
-
-// ── Utility: format relative time (e.g., "2 hours ago") ──
+// ── Utility: format relative time ──
 
 export function formatTimeAgo(dateStr: string): string {
   try {
@@ -66,7 +61,6 @@ export function formatTimeAgo(dateStr: string): string {
     const now = Date.now()
     const diffMs = now - date.getTime()
     if (diffMs < 0) return 'just now'
-
     const seconds = Math.floor(diffMs / 1000)
     const minutes = Math.floor(seconds / 60)
     const hours = Math.floor(minutes / 60)
@@ -74,7 +68,6 @@ export function formatTimeAgo(dateStr: string): string {
     const weeks = Math.floor(days / 7)
     const months = Math.floor(days / 30)
     const years = Math.floor(days / 365)
-
     if (years > 0) return years === 1 ? '1 year ago' : `${years} years ago`
     if (months > 0) return months === 1 ? '1 month ago' : `${months} months ago`
     if (weeks > 0) return weeks === 1 ? '1 week ago' : `${weeks} weeks ago`
@@ -102,8 +95,9 @@ interface MovieCardProps {
 export default function MovieCard({ movie, channelDisplay, onTap }: MovieCardProps) {
   const [imgReady, setImgReady] = useState(false)
 
-  const badgeColor = channelDisplay?.badge_color || DEFAULT_BADGE_COLOR
-  const borderColor = channelDisplay?.border_color || DEFAULT_BORDER_COLOR
+  const badgeColor = channelDisplay?.badge_color || '#9CA3AF'
+  const borderColor = channelDisplay?.border_color || '#2D2D2D'
+  const thumbSrc = movie.thumbnail || `https://i.ytimg.com/vi/${movie.youtube_id}/mqdefault.jpg`
 
   const handleError = useCallback((e: React.SyntheticEvent<HTMLImageElement>) => {
     e.currentTarget.src = `https://i.ytimg.com/vi/${movie.youtube_id}/mqdefault.jpg`
@@ -115,15 +109,15 @@ export default function MovieCard({ movie, channelDisplay, onTap }: MovieCardPro
       role="button"
       tabIndex={0}
       onKeyDown={(e) => { if (e.key === 'Enter') onTap() }}
-      className="group cursor-pointer active:scale-[0.97] transition-transform duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#7C3AED] rounded-xl"
+      className="group cursor-pointer active:scale-[0.97] transition-transform duration-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#7C3AED] rounded-xl"
     >
-      {/* ── THUMBNAIL ── */}
+      {/* ── THUMBNAIL (16:9) ── */}
       <div className="relative aspect-video rounded-xl overflow-hidden bg-[#1A1A1A]">
         <Image
-          src={movie.thumbnail || `https://i.ytimg.com/vi/${movie.youtube_id}/mqdefault.jpg`}
+          src={thumbSrc}
           alt={movie.title}
           fill
-          className={`object-cover transition-opacity duration-300 ${imgReady ? 'opacity-100' : 'opacity-0'}`}
+          className={`object-cover transition-opacity duration-200 ${imgReady ? 'opacity-100' : 'opacity-0'}`}
           sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"
           loading="lazy"
           unoptimized
@@ -131,25 +125,16 @@ export default function MovieCard({ movie, channelDisplay, onTap }: MovieCardPro
           onError={handleError}
         />
 
-        {/* Skeleton shimmer while image loads */}
+        {/* Shimmer while loading */}
         {!imgReady && (
           <div className="absolute inset-0 overflow-hidden">
             <div className="absolute inset-0 -translate-x-full animate-[shimmer_1.5s_ease-in-out_infinite] bg-gradient-to-r from-transparent via-white/5 to-transparent" />
           </div>
         )}
 
-        {/* Play icon overlay */}
-        <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 group-active:opacity-100 transition-opacity duration-200 bg-black/30">
-          <div className="w-12 h-12 rounded-full bg-[#7C3AED]/90 flex items-center justify-center">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="white">
-              <path d="M8 5v14l11-7z" />
-            </svg>
-          </div>
-        </div>
-
-        {/* Channel badge — top-left */}
+        {/* Channel badge — absolute top-2 left-2 */}
         <span
-          className="absolute top-2 left-2 text-[9px] font-bold rounded-full px-2 py-0.5"
+          className="absolute top-2 left-2 text-[9px] font-bold rounded-full px-2 py-0.5 flex items-center gap-1 max-w-[80%] truncate"
           style={{
             backgroundColor: 'rgba(0,0,0,0.8)',
             border: `1px solid ${borderColor}`,
@@ -159,12 +144,21 @@ export default function MovieCard({ movie, channelDisplay, onTap }: MovieCardPro
           {channelDisplay?.display_name || movie.channel_name}
         </span>
 
-        {/* Duration badge — bottom-right */}
+        {/* Duration — absolute bottom-2 right-2 */}
         {movie.duration && (
-          <span className="absolute bottom-2 right-2 bg-black/80 text-white text-[10px] font-medium rounded px-1.5 py-0.5">
+          <span className="absolute bottom-2 right-2 text-white text-[10px] font-medium rounded px-1.5 py-0.5" style={{ backgroundColor: 'rgba(0,0,0,0.8)' }}>
             {movie.duration}
           </span>
         )}
+
+        {/* Play overlay — center circle 50px */}
+        <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 group-active:opacity-100 transition-opacity duration-200 bg-black/30">
+          <div className="w-[50px] h-[50px] rounded-full flex items-center justify-center" style={{ backgroundColor: 'rgba(124,58,237,0.9)' }}>
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="white">
+              <path d="M8 5v14l11-7z" />
+            </svg>
+          </div>
+        </div>
       </div>
 
       {/* ── INFO SECTION ── */}
@@ -179,13 +173,13 @@ export default function MovieCard({ movie, channelDisplay, onTap }: MovieCardPro
           {movie.channel_name}
         </p>
 
-        {/* Meta: views + date */}
+        {/* Views + Date */}
         <div className="flex items-center gap-1 text-[11px] text-[#9CA3AF] flex-wrap">
           {movie.view_count > 0 && (
-            <span>{formatViewCount(movie.view_count)} views</span>
+            <span>{formatCount(movie.view_count)} views</span>
           )}
           {movie.view_count > 0 && movie.published_at && (
-            <span className="text-[#2D2D2D]">·</span>
+            <span>·</span>
           )}
           {movie.published_at && (
             <span>{formatTimeAgo(movie.published_at)}</span>

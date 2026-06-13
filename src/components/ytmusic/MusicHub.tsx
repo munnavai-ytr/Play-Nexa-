@@ -1,439 +1,306 @@
 // ── Play Nexa YT Music Hub — Supabase-Powered ──────────────
 // ONLINE music streaming from Supabase music_tracks table
-// NOT related to Music Library (offline) — completely separate
-// Channel filter chips from channel_display table (joined with yt_channels)
-// Search, infinite scroll, content-visibility optimization
-// AMOLED dark theme, 44px touch targets
-// No backdrop-blur, no styled-jsx, no download buttons
+// Dynamic greeting, mood chips, quick picks, recently played,
+// top channels, new releases, recommended, always-visible search
+// AMOLED dark theme, 44px touch targets, no backdrop-blur
 
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { supabase } from '@/lib/supabaseAdmin'
-import TrackCard, { type MusicTrack, type ChannelDisplay } from './TrackCard'
-import MusicModal from './MusicModal'
+import { supabase } from '@/lib/supabase'
+import { lsGet, lsSet } from '@/lib/mediaUtils'
+import { formatCount } from '@/lib/types'
+import TrackCard, { type MusicTrack, type ChannelDisplay, formatTimeAgo } from './TrackCard'
 
-// ── Constants ──
+// ── Mood chips config ──
 
-const PAGE_SIZE = 20
+const MOOD_CHIPS = [
+  { key: 'Hot', icon: '🔥', filter: 'hot' },
+  { key: 'New', icon: '🆕', filter: 'new' },
+  { key: 'Bangla', icon: '🇧🇩', filter: 'bangla' },
+  { key: 'Hindi', icon: '🇮🇳', filter: 'hindi' },
+  { key: 'Happy', icon: '😊', filter: 'happy' },
+  { key: 'Chill', icon: '😌', filter: 'chill' },
+  { key: 'Energy', icon: '⚡', filter: 'energy' },
+  { key: 'Sad', icon: '😢', filter: 'sad' },
+] as const
 
-// ── Slide-down animation keyframe ──
+type MoodFilter = typeof MOOD_CHIPS[number]['filter']
 
-const ANIMATION_STYLE = `
-@keyframes pnSlideDown {
-  from { opacity: 0; transform: translateY(-8px); }
-  to { opacity: 1; transform: translateY(0); }
+// ── Props ──
+
+interface MusicHubProps {
+  onTrackSelect: (track: MusicTrack, allTracks: MusicTrack[]) => void
 }
-.pn-slide-down {
-  animation: pnSlideDown 200ms ease-out forwards;
-}
-`
 
 // ═══════════════════════════════════════════════════════════════
 //  MUSIC HUB — Main Component (Online Streaming)
 // ═══════════════════════════════════════════════════════════════
 
-export default function MusicHub() {
-  // ── Auth state ──
-  const [userId, setUserId] = useState<string | null>(null)
-
+export default function MusicHub({ onTrackSelect }: MusicHubProps) {
   // ── Data state ──
-  const [tracks, setTracks] = useState<MusicTrack[]>([])
+  const [allTracks, setAllTracks] = useState<MusicTrack[]>([])
+  const [filteredTracks, setFilteredTracks] = useState<MusicTrack[]>([])
   const [channels, setChannels] = useState<ChannelDisplay[]>([])
   const [isLoading, setIsLoading] = useState(true)
-  const [isLoadingMore, setIsLoadingMore] = useState(false)
-  const [activeChannel, setActiveChannel] = useState<string>('all')
-  const [searchQuery, setSearchQuery] = useState('')
-  const [showSearch, setShowSearch] = useState(false)
-  const [selectedTrack, setSelectedTrack] = useState<MusicTrack | null>(null)
-  const [hasMore, setHasMore] = useState(true)
-  const [page, setPage] = useState(0)
   const [error, setError] = useState<string | null>(null)
 
-  // ── Infinite scroll refs ──
-  const observerRef = useRef<IntersectionObserver | null>(null)
-  const loadMoreRef = useRef<HTMLDivElement | null>(null)
+  // ── Filter state ──
+  const [activeMood, setActiveMood] = useState<MoodFilter>('hot')
+  const [searchQuery, setSearchQuery] = useState('')
 
-  // ── Auth: get session + listen for changes ──
+  // ── Section data ──
+  const [quickPicks, setQuickPicks] = useState<MusicTrack[]>([])
+  const [recentlyPlayed, setRecentlyPlayed] = useState<MusicTrack[]>([])
+  const [newReleases, setNewReleases] = useState<MusicTrack[]>([])
+  const [recommended, setRecommended] = useState<MusicTrack[]>([])
+
+  // ── Greeting based on time ──
+  const greeting = (() => {
+    const h = new Date().getHours()
+    if (h >= 5 && h < 12) return 'Good Morning'
+    if (h >= 12 && h < 17) return 'Good Afternoon'
+    if (h >= 17 && h < 21) return 'Good Evening'
+    return 'Good Night'
+  })()
+
+  // ── Fetch all tracks from Supabase ──
   useEffect(() => {
-    if (!supabase) return
-
-    supabase.auth.getSession().then(({ data }) => {
-      setUserId(data.session?.user?.id || null)
-    })
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (_event, session) => {
-        setUserId(session?.user?.id || null)
-      }
-    )
-
-    return () => subscription.unsubscribe()
-  }, [])
-
-  // ── Fetch music-specific channels from music_tracks ──
-  const fetchChannels = useCallback(async () => {
-    if (!supabase) return
-
-    try {
-      // First try: get channels that have music tracks
-      const { data: trackChannels, error: tcErr } = await supabase
-        .from('music_tracks')
-        .select('channel_id, channel_name')
-        .eq('is_hidden', false)
-
-      if (!tcErr && trackChannels && trackChannels.length > 0) {
-        // Get unique channels from tracks
-        const uniqueMap = new Map<string, { channel_id: string; channel_name: string }>()
-        for (const t of trackChannels) {
-          if (t.channel_id && !uniqueMap.has(t.channel_id)) {
-            uniqueMap.set(t.channel_id, { channel_id: t.channel_id, channel_name: t.channel_name })
-          }
-        }
-
-        // Try to get display settings for these channels
-        const channelIds = Array.from(uniqueMap.keys())
-        const { data: displayData } = await supabase
-          .from('channel_display')
-          .select(`
-            *,
-            yt_channels (
-              channel_id,
-              channel_name,
-              total_imported
-            )
-          `)
-          .eq('is_visible', true)
-
-        if (displayData && displayData.length > 0) {
-          // Filter channel_display to only music-relevant channels
-          const musicDisplays = (displayData as ChannelDisplay[]).filter(ch => {
-            const ytId = ch.yt_channels?.channel_id
-            return ytId && channelIds.includes(ytId)
-          })
-          setChannels(musicDisplays.length > 0 ? musicDisplays : (displayData as ChannelDisplay[]))
-        } else {
-          setChannels([])
-        }
+    const fetchAll = async () => {
+      if (!supabase) {
+        setError('Database not configured. Please set up Supabase.')
+        setIsLoading(false)
         return
       }
 
-      // Fallback: try channel_display (may not be music-specific)
-      const { data, error: chErr } = await supabase
-        .from('channel_display')
-        .select(`
-          *,
-          yt_channels (
-            channel_id,
-            channel_name,
-            total_imported
-          )
-        `)
-        .eq('is_visible', true)
-        .order('sort_order')
+      setIsLoading(true)
+      setError(null)
 
-      if (chErr) throw chErr
-      if (data) setChannels(data as ChannelDisplay[])
-    } catch {
-      // channel_display table may not exist yet — silent
+      try {
+        // Fetch tracks
+        const { data: trackData, error: tErr } = await supabase
+          .from('music_tracks')
+          .select('*')
+          .order('published_at', { ascending: false })
+          .limit(200)
+
+        if (tErr) throw tErr
+        const tracks = (trackData || []) as MusicTrack[]
+        setAllTracks(tracks)
+
+        // Fetch channels
+        const { data: chData } = await supabase
+          .from('channel_display')
+          .select('*')
+          .eq('is_visible', true)
+          .order('sort_order')
+
+        if (chData) setChannels(chData as ChannelDisplay[])
+
+        // Generate quick picks (random 12)
+        const shuffled = [...tracks].sort(() => Math.random() - 0.5)
+        setQuickPicks(shuffled.slice(0, 12))
+
+        // New releases (first 10 from published_at DESC — already sorted)
+        setNewReleases(tracks.slice(0, 10))
+
+        // Recently played from localStorage
+        const history: Array<{ youtube_id: string; channel_id: string; watched_at: string }> =
+          lsGet('pn_ytmusic_history', [])
+        const recentIds = history.slice(0, 10).map(h => h.youtube_id)
+        const recentTracks = recentIds
+          .map(id => tracks.find(t => t.youtube_id === id))
+          .filter((t): t is MusicTrack => !!t)
+        setRecentlyPlayed(recentTracks)
+
+        // Recommended: most watched channel → fetch songs from that channel
+        let recTracks: MusicTrack[] = []
+        if (history.length > 0) {
+          const channelCount: Record<string, number> = {}
+          history.forEach(h => {
+            channelCount[h.channel_id] = (channelCount[h.channel_id] || 0) + 1
+          })
+          const topChannel = Object.entries(channelCount).sort((a, b) => b[1] - a[1])[0]?.[0]
+          if (topChannel) {
+            recTracks = tracks
+              .filter(t => t.channel_id === topChannel)
+              .filter(t => !recentIds.includes(t.youtube_id))
+              .slice(0, 10)
+          }
+        }
+
+        // Fallback recommended: most viewed
+        if (recTracks.length === 0) {
+          recTracks = [...tracks].sort((a, b) => b.view_count - a.view_count).slice(0, 10)
+        }
+        setRecommended(recTracks)
+      } catch (err: any) {
+        console.error('Supabase fetch error:', err.message)
+        setError('Failed to load tracks. Check connection.')
+      } finally {
+        setIsLoading(false)
+      }
     }
+
+    fetchAll()
   }, [])
 
-  // ── Fetch tracks from Supabase ──
-  const fetchTracks = useCallback(async (
-    reset = false,
-    channel = activeChannel,
-    search = searchQuery
-  ) => {
-    if (!supabase) {
-      setError('Database not configured. Please set up Supabase.')
-      setIsLoading(false)
-      return
+  // ── Apply mood filter + search ──
+  useEffect(() => {
+    let result = [...allTracks]
+
+    // Mood filter
+    switch (activeMood) {
+      case 'hot':
+        result.sort((a, b) => b.view_count - a.view_count)
+        break
+      case 'new':
+        result.sort((a, b) => {
+          const aDate = a.published_at ? new Date(a.published_at).getTime() : 0
+          const bDate = b.published_at ? new Date(b.published_at).getTime() : 0
+          return bDate - aDate
+        })
+        break
+      case 'bangla':
+        result = result.filter(t => t.language === 'Bangla' || t.language === 'Bengali')
+        break
+      case 'hindi':
+        result = result.filter(t => t.language === 'Hindi')
+        break
+      case 'happy':
+      case 'chill':
+      case 'energy':
+      case 'sad':
+        result = result.filter(t => t.mood?.toLowerCase() === activeMood)
+        break
     }
 
-    if (reset) {
-      setIsLoading(true)
-      setPage(0)
-      setTracks([])
-      setHasMore(true)
-    } else {
-      setIsLoadingMore(true)
-    }
-    setError(null)
-
-    const currentPage = reset ? 0 : page
-    const from = currentPage * PAGE_SIZE
-    const to = from + PAGE_SIZE - 1
-
-    try {
-      let query = supabase
-        .from('music_tracks')
-        .select('*')
-        .eq('is_hidden', false)
-        .order('published_at', { ascending: false })
-        .range(from, to)
-
-      // Channel filter
-      if (channel !== 'all') {
-        query = query.eq('channel_id', channel)
-      }
-
-      // Search filter
-      if (search.trim()) {
-        query = query.ilike('title', `%${search.trim()}%`)
-      }
-
-      const { data, error: fetchError } = await query
-
-      if (fetchError) throw fetchError
-
-      const results = (data || []) as MusicTrack[]
-
-      if (reset) {
-        setTracks(results)
-      } else {
-        setTracks(prev => [...prev, ...results])
-      }
-
-      setHasMore(results.length === PAGE_SIZE)
-      setPage(currentPage + 1)
-
-    } catch (err: any) {
-      console.error('Supabase fetch error:', err.message)
-      setError('Failed to load tracks. Check connection.')
-    } finally {
-      setIsLoading(false)
-      setIsLoadingMore(false)
-    }
-  }, [page, activeChannel, searchQuery])
-
-  // Load on mount
-  useEffect(() => {
-    fetchChannels()
-    fetchTracks(true)
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Re-fetch when channel changes
-  useEffect(() => {
-    fetchTracks(true, activeChannel, searchQuery)
-  }, [activeChannel]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Debounced search
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      fetchTracks(true, activeChannel, searchQuery)
-    }, 400)
-    return () => clearTimeout(timer)
-  }, [searchQuery]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  // ── Infinite scroll with IntersectionObserver ──
-  useEffect(() => {
-    if (observerRef.current) observerRef.current.disconnect()
-
-    observerRef.current = new IntersectionObserver(
-      entries => {
-        if (
-          entries[0].isIntersecting &&
-          hasMore &&
-          !isLoadingMore &&
-          !isLoading
-        ) {
-          fetchTracks(false)
-        }
-      },
-      { threshold: 0.1 }
-    )
-
-    if (loadMoreRef.current) {
-      observerRef.current.observe(loadMoreRef.current)
+    // Search filter
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase().trim()
+      result = result.filter(
+        t => t.title.toLowerCase().includes(q) || t.channel_name.toLowerCase().includes(q)
+      )
     }
 
-    return () => observerRef.current?.disconnect()
-  }, [hasMore, isLoadingMore, isLoading, fetchTracks])
+    setFilteredTracks(result)
+  }, [activeMood, searchQuery, allTracks])
 
-  // ── Handlers ──
-  const handleToggleSearch = useCallback(() => {
-    setShowSearch(prev => !prev)
-    if (showSearch) setSearchQuery('')
-  }, [showSearch])
+  // ── Debounced search ──
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const handleSearchChange = useCallback((value: string) => {
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current)
+    searchTimerRef.current = setTimeout(() => {
+      setSearchQuery(value)
+    }, 300)
+  }, [])
 
-  // ── Find channel display for a track ──
+  // ── Handle track select ──
+  const handleTrackSelect = useCallback((track: MusicTrack) => {
+    onTrackSelect(track, allTracks)
+  }, [onTrackSelect, allTracks])
+
+  // ── Get channel display for a track ──
   const getChannelDisplay = useCallback((track: MusicTrack): ChannelDisplay | undefined => {
-    return channels.find(ch => ch.yt_channels?.channel_id === track.channel_id)
+    return channels.find(ch => ch.channel_id === track.channel_id || ch.yt_channels?.channel_id === track.channel_id)
   }, [channels])
 
   // ── Render ──
   return (
-    <div className="flex flex-col min-h-screen bg-black">
-
-      {/* Animation keyframe (not styled-jsx) */}
-      <style dangerouslySetInnerHTML={{ __html: ANIMATION_STYLE }} />
+    <div className="flex flex-col min-h-screen" style={{ backgroundColor: '#0A0A0A' }}>
 
       {/* ── HEADER ── */}
-      <div className="flex items-center justify-between px-4 h-14 flex-shrink-0 bg-black sticky top-0 z-20">
-        <div className="flex items-center gap-2">
-          <h1 className="text-white font-bold text-lg">
-            🎵 YT Music
-          </h1>
-          <span
-            className="text-[9px] font-semibold rounded-full px-2 py-0.5"
-            style={{
-              background: 'rgba(124,58,237,0.2)',
-              border: '1px solid rgba(124,58,237,0.5)',
-              color: '#A78BFA',
-            }}
-          >
-            Online Streaming
-          </span>
+      <div className="flex items-center justify-between px-4 pt-4 pb-2 flex-shrink-0">
+        <div>
+          <h1 className="text-white text-2xl font-bold">{greeting}</h1>
+          <p className="text-[#9CA3AF] text-sm mt-0.5">What would you like to listen to?</p>
         </div>
         <div className="flex gap-1">
+          {/* Notification bell */}
           <button
-            onClick={handleToggleSearch}
-            className="min-w-[44px] min-h-[44px] flex items-center justify-center text-white"
-            aria-label="Search"
+            className="min-w-[44px] min-h-[44px] flex items-center justify-center text-[#9CA3AF]"
+            aria-label="Notifications"
           >
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-              <circle cx="11" cy="11" r="8" />
-              <line x1="21" y1="21" x2="16.65" y2="16.65" />
+              <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
+              <path d="M13.73 21a2 2 0 0 1-3.46 0" />
             </svg>
           </button>
+          {/* Profile icon */}
           <button
-            onClick={() => { fetchChannels(); fetchTracks(true) }}
-            className="min-w-[44px] min-h-[44px] flex items-center justify-center text-white"
-            aria-label="Refresh"
+            className="min-w-[44px] min-h-[44px] flex items-center justify-center text-[#9CA3AF]"
+            aria-label="Profile"
           >
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <polyline points="23 4 23 10 17 10" />
-              <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+              <circle cx="12" cy="7" r="4" />
             </svg>
           </button>
         </div>
       </div>
 
-      {/* ── SUB-HEADER ── */}
-      <div className="px-4 pb-2 flex-shrink-0">
-        <p className="text-[#9CA3AF] text-xs">
-          Online music from official channels
-        </p>
+      {/* ── SEARCH (always visible) ── */}
+      <div className="px-4 pb-3 flex-shrink-0">
+        <input
+          type="text"
+          onChange={e => handleSearchChange(e.target.value)}
+          placeholder="Search songs, artists, channels..."
+          className="w-full h-11 rounded-xl px-4 text-sm text-white outline-none placeholder-[#9CA3AF]"
+          style={{
+            backgroundColor: '#141414',
+            border: '1px solid #252525',
+          }}
+        />
       </div>
 
-      {/* ── SEARCH BAR ── */}
-      {showSearch && (
-        <div className="px-4 pb-3 flex-shrink-0 sticky top-14 z-20 bg-black pn-slide-down">
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={e => setSearchQuery(e.target.value)}
-            placeholder="Search tracks, channels..."
-            autoFocus
-            className="w-full h-11 bg-[#1A1A1A] border border-[#2D2D2D] rounded-xl px-4 text-sm text-white outline-none placeholder-[#9CA3AF]"
-          />
-        </div>
-      )}
-
-      {/* ── CHANNEL FILTER CHIPS ── */}
-      <div className="flex-shrink-0 px-4 pb-3 sticky top-14 z-10 bg-black">
-        <div className="flex gap-3 overflow-x-auto scrollbar-hide pb-1">
-
-          {/* ALL chip */}
-          <button
-            onClick={() => setActiveChannel('all')}
-            className={`
-              flex items-center gap-2
-              flex-shrink-0 px-4 py-2
-              rounded-full min-h-[44px]
-              border-2 transition-all duration-150
-              ${activeChannel === 'all'
-                ? 'border-[#7C3AED] bg-[#7C3AED]/20 text-[#A78BFA]'
-                : 'border-[#2D2D44] text-[#9CA3AF]'
-              }
-            `}
-          >
-            <span className="text-lg">🌍</span>
-            <span className="text-sm font-medium whitespace-nowrap">All</span>
-          </button>
-
-          {/* Per channel chips */}
-          {channels.map(ch => {
-            const ytChannel = ch.yt_channels
-            if (!ytChannel) return null
-            const isActive = activeChannel === ytChannel.channel_id
+      {/* ── MOOD CHIPS ── */}
+      <div className="flex-shrink-0 px-4 pb-3">
+        <div className="flex gap-2 overflow-x-auto scrollbar-hide pb-1">
+          {MOOD_CHIPS.map(chip => {
+            const isActive = activeMood === chip.filter
             return (
               <button
-                key={ch.channel_id}
-                onClick={() => setActiveChannel(ytChannel.channel_id)}
-                className="flex items-center gap-2
-                  flex-shrink-0 px-3 py-2
-                  rounded-full min-h-[44px]
-                  border-2 transition-all duration-150"
+                key={chip.key}
+                onClick={() => setActiveMood(chip.filter)}
+                className={`flex items-center gap-1.5 flex-shrink-0 px-4 py-2 rounded-full min-h-[44px] text-sm font-medium whitespace-nowrap transition-colors duration-150 ${
+                  isActive
+                    ? 'text-white'
+                    : 'border text-[#9CA3AF]'
+                }`}
                 style={{
-                  borderColor: isActive ? ch.border_color : '#2D2D44',
-                  backgroundColor: isActive ? ch.badge_color + '22' : 'transparent',
+                  backgroundColor: isActive ? '#7C3AED' : 'transparent',
+                  borderColor: isActive ? '#7C3AED' : '#252525',
+                  borderWidth: isActive ? 0 : 1,
                 }}
               >
-                {/* Channel logo */}
-                <div className="w-6 h-6 rounded-full overflow-hidden flex-shrink-0 bg-[#1A1A1A]">
-                  {ch.logo_url ? (
-                    <img
-                      src={ch.logo_url}
-                      className="w-full h-full object-cover"
-                      loading="lazy"
-                      alt=""
-                      onError={(e) => {
-                        (e.target as HTMLImageElement).style.display = 'none'
-                      }}
-                    />
-                  ) : (
-                    <div
-                      className="w-full h-full flex items-center justify-center"
-                      style={{ backgroundColor: ch.badge_color }}
-                    >
-                      <span className="text-white text-xs font-bold">
-                        {ch.display_name[0]}
-                      </span>
-                    </div>
-                  )}
-                </div>
-                <span
-                  className="text-sm font-medium whitespace-nowrap"
-                  style={{ color: isActive ? ch.badge_color : '#9CA3AF' }}
-                >
-                  {ch.display_name}
-                </span>
+                <span>{chip.icon}</span>
+                <span>{chip.key}</span>
               </button>
             )
           })}
         </div>
       </div>
 
-      {/* ── TRACK COUNT ── */}
-      <div className="px-4 pb-2 flex-shrink-0">
-        <p className="text-[#9CA3AF] text-xs">
-          {isLoading
-            ? 'Loading...'
-            : `${tracks.length} tracks${hasMore ? '+' : ''}`
-          }
-        </p>
-      </div>
-
-      {/* ── TRACKS GRID ── */}
-      <div
-        className="flex-1 overflow-y-auto px-3 pb-24"
-        style={{ contentVisibility: 'auto' } as React.CSSProperties}
-      >
+      {/* ── MAIN SCROLLABLE CONTENT ── */}
+      <div className="flex-1 overflow-y-auto px-4 pb-32" style={{ contentVisibility: 'auto' } as React.CSSProperties}>
 
         {/* Loading skeleton */}
-        {isLoading && tracks.length === 0 && (
-          <div className="grid grid-cols-2 gap-3">
-            {Array.from({ length: 6 }).map((_, i) => (
-              <div key={i} className="rounded-xl overflow-hidden bg-[#1A1A1A] animate-pulse">
-                <div className="w-full aspect-video bg-[#242424]" />
-                <div className="p-2.5 space-y-2">
-                  <div className="h-3 bg-[#242424] rounded w-4/5" />
-                  <div className="h-2 bg-[#242424] rounded w-1/2" />
-                </div>
+        {isLoading && (
+          <div className="space-y-8">
+            <div>
+              <div className="h-5 w-32 bg-[#1A1A1A] rounded mb-3 animate-pulse" />
+              <div className="grid grid-cols-4 gap-2">
+                {Array.from({ length: 8 }).map((_, i) => (
+                  <div key={i} className="rounded-xl overflow-hidden bg-[#1A1A1A] animate-pulse">
+                    <div className="w-full aspect-square bg-[#242424]" />
+                    <div className="p-2 space-y-1">
+                      <div className="h-2.5 bg-[#242424] rounded w-4/5" />
+                      <div className="h-2 bg-[#242424] rounded w-1/2" />
+                    </div>
+                  </div>
+                ))}
               </div>
-            ))}
+            </div>
           </div>
         )}
 
@@ -447,71 +314,229 @@ export default function MusicHub() {
             </svg>
             <p className="text-[#9CA3AF] text-sm text-center">{error}</p>
             <button
-              onClick={() => fetchTracks(true)}
-              className="px-6 py-3 bg-[#7C3AED] rounded-xl text-white text-sm font-medium min-h-[44px]"
+              onClick={() => window.location.reload()}
+              className="px-6 py-3 rounded-xl text-white text-sm font-medium min-h-[44px]"
+              style={{ backgroundColor: '#7C3AED' }}
             >
               Retry
             </button>
           </div>
         )}
 
-        {/* Tracks grid */}
-        {!isLoading && tracks.length > 0 && (
+        {!isLoading && !error && (
           <>
-            <div className="grid grid-cols-2 gap-3">
-              {tracks.map(track => (
-                <TrackCard
-                  key={track.id}
-                  track={track}
-                  channelDisplay={getChannelDisplay(track)}
-                  onTap={() => setSelectedTrack(track)}
-                />
-              ))}
-            </div>
+            {/* Search results */}
+            {searchQuery.trim() && filteredTracks.length > 0 && (
+              <div className="mb-8">
+                <p className="text-white text-sm font-semibold mb-3">
+                  Search Results ({filteredTracks.length})
+                </p>
+                <div className="grid grid-cols-2 gap-3">
+                  {filteredTracks.slice(0, 20).map(track => (
+                    <TrackCard
+                      key={track.id}
+                      track={track}
+                      channelDisplay={getChannelDisplay(track)}
+                      onTap={handleTrackSelect}
+                      view="grid"
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
 
-            {/* Load more trigger */}
-            <div ref={loadMoreRef} className="h-16 flex items-center justify-center">
-              {isLoadingMore && (
-                <div className="w-6 h-6 border-2 border-[#7C3AED] border-t-transparent rounded-full animate-spin" />
-              )}
-              {!hasMore && tracks.length > 0 && (
-                <p className="text-[#9CA3AF] text-xs">All tracks loaded</p>
-              )}
-            </div>
+            {searchQuery.trim() && filteredTracks.length === 0 && (
+              <div className="flex flex-col items-center justify-center py-12 gap-3">
+                <p className="text-[#9CA3AF] text-sm">No results found</p>
+                <p className="text-[#6B7280] text-xs">Try a different search term</p>
+              </div>
+            )}
+
+            {/* Don't show sections when searching */}
+            {!searchQuery.trim() && (
+              <>
+                {/* QUICK PICKS — 4-column horizontal scroll */}
+                {quickPicks.length > 0 && (
+                  <div className="mb-8">
+                    <p className="text-white text-base font-bold mb-3">Quick Picks</p>
+                    <div className="flex gap-3 overflow-x-auto scrollbar-hide pb-2">
+                      {quickPicks.map(track => (
+                        <div key={track.id} className="flex-shrink-0 w-[140px]">
+                          <TrackCard
+                            track={track}
+                            channelDisplay={getChannelDisplay(track)}
+                            onTap={handleTrackSelect}
+                            view="grid"
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* RECENTLY PLAYED — list rows */}
+                {recentlyPlayed.length > 0 && (
+                  <div className="mb-8">
+                    <p className="text-white text-base font-bold mb-3">Recently Played</p>
+                    <div className="space-y-1">
+                      {recentlyPlayed.slice(0, 10).map(track => (
+                        <TrackCard
+                          key={track.id}
+                          track={track}
+                          channelDisplay={getChannelDisplay(track)}
+                          onTap={handleTrackSelect}
+                          view="list"
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* TOP CHANNELS — horizontal scroll circles */}
+                {channels.length > 0 && (
+                  <div className="mb-8">
+                    <p className="text-white text-base font-bold mb-3">Top Channels</p>
+                    <div className="flex gap-4 overflow-x-auto scrollbar-hide pb-2">
+                      {channels.map(ch => {
+                        const logoUrl = ch.logo_url || ch.avatar_url || null
+                        return (
+                          <button
+                            key={ch.channel_id}
+                            className="flex flex-col items-center gap-2 flex-shrink-0 min-w-[64px] min-h-[44px]"
+                          >
+                            <div
+                              className="w-14 h-14 rounded-full overflow-hidden flex-shrink-0"
+                              style={{
+                                border: `2px solid ${ch.border_color}`,
+                                backgroundColor: '#1A1A1A',
+                              }}
+                            >
+                              {logoUrl ? (
+                                <img
+                                  src={logoUrl}
+                                  className="w-full h-full object-cover"
+                                  loading="lazy"
+                                  alt={ch.display_name}
+                                  onError={(e) => {
+                                    (e.target as HTMLImageElement).style.display = 'none'
+                                  }}
+                                />
+                              ) : (
+                                <div
+                                  className="w-full h-full flex items-center justify-center"
+                                  style={{ backgroundColor: ch.badge_color }}
+                                >
+                                  <span className="text-white text-lg font-bold">
+                                    {ch.display_name[0]}
+                                  </span>
+                                </div>
+                              )}
+                            </div>
+                            <span className="text-[11px] text-[#9CA3AF] truncate max-w-[56px] text-center">
+                              {ch.display_name}
+                            </span>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* NEW RELEASES — 2-column grid, horizontal scroll */}
+                {newReleases.length > 0 && (
+                  <div className="mb-8">
+                    <p className="text-white text-base font-bold mb-3">New Releases</p>
+                    <div className="flex gap-3 overflow-x-auto scrollbar-hide pb-2">
+                      {newReleases.map(track => (
+                        <div key={track.id} className="flex-shrink-0 w-[160px]">
+                          <TrackCard
+                            track={track}
+                            channelDisplay={getChannelDisplay(track)}
+                            onTap={handleTrackSelect}
+                            view="grid"
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* MOOD-FILTERED TRACKS — main content when mood is active */}
+                {activeMood !== 'hot' && filteredTracks.length > 0 && (
+                  <div className="mb-8">
+                    <p className="text-white text-base font-bold mb-3">
+                      {MOOD_CHIPS.find(c => c.filter === activeMood)?.icon}{' '}
+                      {MOOD_CHIPS.find(c => c.filter === activeMood)?.key} Tracks
+                    </p>
+                    <div className="grid grid-cols-2 gap-3">
+                      {filteredTracks.slice(0, 20).map(track => (
+                        <TrackCard
+                          key={track.id}
+                          track={track}
+                          channelDisplay={getChannelDisplay(track)}
+                          onTap={handleTrackSelect}
+                          view="grid"
+                        />
+                      ))}
+                    </div>
+                    {filteredTracks.length === 0 && (
+                      <p className="text-[#9CA3AF] text-sm text-center py-4">
+                        No tracks found for this mood
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                {/* RECOMMENDED — 2-column grid */}
+                {recommended.length > 0 && (
+                  <div className="mb-8">
+                    <p className="text-white text-base font-bold mb-3">🎯 Recommended for You</p>
+                    <div className="grid grid-cols-2 gap-3">
+                      {recommended.map(track => (
+                        <TrackCard
+                          key={track.id}
+                          track={track}
+                          channelDisplay={getChannelDisplay(track)}
+                          onTap={handleTrackSelect}
+                          view="grid"
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* HOT TRACKS — default when mood is Hot */}
+                {activeMood === 'hot' && filteredTracks.length > 0 && (
+                  <div className="mb-8">
+                    <p className="text-white text-base font-bold mb-3">🔥 Hot Tracks</p>
+                    <div className="grid grid-cols-2 gap-3">
+                      {filteredTracks.slice(0, 20).map(track => (
+                        <TrackCard
+                          key={track.id}
+                          track={track}
+                          channelDisplay={getChannelDisplay(track)}
+                          onTap={handleTrackSelect}
+                          view="grid"
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Empty state */}
+                {allTracks.length === 0 && !isLoading && (
+                  <div className="flex flex-col items-center justify-center py-16 gap-3">
+                    <p className="text-[#9CA3AF] text-sm">No music yet</p>
+                    <p className="text-[#6B7280] text-xs text-center px-8">
+                      Add music channels from Admin Panel to import tracks automatically
+                    </p>
+                  </div>
+                )}
+              </>
+            )}
           </>
         )}
-
-        {/* Empty state */}
-        {!isLoading && tracks.length === 0 && !error && (
-          <div className="flex flex-col items-center justify-center py-16 gap-3">
-            <p className="text-[#9CA3AF] text-sm">No music yet</p>
-            <p className="text-[#6B7280] text-xs text-center px-8">
-              Add music channels from Admin Panel to import tracks automatically
-            </p>
-            {searchQuery && (
-              <p className="text-[#9CA3AF] text-xs">Try a different search term</p>
-            )}
-            {activeChannel !== 'all' && (
-              <button
-                onClick={() => setActiveChannel('all')}
-                className="mt-2 px-4 py-2 bg-[#1A1A1A] border border-[#2D2D2D] rounded-xl text-white text-xs font-medium min-h-[44px]"
-              >
-                Show All Channels
-              </button>
-            )}
-          </div>
-        )}
       </div>
-
-      {/* ── MUSIC MODAL ── */}
-      {selectedTrack && (
-        <MusicModal
-          track={selectedTrack}
-          channelDisplay={getChannelDisplay(selectedTrack)}
-          userId={userId}
-          onClose={() => setSelectedTrack(null)}
-        />
-      )}
     </div>
   )
 }

@@ -12,10 +12,10 @@ interface QuickAccessCard {
 }
 
 const cards: QuickAccessCard[] = [
-  { icon: Download, title: 'Smart Download', subtitle: 'Videos & Audio', href: '/download' },
   { icon: Film, title: 'Movie Hub', subtitle: 'Watch Free Movies', href: '/movies' },
+  { icon: Music, title: 'YT Music', subtitle: 'Online Streaming', href: '/ytmusic' },
   { icon: Gamepad2, title: 'Offline Games', subtitle: 'Play Anytime', href: '/games' },
-  { icon: Music, title: 'Music Library', subtitle: 'Offline Scanner', href: '/music' },
+  { icon: Download, title: 'Smart Download', subtitle: 'Videos & Audio', href: '/download' },
   { icon: Play, title: 'Video Player', subtitle: 'Custom Player', href: '/video' },
   { icon: Smartphone, title: 'Platforms', subtitle: 'Streaming Hub', href: '/platforms' },
 ];

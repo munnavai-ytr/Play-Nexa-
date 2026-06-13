@@ -1,115 +1,38 @@
+# Play Nexa — Rebuild Worklog
+
 ---
 Task ID: 1
-Agent: Main Agent
-Task: Comprehensive check and fix of Supabase connection, admin login, and admin panel
+Agent: Super Z (Main)
+Task: Complete rebuild of 3 features + cleanup for Play Nexa app
 
 Work Log:
-- Read .env file - found only DATABASE_URL, missing all Supabase credentials
-- Read supabase.ts, supabaseAdmin.ts - client code correct but env vars missing
-- Read admin login page, verify API route, middleware, layout - all code correct
-- Read admin dashboard, movies, games, settings, features pages - identified issues
-- Fixed .env file: added NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY, GEMINI_API_KEY
-- Fixed admin movies page: changed supabaseAdmin (service role, null on client) to supabase (anon key, works with auth)
-- Fixed admin games page: same fix as movies page
-- Created /api/admin/setup route with GET (check if admins exist) and POST (create first admin)
-- Updated admin login page: auto-detects setup mode vs login mode
-- Created fix-app-settings.sql script to fix JSONB→TEXT mismatch in app_settings table
-- Tested all API endpoints: setup GET/POST, verify, movies - all working
-- Admin user admin@playnexa.com created successfully in Supabase Auth + admin_users table
+- Explored entire codebase structure (53 pages, 17 API routes, 100+ components, 20 hooks, 37 lib modules)
+- Identified 3 Tier 1 YouTube Data API v3 files to delete
+- Identified 6+ Tier 2 files requiring import updates
+- Deleted src/lib/youtube.ts, src/lib/movie-authenticator.ts, src/app/api/cron/ai-movie-hunter/route.ts
+- Created src/lib/types.ts (YouTubeMovie type + utility functions)
+- Updated src/lib/fallback.ts (changed import from ./youtube to ./types)
+- Updated src/lib/db-cache.ts (removed all YouTube API fallback, Supabase-only)
+- Updated src/components/movies/PlayerModal.tsx (import fix)
+- Updated src/components/movies/RelatedMovies.tsx (import fix)
+- Updated src/app/movies/[id]/page.tsx (import fix)
+- Updated src/app/api/search/ai/route.ts (removed YouTube API, Supabase-only)
+- Updated src/hooks/useMovies.ts (db-cache only, no YouTube API)
+- Updated src/app/api/movies/verify/route.ts (RSS + Gemini based, no YouTube API)
+- Built Offline Music Player: MusicLibrary.tsx, NowPlaying.tsx, MiniPlayer.tsx, VinylDisc.tsx, EqualizerBars.tsx
+- Built Device Video Player: VideoPlayer.tsx, GestureOverlay.tsx, PlayerControls.tsx, VideoLibrary.tsx, useVideoPlayer.ts
+- Built Online Music (YT Music Style): MusicHub.tsx, TrackCard.tsx, MusicModal.tsx, MusicMiniPlayer.tsx, ytmusic/page.tsx
+- Built Movie Hub Recommendations: MovieHub.tsx, MovieCard.tsx, MovieModal.tsx
+- Fixed VideoPlayer.tsx null video guard (moved after hooks)
+- Fixed MusicHub.tsx MoodFilter casing (Hot → hot)
+- Verified: zero AIzaSy, googleapis.com/youtube/v3, YOUTUBE_API_KEY in src/
+- Verified: zero backdrop-blur in new files
+- Build succeeds (next build passes)
 
 Stage Summary:
-- ROOT CAUSE: .env file was missing all Supabase credentials (URL, anon key, service role key)
-- Admin movies and games pages were using supabaseAdmin client-side (null because service role key is server-only)
-- app_settings table value column is JSONB but settings page expects TEXT (fix SQL script provided)
-- Admin setup flow works: first visit shows setup form, subsequent visits show login form
-- Build succeeds with no errors
----
-Task ID: 1
-Agent: main
-Task: Fix channel scan system — 4 files (channel-info, gemini-scan, rssParser, geminiScanner)
-
-Work Log:
-- Read current state of all 4 target files
-- Verified supabaseAdmin.ts shared module exists (singleton pattern)
-- Rewrote channel-info/route.ts with 3-strategy fallback: Page scrape → user= RSS → channel_id= RSS
-  - Key fix: Page scrape is PRIMARY for @handles (was secondary before)
-  - YouTube ?user= param maps @netflix to WRONG channel; page scrape gets the real one
-  - scrapeChannelId() tries 5 regex patterns for extracting UC ID from HTML
-  - fetchByChannelId() returns basic info even if RSS fails so channel can still be saved
-- Rewrote rssParser.ts with enhanced fetcher
-  - fetchChannelRSS(): standard 15-video RSS fetch
-  - fetchChannelVideosEnhanced(): tries standard RSS + uploads playlist (UC→UU conversion)
-  - Deduplicates by videoId across both sources
-  - parseRSSXML() exported for use by gemini-scan fallback
-  - Removed next: { revalidate: 0 } to avoid TypeScript error
-- Rewrote geminiScanner.ts with Netflix-aware classification
-  - Always runs fallback classifier first (free + fast)
-  - If fallback confidence >= 0.85, skips Gemini call (saves API quota)
-  - For uncertain cases, uses Gemini 1.5 Flash
-  - Merges: picks whichever (fallback or Gemini) has higher confidence
-  - SKIP priority: trailers/clips detected first before movie/music
-  - Netflix-specific: defaults to skip (mostly trailers), only movie if "full"/"episode"/"season"
-  - Enhanced keyword lists: Bangla + international terms
-- Rewrote gemini-scan/route.ts with smart batch scanning
-  - Uses fetchChannelVideosEnhanced() for more than 15 videos
-  - Falls back to playlist RSS directly if enhanced fetch fails
-  - Rate limiting: 4s delay every 14 Gemini calls (stays under 15/min free tier)
-  - Soft error: returns HTTP 200 + error message (UI shows msg, not crash)
-  - channel_display upsert uses channel_id (UC string) not channelDbId (int)
-  - is_visible: true only if moviesFound or musicFound > 0
-  - Progress updates every 5 videos
-  - Duplicate insert handling: error.code === '23505' silently ignored
-- Fixed strategy ordering in channel-info after testing @netflix
-- Verified Next.js build succeeds with zero errors
-- Tested API endpoints: UC IDs, @handles, Bangla channels all working
-
-Stage Summary:
-- All 4 files rewritten per user spec
-- channel-info: page scrape primary for @handles (fixes wrong channel ID issue)
-- rssParser: UC→UU playlist conversion gets more than 15 videos
-- geminiScanner: Netflix-aware, confidence merge between fallback and Gemini
-- gemini-scan: rate limited, soft errors, enhanced RSS, proper channel_display
-- .env.local: NOT touched
-- Zero placeholder code
----
-Task ID: auto-scan-system
-Agent: main
-Task: Build complete Auto Progressive Scanner system for Play Nexa Admin
-
-Work Log:
-- Created auto-scan/route.ts — progressive batch scanner with start/pause/resume/stop actions
-  - Uses scanned_video_ids array in yt_channels to track processed videos (dedup)
-  - Filters out already-scanned video IDs before classification
-  - Checks pause/stop status mid-batch for responsive control
-  - Saves progress every 5 videos
-  - Gemini rate limit: 5s delay every 14 calls
-  - Uses upsert with onConflict: 'youtube_id' for both movies and music_tracks
-  - channel_display visibility updated after successful inserts
-  - If all fetched videos already scanned, marks as completed
-- Created scan-status/route.ts — real-time progress endpoint
-  - Returns scan_status, totalOnChannel, imported, movieCount, musicCount, remaining, progress %
-  - Queries actual DB counts (movies + music_tracks) for accuracy
-  - Returns batchNumber, lastSynced, channelType, scannedCount
-- Modified channels/page.tsx — added Auto Scan UI
-  - Added ScanState interface and scanStates/pollRefs state
-  - Added loadScanStatus() to load status for all channels on mount
-  - Added startPolling/stopPolling with 8s interval
-  - Polling auto-triggers resume action if status is 'scanning'
-  - Added handleStartScan/handlePause/handleResume/handleStop actions
-  - Cleanup on unmount clears all polling intervals
-  - Added Auto Scan UI in each channel card:
-    - Stats row (On Channel / Imported / Remaining)
-    - Progress bar with gradient (0-100%)
-    - Status indicators (scanning green pulse / paused yellow / completed purple)
-    - Action buttons (Auto Scan / Pause / Resume / Stop / Re-scan)
-  - Kept legacy scanning indicator for gemini-scan compatibility
-- Verified rssParser.ts and geminiScanner.ts already export needed functions
-- Build succeeds with zero errors, new routes visible in build output
-- Tested scan-status endpoint returns 404 for non-existent channel (correct)
-
-Stage Summary:
-- 2 new API routes: auto-scan, scan-status
-- channels/page.tsx enhanced with Auto Scan UI + polling
-- SQL needed: UNIQUE indexes on youtube_id + 5 new columns on yt_channels
-- .env.local: NOT touched
-- Zero placeholder code
+- 3 YouTube Data API v3 files permanently deleted
+- 1 new types.ts created as replacement for youtube.ts exports
+- 8 files updated with import fixes
+- 18 component/hook files rebuilt from scratch
+- Build passes successfully
+- All global rules enforced (no backdrop-blur, no mock data, min 44px touch, pn_ prefix, etc.)

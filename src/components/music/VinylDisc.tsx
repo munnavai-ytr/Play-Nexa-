@@ -1,137 +1,67 @@
 'use client'
 
-// ── Play Nexa Vinyl Disc ──────────────────────────────────────
-// Circular vinyl record UI with album art center
-// CSS rotation animation tied to isPlaying state
-// 2GB RAM safe · Pure CSS animation · No canvas
-
-import { Music } from 'lucide-react'
+import React from 'react'
 
 interface VinylDiscProps {
   artwork: string | null
   isPlaying: boolean
-  size?: number
-  onTogglePlay?: () => void
+  onTogglePlay: () => void
 }
 
-export default function VinylDisc({
-  artwork,
-  isPlaying,
-  size = 260,
-  onTogglePlay,
-}: VinylDiscProps) {
-  const centerSize = size * 0.55
-  const labelSize = size * 0.2
-
+export default function VinylDisc({ artwork, isPlaying, onTogglePlay }: VinylDiscProps) {
   return (
     <button
       onClick={onTogglePlay}
-      className="relative rounded-full focus:outline-none active:scale-95 transition-transform duration-100"
-      style={{ width: size, height: size, minHeight: size, minWidth: size }}
+      className="relative w-[260px] h-[260px] rounded-full mx-auto focus:outline-none music-btn-press"
+      style={{ ['--vinyl-state' as string]: isPlaying ? 'running' : 'paused' }}
       aria-label={isPlaying ? 'Pause' : 'Play'}
     >
-      {/* Outer vinyl ring */}
-      <div
-        className="absolute inset-0 rounded-full"
+      {/* Vinyl disc body */}
+      <div className="music-vinyl-spin w-full h-full rounded-full relative overflow-hidden"
         style={{
           background: `
-            radial-gradient(circle at 50% 50%,
-              transparent ${centerSize / 2 - 2}px,
-              #111  ${centerSize / 2 - 1}px,
-              #111  ${centerSize / 2 + 1}px,
-              transparent ${centerSize / 2 + 2}px
-            ),
-            conic-gradient(from 0deg,
-              #1a1a1a, #222, #1a1a1a, #222,
-              #1a1a1a, #222, #1a1a1a, #222,
-              #1a1a1a, #222, #1a1a1a, #222
-            )
+            radial-gradient(circle at 50% 50%, transparent 28%, rgba(30,30,30,0.9) 29%, rgba(30,30,30,0.9) 30%, transparent 30.5%),
+            radial-gradient(circle at 50% 50%, transparent 38%, rgba(30,30,30,0.6) 39%, rgba(30,30,30,0.6) 40%, transparent 40.5%),
+            radial-gradient(circle at 50% 50%, transparent 48%, rgba(30,30,30,0.4) 49%, rgba(30,30,30,0.4) 50%, transparent 50.5%),
+            radial-gradient(circle at 50% 50%, transparent 58%, rgba(30,30,30,0.3) 59%, rgba(30,30,30,0.3) 60%, transparent 60.5%),
+            radial-gradient(circle at 50% 50%, transparent 68%, rgba(30,30,30,0.2) 69%, rgba(30,30,30,0.2) 70%, transparent 70.5%),
+            radial-gradient(circle at 50% 50%, #1A1A1A 0%, #111111 100%)
           `,
-          boxShadow: '0 0 30px rgba(124, 58, 237, 0.15), inset 0 0 40px rgba(0,0,0,0.5)',
         }}
-      />
-
-      {/* Groove rings */}
-      <div
-        className="absolute inset-0 rounded-full music-vinyl-spin"
-        style={{ '--vinyl-state': isPlaying ? 'running' : 'paused' } as React.CSSProperties}
       >
-        {/* Subtle groove texture via repeating rings */}
-        <svg
-          className="absolute inset-0 w-full h-full"
-          viewBox={`0 0 ${size} ${size}`}
-          style={{ opacity: 0.15 }}
-        >
-          {Array.from({ length: 8 }).map((_, i) => {
-            const r = centerSize / 2 + 8 + i * ((size / 2 - centerSize / 2 - 8) / 8)
-            return (
-              <circle
-                key={i}
-                cx={size / 2}
-                cy={size / 2}
-                r={r}
-                fill="none"
-                stroke="#555"
-                strokeWidth="0.5"
-              />
-            )
-          })}
-        </svg>
-
-        {/* Center label circle */}
+        {/* Shine effect */}
         <div
-          className="absolute rounded-full overflow-hidden"
+          className="absolute inset-0 rounded-full pointer-events-none"
           style={{
-            width: centerSize,
-            height: centerSize,
-            top: (size - centerSize) / 2,
-            left: (size - centerSize) / 2,
-            boxShadow: '0 0 10px rgba(0,0,0,0.5)',
+            background: 'linear-gradient(135deg, rgba(255,255,255,0.06) 0%, transparent 40%, transparent 60%, rgba(255,255,255,0.03) 100%)',
           }}
-        >
+        />
+
+        {/* Center label / artwork */}
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[55%] h-[55%] rounded-full overflow-hidden border-2 border-[#222222]">
           {artwork ? (
             <img
               src={artwork}
-              alt="Album art"
+              alt="Album artwork"
               className="w-full h-full object-cover"
-              loading="lazy"
               draggable={false}
             />
           ) : (
             <div
               className="w-full h-full flex items-center justify-center"
               style={{
-                background: 'linear-gradient(135deg, #7C3AED, #06B6D4)',
+                background: 'linear-gradient(135deg, #1A0A3E 0%, #0A1A3E 100%)',
               }}
             >
-              <Music size={centerSize * 0.3} className="text-white/80" />
+              <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#7C3AED" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M9 18V5l12-2v13" />
+                <circle cx="6" cy="18" r="3" />
+                <circle cx="18" cy="16" r="3" />
+              </svg>
             </div>
           )}
-        </div>
-
-        {/* Center hole */}
-        <div
-          className="absolute rounded-full"
-          style={{
-            width: labelSize,
-            height: labelSize,
-            top: (size - labelSize) / 2,
-            left: (size - labelSize) / 2,
-            background: '#0D0D0D',
-            boxShadow: 'inset 0 1px 3px rgba(0,0,0,0.8)',
-          }}
-        />
-      </div>
-
-      {/* Play/Pause indicator overlay (shows briefly on tap) */}
-      <div
-        className="absolute inset-0 rounded-full flex items-center justify-center pointer-events-none"
-        style={{ opacity: isPlaying ? 0 : 0.3 }}
-      >
-        <div className="w-12 h-12 rounded-full bg-white/20 flex items-center justify-center">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="white">
-            <polygon points="6,3 20,12 6,21" />
-          </svg>
+          {/* Center hole */}
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-3 h-3 rounded-full bg-[#0A0A0A] border border-[#333333]" />
         </div>
       </div>
     </button>

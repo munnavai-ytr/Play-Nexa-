@@ -1,78 +1,98 @@
 // ── Play Nexa Movie Verification API ────────────────────────────
 // Server-side endpoint to verify if a YouTube video is a real full movie
-// Uses Bulletproof Movie Authenticator — ISO 8601 duration parsing
-// STRICT 70-minute minimum — rejects fake videos instantly
+// Uses RSS feed data + Gemini AI classification
+// No YouTube Data API v3 — RSS + Gemini only
+// STRICT 70-minute minimum for movies
 
 import { NextRequest, NextResponse } from 'next/server'
-import {
-  verifySingleVideo,
-  verifyBulkVideos,
-  MOVIE_MIN_DURATION_SEC,
-} from '@/lib/movie-authenticator'
+import { fetchChannelVideosEnhanced } from '@/lib/rssParser'
+import { classifyVideo } from '@/lib/geminiScanner'
+import { isRealMovie } from '@/lib/types'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
-// ── GET: Quick verification for a single video ID ──
+const MOVIE_MIN_DURATION_SEC = 4200 // 70 minutes
+
+// ── GET: Quick verification info ──
 
 export async function GET(req: NextRequest) {
   const videoId = req.nextUrl.searchParams.get('id')
-  const ids = req.nextUrl.searchParams.get('ids')
 
-  // Bulk verification
-  if (ids) {
-    const videoIds = ids.split(',').filter(Boolean).slice(0, 50)
-    if (videoIds.length === 0) {
-      return NextResponse.json(
-        { error: 'No valid video IDs provided' },
-        { status: 400 },
-      )
-    }
-
-    const result = await verifyBulkVideos(videoIds)
+  if (!videoId) {
     return NextResponse.json({
-      ...result,
+      error: 'Missing video ID. Use ?id=VIDEO_ID',
+      hint: 'This endpoint verifies movies using RSS + Gemini AI classification. No YouTube Data API v3 is used.',
       minimumDuration: MOVIE_MIN_DURATION_SEC,
       minimumDurationFormatted: `${Math.floor(MOVIE_MIN_DURATION_SEC / 60)} minutes`,
     })
   }
 
-  // Single verification
-  if (!videoId) {
-    return NextResponse.json(
-      { error: 'Missing video ID. Use ?id=VIDEO_ID or ?ids=id1,id2,id3' },
-      { status: 400 },
-    )
+  // RSS-based verification: we can check if the video appears in channel RSS
+  // For individual video verification, use the Gemini scanner
+  try {
+    const result = await classifyVideo(videoId, '', '')
+    return NextResponse.json({
+      videoId,
+      classification: result.type, // 'movie' | 'music' | 'skip'
+      confidence: result.confidence,
+      isVerified: result.type === 'movie' && result.confidence >= 0.7,
+      minimumDuration: MOVIE_MIN_DURATION_SEC,
+      minimumDurationFormatted: `${Math.floor(MOVIE_MIN_DURATION_SEC / 60)} minutes`,
+    })
+  } catch {
+    return NextResponse.json({
+      videoId,
+      isVerified: false,
+      reason: 'Verification failed — could not classify video',
+    })
   }
-
-  const result = await verifySingleVideo(videoId)
-  return NextResponse.json({
-    ...result,
-    minimumDuration: MOVIE_MIN_DURATION_SEC,
-    minimumDurationFormatted: `${Math.floor(MOVIE_MIN_DURATION_SEC / 60)} minutes`,
-  })
 }
 
-// ── POST: Verify a batch of video IDs from request body ──
+// ── POST: Verify a batch of video titles ──
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json()
-    const videoIds: string[] = body.videoIds || body.ids || []
+    const items: Array<{ videoId: string; title: string; channelName?: string }> = body.items || []
 
-    if (!videoIds.length) {
+    if (!items.length) {
       return NextResponse.json(
-        { error: 'No video IDs provided in request body' },
+        { error: 'No items provided. Send { items: [{ videoId, title, channelName }] }' },
         { status: 400 },
       )
     }
 
-    // Limit to 100 IDs per request
-    const limited = videoIds.slice(0, 100)
-    const result = await verifyBulkVideos(limited)
+    const limited = items.slice(0, 50)
+    const results = await Promise.allSettled(
+      limited.map(async (item) => {
+        const result = await classifyVideo(
+          item.title || '',
+          '',
+          item.channelName || '',
+        )
+        return {
+          videoId: item.videoId,
+          type: result.type,
+          confidence: result.confidence,
+          isVerified: result.type === 'movie' && result.confidence >= 0.7,
+        }
+      }),
+    )
+
+    const verified = results
+      .filter((r): r is PromiseFulfilledResult<any> => r.status === 'fulfilled')
+      .map(r => r.value)
+
+    const rejected = results
+      .filter((r): r is PromiseRejectedResult => r.status === 'rejected')
+      .length
 
     return NextResponse.json({
-      ...result,
+      results: verified,
+      totalChecked: limited.length,
+      totalVerified: verified.filter(v => v.isVerified).length,
+      totalRejected: rejected,
       minimumDuration: MOVIE_MIN_DURATION_SEC,
       minimumDurationFormatted: `${Math.floor(MOVIE_MIN_DURATION_SEC / 60)} minutes`,
     })

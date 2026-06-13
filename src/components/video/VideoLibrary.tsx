@@ -1,12 +1,11 @@
-'use client'
+'use client';
 
 // ── Play Nexa Video Library ──────────────────────────────────
-// Full Video Library screen with tab filter, grid/list views, search, and context menus
-// Design system: bg-[#0D0D0D] / bg-[#1A1A2E] / bg-[#16213E] / #7C3AED / #06B6D4
+// AMOLED dark theme: base #0A0A0A, surface #141414, accent #7C3AED
 // No backdrop-blur · Tailwind only · Max transition 200ms · 44px touch targets
-// content-visibility: auto on scrollable list · pn_video_ localStorage prefix
+// content-visibility: auto on scrollable lists · pn_ prefix localStorage
 
-import { useState, useCallback, useRef, useEffect, useMemo } from 'react'
+import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import {
   ArrowLeft,
   Search,
@@ -16,6 +15,7 @@ import {
   List,
   FolderOpen,
   Clock,
+  Download,
   X,
   Loader2,
   Film,
@@ -24,92 +24,80 @@ import {
   Info,
   RotateCcw,
   RefreshCw,
-} from 'lucide-react'
-import type { VideoFile } from '@/lib/mediaUtils'
+  Plus,
+  Pencil,
+  ListPlus,
+  PlayCircle,
+} from 'lucide-react';
+import type { VideoFile } from '@/lib/mediaUtils';
 import {
   formatDuration,
   formatFileSize,
   generateVideoThumbnail,
-  debounce,
   lsGet,
   lsSet,
-} from '@/lib/mediaUtils'
-import { useMediaLibrary } from '@/hooks/useMediaLibrary'
-import type { VideoViewMode } from '@/hooks/useMediaLibrary'
+} from '@/lib/mediaUtils';
+import { useMediaLibrary } from '@/hooks/useMediaLibrary';
+import type { VideoViewMode } from '@/hooks/useMediaLibrary';
 
 // ══════════════════════════════════════════════════════════════
 // PROPS
 // ══════════════════════════════════════════════════════════════
 
 interface VideoLibraryProps {
-  onVideoSelect: (video: VideoFile) => void
-  onBack: () => void
+  onVideoSelect: (video: VideoFile) => void;
+  onBack: () => void;
 }
 
 // ══════════════════════════════════════════════════════════════
 // TAB DEFINITIONS
 // ══════════════════════════════════════════════════════════════
 
-type TabKey = 'all' | 'folders' | 'recent'
+type TabKey = 'all' | 'folders' | 'recent' | 'downloads';
 
 interface TabDef {
-  key: TabKey
-  label: string
-  icon: React.ReactNode
+  key: TabKey;
+  label: string;
+  icon: React.ReactNode;
 }
 
 const TABS: TabDef[] = [
   { key: 'all', label: 'All Videos', icon: <Film size={14} /> },
   { key: 'folders', label: 'Folders', icon: <FolderOpen size={14} /> },
-  { key: 'recent', label: 'Recently Played', icon: <Clock size={14} /> },
-]
+  { key: 'recent', label: 'Recent', icon: <Clock size={14} /> },
+  { key: 'downloads', label: 'Downloads', icon: <Download size={14} /> },
+];
 
 // ══════════════════════════════════════════════════════════════
-// CONTEXT MENU ACTIONS
+// BOTTOM SHEET OPTION
 // ══════════════════════════════════════════════════════════════
 
-interface ContextAction {
-  id: string
-  label: string
-  icon: React.ReactNode
-  color: string
-}
-
-const CONTEXT_ACTIONS: ContextAction[] = [
-  { id: 'playNext', label: 'Play Next', icon: <Play size={18} />, color: 'text-[#06B6D4]' },
-  { id: 'addToQueue', label: 'Add to Queue', icon: <List size={18} />, color: 'text-[#7C3AED]' },
-  { id: 'rename', label: 'Rename', icon: <RotateCcw size={18} />, color: 'text-[#06B6D4]' },
-  { id: 'share', label: 'Share', icon: <Share2 size={18} />, color: 'text-[#06B6D4]' },
-  { id: 'info', label: 'Info', icon: <Info size={18} />, color: 'text-[#9CA3AF]' },
-  { id: 'delete', label: 'Delete', icon: <Trash2 size={18} />, color: 'text-red-500' },
-]
-
-// ══════════════════════════════════════════════════════════════
-// LOCAL STORAGE KEYS
-// ══════════════════════════════════════════════════════════════
-
-const TAB_STORAGE_KEY = 'pn_video_active_tab'
-
-// ══════════════════════════════════════════════════════════════
-// VIDEO HISTORY ENTRY TYPE (matches useMediaLibrary)
-// ══════════════════════════════════════════════════════════════
-
-interface VideoHistoryEntry {
-  id: string
-  path: string
-  name: string
-  position: number
-  timestamp: number
+interface SheetOption {
+  icon: React.ReactNode;
+  label: string;
+  action: () => void;
+  danger?: boolean;
 }
 
 // ══════════════════════════════════════════════════════════════
-// FOLDER INFO TYPE
+// FOLDER TYPE
 // ══════════════════════════════════════════════════════════════
 
-interface FolderInfo {
-  name: string
-  path: string
-  count: number
+interface VideoFolder {
+  name: string;
+  path: string;
+  count: number;
+}
+
+// ══════════════════════════════════════════════════════════════
+// HISTORY ENTRY
+// ══════════════════════════════════════════════════════════════
+
+interface HistoryEntry {
+  id: string;
+  name: string;
+  position: number;
+  timestamp: number;
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -117,1133 +105,788 @@ interface FolderInfo {
 // ══════════════════════════════════════════════════════════════
 
 export default function VideoLibrary({ onVideoSelect, onBack }: VideoLibraryProps) {
-  // ── Hook state ──
-  const {
-    videos,
-    scanning,
-    videoView,
-    setVideoView,
-    scanVideoFiles,
-    removeVideo,
-    getVideoHistory,
-  } = useMediaLibrary()
+  const { videos, scanning, videoView, scanVideoFiles, setVideoView, saveVideoPosition, getVideoPosition } = useMediaLibrary();
 
-  // ── Local state ──
-  const [activeTab, setActiveTab] = useState<TabKey>(() =>
-    lsGet<TabKey>(TAB_STORAGE_KEY, 'all')
-  )
-  const [searchOpen, setSearchOpen] = useState(false)
-  const [searchQuery, setSearchQuery] = useState('')
-  const [debouncedQuery, setDebouncedQuery] = useState('')
-  const [contextVideo, setContextVideo] = useState<VideoFile | null>(null)
-  const [contextSheetOpen, setContextSheetOpen] = useState(false)
-  const [headerMenuOpen, setHeaderMenuOpen] = useState(false)
-  const [videoHistory, setVideoHistory] = useState<VideoHistoryEntry[]>([])
-  const [thumbnailCache, setThumbnailCache] = useState<Record<string, string | null>>({})
-  const [generatingThumbs, setGeneratingThumbs] = useState<Set<string>>(new Set())
+  // ── State ──
+  const [activeTab, setActiveTab] = useState<TabKey>('all');
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedVideo, setSelectedVideo] = useState<VideoFile | null>(null);
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
-  // ── Refs ──
-  const hasLoadedRef = useRef(false)
-  const tabRefs = useRef<Record<TabKey, HTMLButtonElement | null>>({
-    all: null,
-    folders: null,
-    recent: null,
-  })
-  const tabScrollRef = useRef<HTMLDivElement>(null)
-  const searchInputRef = useRef<HTMLInputElement>(null)
-  const observerRef = useRef<IntersectionObserver | null>(null)
-  const observedElementsRef = useRef<Map<string, HTMLDivElement>>(new Map())
+  // ── Thumbnail cache ──
+  const [thumbnails, setThumbnails] = useState<Record<string, string>>({});
+  const thumbnailQueueRef = useRef<Set<string>>(new Set());
+  const isGeneratingRef = useRef(false);
 
-  // ── Toast state for library update notifications ──
-  const [toastMsg, setToastMsg] = useState('')
-  const [showToast, setShowToast] = useState(false)
-
-  // ════════════════════════════════════════════════════════════
-  // DEBOUNCED SEARCH
-  // ════════════════════════════════════════════════════════════
-
-  const updateDebouncedQuery = useMemo(
-    () =>
-      debounce((query: string) => {
-        setDebouncedQuery(query)
-      }, 200),
-    []
-  )
-
-  const handleSearchChange = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      const value = e.target.value
-      setSearchQuery(value)
-      updateDebouncedQuery(value)
-    },
-    [updateDebouncedQuery]
-  )
-
-  // ════════════════════════════════════════════════════════════
-  // SCROLL ACTIVE TAB INTO VIEW
-  // ════════════════════════════════════════════════════════════
-
-  useEffect(() => {
-    const el = tabRefs.current[activeTab]
-    if (el) {
-      el.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' })
+  // ── Video history for recent tab (derived from localStorage + videos) ──
+  const historyEntries = useMemo((): HistoryEntry[] => {
+    try {
+      const raw = localStorage.getItem('pn_video_history');
+      if (!raw) return [];
+      const parsed = JSON.parse(raw) as Record<string, { position: number; updatedAt: number }>;
+      return Object.entries(parsed)
+        .map(([id, data]) => {
+          const video = videos.find((v) => v.id === id);
+          return {
+            id,
+            name: video?.name || id,
+            position: data.position,
+            timestamp: data.updatedAt,
+          };
+        })
+        .sort((a, b) => b.timestamp - a.timestamp);
+    } catch {
+      return [];
     }
-  }, [activeTab])
+  }, [videos]);
 
-  // ════════════════════════════════════════════════════════════
-  // FOCUS SEARCH INPUT ON OPEN
-  // ════════════════════════════════════════════════════════════
-
+  // ── Scan on mount ──
   useEffect(() => {
-    if (searchOpen) {
-      setTimeout(() => searchInputRef.current?.focus(), 160)
+    scanVideoFiles();
+  }, [scanVideoFiles]);
+
+  // ── Focus search input when opened ──
+  useEffect(() => {
+    if (searchOpen && searchInputRef.current) {
+      setTimeout(() => searchInputRef.current?.focus(), 100);
     }
-  }, [searchOpen])
+  }, [searchOpen]);
 
-  // ════════════════════════════════════════════════════════════
-  // PERSIST ACTIVE TAB
-  // ════════════════════════════════════════════════════════════
+  // ── Thumbnail generation queue ──
+  const processThumbnailQueue = useCallback(async () => {
+    if (isGeneratingRef.current) return;
+    isGeneratingRef.current = true;
 
-  useEffect(() => {
-    lsSet(TAB_STORAGE_KEY, activeTab)
-  }, [activeTab])
+    while (thumbnailQueueRef.current.size > 0) {
+      const videoId = thumbnailQueueRef.current.values().next().value;
+      if (!videoId) break;
+      thumbnailQueueRef.current.delete(videoId);
 
-  // ════════════════════════════════════════════════════════════
-  // LOAD VIDEO HISTORY WHEN ON RECENT TAB
-  // ════════════════════════════════════════════════════════════
-
-  useEffect(() => {
-    if (activeTab === 'recent') {
-      const history = getVideoHistory()
-      setVideoHistory(history)
-    }
-  }, [activeTab, getVideoHistory])
-
-  // ════════════════════════════════════════════════════════════
-  // LAZY THUMBNAIL GENERATION WITH INTERSECTION OBSERVER
-  // ════════════════════════════════════════════════════════════
-
-  const generateThumbnailForVideo = useCallback(
-    async (video: VideoFile) => {
-      if (thumbnailCache[video.id] || generatingThumbs.has(video.id)) return
-      if (video.thumbnail) {
-        setThumbnailCache((prev) => ({ ...prev, [video.id]: video.thumbnail }))
-        return
-      }
-
-      setGeneratingThumbs((prev) => new Set(prev).add(video.id))
+      const video = videos.find((v) => v.id === videoId);
+      if (!video || thumbnails[videoId]) continue;
 
       try {
-        const thumb = await generateVideoThumbnail(video.url)
-        setThumbnailCache((prev) => ({ ...prev, [video.id]: thumb }))
+        const thumb = await generateVideoThumbnail(video.url || video.path);
+        setThumbnails((prev) => ({ ...prev, [videoId]: thumb }));
       } catch {
-        // Thumbnail generation failed — will show fallback icon
-      } finally {
-        setGeneratingThumbs((prev) => {
-          const next = new Set(prev)
-          next.delete(video.id)
-          return next
-        })
+        // Thumbnail generation failed — use placeholder
+        setThumbnails((prev) => ({ ...prev, [videoId]: '' }));
       }
+    }
+
+    isGeneratingRef.current = false;
+  }, [videos, thumbnails]);
+
+  const enqueueThumbnail = useCallback(
+    (videoId: string) => {
+      if (thumbnails[videoId] !== undefined) return;
+      thumbnailQueueRef.current.add(videoId);
+      processThumbnailQueue();
     },
-    [thumbnailCache, generatingThumbs]
-  )
+    [thumbnails, processThumbnailQueue]
+  );
 
-  // Set up IntersectionObserver for lazy thumbnail generation
-  useEffect(() => {
-    if (observerRef.current) {
-      observerRef.current.disconnect()
-    }
+  // ── Filtered videos ──
+  const filteredVideos = useMemo(() => {
+    let list = videos;
 
-    const observer = new IntersectionObserver(
-      (entries) => {
-        entries.forEach((entry) => {
-          if (entry.isIntersecting) {
-            const videoId = entry.target.getAttribute('data-video-id')
-            if (videoId) {
-              const video = videos.find((v) => v.id === videoId)
-              if (video && !video.thumbnail && !thumbnailCache[videoId]) {
-                generateThumbnailForVideo(video)
-              }
-            }
-            observer.unobserve(entry.target)
-          }
-        })
-      },
-      { rootMargin: '200px', threshold: 0.1 }
-    )
-
-    observerRef.current = observer
-
-    // Observe all registered elements
-    observedElementsRef.current.forEach((el) => {
-      observer.observe(el)
-    })
-
-    return () => {
-      observer.disconnect()
-    }
-  }, [videos, generateThumbnailForVideo, thumbnailCache])
-
-  // Register element for intersection observation
-  const registerThumbnailRef = useCallback(
-    (videoId: string, el: HTMLDivElement | null) => {
-      if (!el) return
-      observedElementsRef.current.set(videoId, el)
-      if (observerRef.current) {
-        observerRef.current.observe(el)
-      }
-    },
-    []
-  )
-
-  // ════════════════════════════════════════════════════════════
-  // COMPUTED: FOLDERS FROM VIDEO LIST
-  // ════════════════════════════════════════════════════════════
-
-  const folders = useMemo<FolderInfo[]>(() => {
-    const folderMap = new Map<string, { count: number; path: string }>()
-    for (const video of videos) {
-      const dirPath = video.path.includes('/')
-        ? video.path.substring(0, video.path.lastIndexOf('/'))
-        : 'Root'
-      const folderName = dirPath.split('/').pop() || dirPath
-      const existing = folderMap.get(folderName)
-      if (existing) {
-        existing.count += 1
-      } else {
-        folderMap.set(folderName, { count: 1, path: dirPath })
-      }
-    }
-    return Array.from(folderMap.entries()).map(([name, info]) => ({
-      name,
-      path: info.path,
-      count: info.count,
-    }))
-  }, [videos])
-
-  // ════════════════════════════════════════════════════════════
-  // FILTERED + SORTED VIDEOS
-  // ════════════════════════════════════════════════════════════
-
-  const displayedVideos = useMemo(() => {
-    let filtered = videos
-
-    // Apply search filter
-    if (debouncedQuery.trim()) {
-      const q = debouncedQuery.toLowerCase().trim()
-      filtered = filtered.filter(
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      list = list.filter(
         (v) =>
           v.name.toLowerCase().includes(q) ||
-          v.format.toLowerCase().includes(q) ||
-          v.path.toLowerCase().includes(q)
-      )
+          v.format.toLowerCase().includes(q)
+      );
     }
 
-    // Apply tab filter
-    switch (activeTab) {
-      case 'recent':
-        // Show videos that have been played (have lastPlayed or match history)
-        if (videoHistory.length > 0) {
-          const historyIds = new Set(videoHistory.map((h) => h.id))
-          filtered = filtered.filter((v) => historyIds.has(v.id))
-          // Sort by most recently played
-          filtered.sort((a, b) => (b.lastPlayed || 0) - (a.lastPlayed || 0))
-        } else {
-          filtered = []
-        }
-        break
-      case 'folders':
-        break
-      case 'all':
-      default:
-        break
+    // Tab-specific filtering
+    if (activeTab === 'recent') {
+      // Show videos that have history entries
+      const historyIds = new Set(historyEntries.map((h) => h.id));
+      list = list.filter((v) => historyIds.has(v.id));
+      // Sort by most recent
+      list.sort((a, b) => {
+        const aTime = historyEntries.find((h) => h.id === a.id)?.timestamp || 0;
+        const bTime = historyEntries.find((h) => h.id === b.id)?.timestamp || 0;
+        return bTime - aTime;
+      });
     }
 
-    return filtered
-  }, [videos, debouncedQuery, activeTab, videoHistory])
+    return list;
+  }, [videos, searchQuery, activeTab, historyEntries]);
 
-  // ════════════════════════════════════════════════════════════
-  // HANDLERS
-  // ════════════════════════════════════════════════════════════
+  // ── Folders ──
+  const folders = useMemo(() => {
+    const folderMap = new Map<string, VideoFolder>();
+    for (const v of videos) {
+      const parts = v.path.split('/');
+      const folderName = parts.length > 1 ? parts[parts.length - 2] : 'Root';
+      const folderPath = parts.slice(0, -1).join('/');
+      const existing = folderMap.get(folderPath);
+      if (existing) {
+        existing.count++;
+      } else {
+        folderMap.set(folderPath, { name: folderName, path: folderPath, count: 1 });
+      }
+    }
+    return Array.from(folderMap.values()).sort((a, b) => a.name.localeCompare(b.name));
+  }, [videos]);
 
-  const handleTabChange = useCallback((tab: TabKey) => {
-    setActiveTab(tab)
-  }, [])
-
-  const handleVideoTap = useCallback(
+  // ── Video select handler ──
+  const handleVideoSelect = useCallback(
     (video: VideoFile) => {
-      onVideoSelect(video)
+      onVideoSelect(video);
     },
     [onVideoSelect]
-  )
+  );
 
-  const handleContextMenuOpen = useCallback((video: VideoFile, e: React.MouseEvent) => {
-    e.stopPropagation()
-    setContextVideo(video)
-    setContextSheetOpen(true)
-  }, [])
+  // ── Video options sheet ──
+  const openSheet = useCallback((video: VideoFile, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    setSelectedVideo(video);
+    setSheetOpen(true);
+  }, []);
 
-  const handleContextAction = useCallback(
-    (actionId: string) => {
-      if (!contextVideo) return
+  const closeSheet = useCallback(() => {
+    setSheetOpen(false);
+    setSelectedVideo(null);
+  }, []);
 
-      switch (actionId) {
-        case 'playNext': {
-          try {
-            const playNextList = lsGet<VideoFile[]>('pn_video_play_next', [])
-            playNextList.unshift(contextVideo)
-            lsSet('pn_video_play_next', playNextList)
-          } catch {
-            // storage write failed
-          }
-          break
-        }
-        case 'addToQueue': {
-          try {
-            const queue = lsGet<VideoFile[]>('pn_video_queue', [])
-            queue.push(contextVideo)
-            lsSet('pn_video_queue', queue)
-          } catch {
-            // storage write failed
-          }
-          break
-        }
-        case 'rename': {
-          // In a full app, this would open a rename dialog
-          // For now, store the pending rename in localStorage
-          try {
-            lsSet('pn_video_rename_pending', {
-              id: contextVideo.id,
-              currentName: contextVideo.name,
-            })
-          } catch {
-            // storage write failed
-          }
-          break
-        }
-        case 'share':
-          if (typeof navigator !== 'undefined' && navigator.share) {
-            navigator
-              .share({
-                title: contextVideo.name,
-                text: contextVideo.name,
-              })
-              .catch(() => {
-                // Share cancelled or failed
-              })
-          }
-          break
-        case 'info': {
-          try {
-            lsSet('pn_video_info', {
-              id: contextVideo.id,
-              name: contextVideo.name,
-              format: contextVideo.format,
-              size: contextVideo.size,
-              duration: contextVideo.duration,
-              width: contextVideo.width,
-              height: contextVideo.height,
-              path: contextVideo.path,
-            })
-          } catch {
-            // storage write failed
-          }
-          break
-        }
-        case 'delete':
-          removeVideo(contextVideo.id)
-          break
-      }
+  // ── Sheet options ──
+  const sheetOptions: SheetOption[] = useMemo(() => {
+    if (!selectedVideo) return [];
+    return [
+      {
+        icon: <Play size={18} />,
+        label: 'Play',
+        action: () => {
+          handleVideoSelect(selectedVideo);
+          closeSheet();
+        },
+      },
+      {
+        icon: <PlayCircle size={18} />,
+        label: 'Play Next',
+        action: closeSheet,
+      },
+      {
+        icon: <ListPlus size={18} />,
+        label: 'Add to Queue',
+        action: closeSheet,
+      },
+      {
+        icon: <Pencil size={18} />,
+        label: 'Rename',
+        action: closeSheet,
+      },
+      {
+        icon: <Info size={18} />,
+        label: 'Info',
+        action: closeSheet,
+      },
+      {
+        icon: <Share2 size={18} />,
+        label: 'Share',
+        action: closeSheet,
+      },
+      {
+        icon: <Trash2 size={18} />,
+        label: 'Delete',
+        action: closeSheet,
+        danger: true,
+      },
+    ];
+  }, [selectedVideo, handleVideoSelect, closeSheet]);
 
-      setContextSheetOpen(false)
-      setContextVideo(null)
+  // ── Get resolution string ──
+  const getResolution = (video: VideoFile): string => {
+    if (video.width && video.height) {
+      if (video.width >= 3840) return '4K';
+      if (video.width >= 1920) return '1080p';
+      if (video.width >= 1280) return '720p';
+      if (video.width >= 854) return '480p';
+      return `${video.width}×${video.height}`;
+    }
+    return '';
+  };
+
+  // ── Get resume position for a video ──
+  const getResumeInfo = useCallback(
+    (videoId: string): HistoryEntry | undefined => {
+      return historyEntries.find((h) => h.id === videoId);
     },
-    [contextVideo, removeVideo]
-  )
+    [historyEntries]
+  );
 
-  // ── Initial load with hasLoadedRef guard ──
-  useEffect(() => {
-    if (hasLoadedRef.current) return
-    hasLoadedRef.current = true
+  // ══════════════════════════════════════════════════════════════
+  // RENDER
+  // ══════════════════════════════════════════════════════════════
 
-    const loadVideos = async () => {
-      await scanVideoFiles(false) // use cache
-    }
-    loadVideos()
-  }, [scanVideoFiles])
+  return (
+    <div className="flex flex-col h-full" style={{ backgroundColor: '#0A0A0A' }}>
+      {/* ════════════════════════════════════════════════════════ */}
+      {/* HEADER */}
+      {/* ════════════════════════════════════════════════════════ */}
+      <header
+        className="flex items-center justify-between px-2 shrink-0"
+        style={{ height: 56, backgroundColor: '#0A0A0A' }}
+      >
+        {/* Left: back */}
+        <button
+          onClick={onBack}
+          className="flex items-center justify-center rounded-full hover:bg-white/10 active:scale-90"
+          style={{ width: 44, height: 44, minWidth: 44, minHeight: 44, transition: 'transform 100ms' }}
+          aria-label="Go back"
+        >
+          <ArrowLeft size={22} className="text-white" />
+        </button>
 
-  // ── Listen for pn-library-updated custom event ──
-  useEffect(() => {
-    const handler = (e: Event) => {
-      const detail = (e as CustomEvent).detail
-      if (detail?.type === 'video') {
-        setToastMsg(
-          detail.added > 0
-            ? `+${detail.added} new video${detail.added !== 1 ? 's' : ''} found`
-            : 'Library updated'
-        )
-        setShowToast(true)
-        setTimeout(() => setShowToast(false), 3000)
-      }
-    }
-    window.addEventListener('pn-library-updated', handler as EventListener)
-    return () => window.removeEventListener('pn-library-updated', handler as EventListener)
-  }, [])
+        {/* Center: title */}
+        <h1 className="text-white font-bold text-lg select-none">Video Player</h1>
 
-  const handleScan = useCallback(async () => {
-    await scanVideoFiles(true) // forceRefresh = true
-  }, [scanVideoFiles])
+        {/* Right: search, grid/list, menu */}
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => setSearchOpen((v) => !v)}
+            className="flex items-center justify-center rounded-full hover:bg-white/10 active:scale-90"
+            style={{ width: 44, height: 44, minWidth: 44, minHeight: 44, transition: 'transform 100ms' }}
+            aria-label="Search"
+          >
+            <Search size={20} className="text-white" />
+          </button>
 
-  const handleSearchToggle = useCallback(() => {
-    setSearchOpen((prev) => !prev)
-    if (searchOpen) {
-      setSearchQuery('')
-      setDebouncedQuery('')
-    }
-  }, [searchOpen])
+          <button
+            onClick={() => setVideoView(videoView === 'grid' ? 'list' : 'grid')}
+            className="flex items-center justify-center rounded-full hover:bg-white/10 active:scale-90"
+            style={{ width: 44, height: 44, minWidth: 44, minHeight: 44, transition: 'transform 100ms' }}
+            aria-label={videoView === 'grid' ? 'List view' : 'Grid view'}
+          >
+            {videoView === 'grid' ? (
+              <List size={20} className="text-white" />
+            ) : (
+              <Grid3X3 size={20} className="text-white" />
+            )}
+          </button>
 
-  const handleHeaderMenuToggle = useCallback(() => {
-    setHeaderMenuOpen((prev) => !prev)
-  }, [])
-
-  const handleViewToggle = useCallback(() => {
-    setVideoView(videoView === 'grid' ? 'list' : 'grid')
-  }, [videoView, setVideoView])
-
-  const closeContextSheet = useCallback(() => {
-    setContextSheetOpen(false)
-    setContextVideo(null)
-  }, [])
-
-  const clearSearch = useCallback(() => {
-    setSearchQuery('')
-    setDebouncedQuery('')
-  }, [])
-
-  const handleResumeVideo = useCallback(
-    (historyEntry: VideoHistoryEntry) => {
-      const video = videos.find((v) => v.id === historyEntry.id)
-      if (video) {
-        onVideoSelect({ ...video, progress: historyEntry.position })
-      }
-    },
-    [videos, onVideoSelect]
-  )
-
-  // ════════════════════════════════════════════════════════════
-  // RENDER: THUMBNAIL COMPONENT
-  // ════════════════════════════════════════════════════════════
-
-  const renderThumbnail = useCallback(
-    (video: VideoFile, size: 'grid' | 'list') => {
-      const thumb = video.thumbnail || thumbnailCache[video.id] || null
-      const isGenerating = generatingThumbs.has(video.id)
-
-      if (thumb) {
-        return (
-          <img
-            src={thumb}
-            alt={video.name}
-            className="w-full h-full object-cover"
-            loading="lazy"
-          />
-        )
-      }
-
-      if (isGenerating) {
-        return (
-          <div className="w-full h-full bg-[#1A1A2E] flex items-center justify-center">
-            <Loader2 size={size === 'grid' ? 20 : 14} className="text-[#7C3AED] animate-spin" />
-          </div>
-        )
-      }
-
-      return (
-        <div className="w-full h-full bg-gradient-to-br from-[#7C3AED]/40 to-[#16213E] flex items-center justify-center">
-          <Film size={size === 'grid' ? 28 : 18} className="text-white/50" />
+          <button
+            onClick={() => scanVideoFiles(true)}
+            className="flex items-center justify-center rounded-full hover:bg-white/10 active:scale-90"
+            style={{ width: 44, height: 44, minWidth: 44, minHeight: 44, transition: 'transform 100ms' }}
+            aria-label="Refresh"
+          >
+            <RefreshCw
+              size={20}
+              className="text-white"
+              style={{
+                animation: scanning ? 'spin 1s linear infinite' : undefined,
+              }}
+            />
+          </button>
         </div>
-      )
-    },
-    [thumbnailCache, generatingThumbs]
-  )
+      </header>
 
-  // ════════════════════════════════════════════════════════════
-  // RENDER: GRID VIEW
-  // ════════════════════════════════════════════════════════════
-
-  const renderGridView = useCallback(() => {
-    return (
-      <div className="grid grid-cols-2 gap-3 p-3">
-        {displayedVideos.map((video) => (
+      {/* ════════════════════════════════════════════════════════ */}
+      {/* SEARCH BAR */}
+      {/* ════════════════════════════════════════════════════════ */}
+      {searchOpen && (
+        <div
+          className="flex items-center gap-2 px-4 py-2 shrink-0"
+          style={{ backgroundColor: '#0A0A0A' }}
+        >
           <div
-            key={video.id}
-            data-video-id={video.id}
-            ref={(el) => registerThumbnailRef(video.id, el)}
-            className="rounded-xl overflow-hidden bg-[#1A1A2E] border border-[#2D2D44] active:scale-[0.97] transition-transform duration-150 cursor-pointer"
+            className="flex items-center gap-2 flex-1 rounded-xl px-3"
+            style={{ backgroundColor: '#141414', height: 44, border: '1px solid #1F1F1F' }}
+          >
+            <Search size={16} className="text-[#9CA3AF] shrink-0" />
+            <input
+              ref={searchInputRef}
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search videos..."
+              className="bg-transparent text-white text-sm outline-none flex-1 placeholder-[#9CA3AF]"
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery('')}
+                className="flex items-center justify-center"
+                style={{ width: 28, height: 28 }}
+                aria-label="Clear search"
+              >
+                <X size={14} className="text-[#9CA3AF]" />
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ════════════════════════════════════════════════════════ */}
+      {/* TAB ROW */}
+      {/* ════════════════════════════════════════════════════════ */}
+      <div
+        className="flex items-center gap-2 px-4 py-2 overflow-x-auto shrink-0"
+        style={{ backgroundColor: '#0A0A0A', scrollbarWidth: 'none' }}
+      >
+        {TABS.map((tab) => (
+          <button
+            key={tab.key}
+            onClick={() => setActiveTab(tab.key)}
+            className="flex items-center gap-1.5 rounded-full px-4 py-2 text-sm font-medium whitespace-nowrap"
             style={{
-              contentVisibility: 'auto',
-              containIntrinsicSize: '0 220px',
-            }}
-            onClick={() => handleVideoTap(video)}
-            role="button"
-            tabIndex={0}
-            aria-label={`Play ${video.name}`}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault()
-                handleVideoTap(video)
-              }
+              minHeight: 44,
+              backgroundColor: activeTab === tab.key ? '#7C3AED' : 'transparent',
+              color: activeTab === tab.key ? '#FFFFFF' : '#9CA3AF',
+              border: activeTab === tab.key ? 'none' : '1px solid #252525',
+              transition: 'background 150ms, color 150ms, border-color 150ms',
             }}
           >
-            {/* Thumbnail area — 16:9 ratio */}
-            <div className="relative w-full aspect-video bg-[#0D0D0D] overflow-hidden rounded-t-xl">
-              {renderThumbnail(video, 'grid')}
-
-              {/* Play icon overlay */}
-              <div className="absolute inset-0 flex items-center justify-center">
-                <div className="w-10 h-10 rounded-full bg-black/50 flex items-center justify-center">
-                  <Play size={18} className="text-white ml-0.5" fill="white" />
-                </div>
-              </div>
-
-              {/* Duration badge — bottom-right */}
-              {video.duration > 0 && (
-                <span className="absolute bottom-1.5 right-1.5 bg-black/70 text-white text-xs px-1.5 py-0.5 rounded leading-none">
-                  {formatDuration(video.duration)}
-                </span>
-              )}
-
-              {/* Format badge — top-left */}
-              <span className="absolute top-1.5 left-1.5 bg-[#7C3AED]/80 text-white text-[9px] font-semibold px-1.5 py-0.5 rounded uppercase leading-none">
-                {video.format}
-              </span>
-            </div>
-
-            {/* Info below thumbnail */}
-            <div className="p-2.5">
-              <p className="text-white font-medium text-[13px] truncate leading-tight">
-                {video.name}
-              </p>
-              <div className="flex items-center gap-2 mt-1">
-                <span className="text-[#9CA3AF] text-xs">
-                  {formatFileSize(video.size)}
-                </span>
-                {video.width > 0 && video.height > 0 && (
-                  <>
-                    <span className="text-[#2D2D44] text-xs">·</span>
-                    <span className="text-[#9CA3AF] text-xs">
-                      {video.width}×{video.height}
-                    </span>
-                  </>
-                )}
-              </div>
-            </div>
-          </div>
+            {tab.icon}
+            {tab.label}
+          </button>
         ))}
       </div>
-    )
-  }, [displayedVideos, registerThumbnailRef, renderThumbnail, handleVideoTap])
 
-  // ════════════════════════════════════════════════════════════
-  // RENDER: LIST VIEW
-  // ════════════════════════════════════════════════════════════
-
-  const renderListView = useCallback(() => {
-    return (
-      <div className="px-3 space-y-1">
-        {displayedVideos.map((video) => (
-          <div
-            key={video.id}
-            data-video-id={video.id}
-            ref={(el) => registerThumbnailRef(video.id, el)}
-            className="flex items-center gap-3 px-2 rounded-xl active:bg-[#1A1A2E] transition-colors duration-150 cursor-pointer"
-            style={{
-              contentVisibility: 'auto',
-              containIntrinsicSize: '0 72px',
-              minHeight: '72px',
-            }}
-            onClick={() => handleVideoTap(video)}
-            role="button"
-            tabIndex={0}
-            aria-label={`Play ${video.name}`}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault()
-                handleVideoTap(video)
-              }
-            }}
-          >
-            {/* LEFT: Thumbnail 96×54 */}
-            <div className="w-24 h-[54px] rounded-lg flex-shrink-0 overflow-hidden bg-[#0D0D0D]">
-              {renderThumbnail(video, 'list')}
-            </div>
-
-            {/* CENTER: Info */}
-            <div className="flex-1 min-w-0">
-              <p className="text-white font-medium text-sm truncate leading-tight">
-                {video.name}
-              </p>
-              <div className="flex items-center gap-2 mt-1">
-                <span className="text-[#7C3AED] text-[10px] font-semibold uppercase">
-                  {video.format}
-                </span>
-                <span className="text-[#2D2D44] text-[10px]">·</span>
-                <span className="text-[#9CA3AF] text-xs">
-                  {formatFileSize(video.size)}
-                </span>
-                {video.duration > 0 && (
-                  <>
-                    <span className="text-[#2D2D44] text-[10px]">·</span>
-                    <span className="text-[#9CA3AF] text-xs">
-                      {formatDuration(video.duration)}
-                    </span>
-                  </>
-                )}
-              </div>
-            </div>
-
-            {/* RIGHT: 3-dot menu button 44×44 */}
-            <button
-              onClick={(e) => handleContextMenuOpen(video, e)}
-              className="flex items-center justify-center w-11 h-11 rounded-lg active:scale-90 transition-transform duration-150 flex-shrink-0"
-              aria-label={`More options for ${video.name}`}
-            >
-              <MoreVertical size={16} className="text-[#9CA3AF]" />
-            </button>
+      {/* ════════════════════════════════════════════════════════ */}
+      {/* CONTENT AREA */}
+      {/* ════════════════════════════════════════════════════════ */}
+      <div className="flex-1 overflow-y-auto" style={{ contentVisibility: 'auto' }}>
+        {/* ── SCANNING INDICATOR ── */}
+        {scanning && (
+          <div className="flex items-center justify-center gap-2 py-4">
+            <Loader2 size={18} className="text-[#7C3AED] animate-spin" />
+            <span className="text-[#9CA3AF] text-sm">Scanning for videos...</span>
           </div>
-        ))}
-      </div>
-    )
-  }, [
-    displayedVideos,
-    registerThumbnailRef,
-    renderThumbnail,
-    handleVideoTap,
-    handleContextMenuOpen,
-  ])
+        )}
 
-  // ════════════════════════════════════════════════════════════
-  // RENDER: FOLDERS TAB
-  // ════════════════════════════════════════════════════════════
-
-  const renderFoldersTab = useCallback(() => {
-    return (
-      <div className="px-4 py-3">
-        {folders.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-20">
-            <div className="w-16 h-16 rounded-2xl bg-[#1A1A2E] border border-[#2D2D44] flex items-center justify-center mb-4">
-              <FolderOpen size={28} className="text-[#9CA3AF]" />
-            </div>
-            <p className="text-white font-semibold text-base mb-1">Folders</p>
-            <p className="text-[#9CA3AF] text-sm text-center px-8 mb-2">
-              Available on APK
+        {/* ── EMPTY STATE ── */}
+        {!scanning && filteredVideos.length === 0 && activeTab !== 'folders' && (
+          <div className="flex flex-col items-center justify-center py-16 gap-3">
+            <Film size={48} className="text-[#1F1F1F]" />
+            <p className="text-[#9CA3AF] text-sm">
+              {searchQuery ? 'No videos found' : 'No videos on device'}
             </p>
-            <p className="text-[#9CA3AF]/60 text-xs text-center px-10">
-              Folder browsing is available in the Android app. On web, all videos appear in the All Videos tab.
-            </p>
-          </div>
-        ) : (
-          <div className="space-y-1">
-            {folders.map((folder) => (
-              <div
-                key={folder.path}
-                className="flex items-center gap-3 px-3 py-3 rounded-xl active:bg-[#1A1A2E] transition-colors duration-150"
+            {!searchQuery && (
+              <button
+                onClick={() => scanVideoFiles(true)}
+                className="flex items-center gap-2 rounded-xl px-4 text-sm font-medium text-white"
                 style={{
-                  contentVisibility: 'auto',
-                  containIntrinsicSize: '0 56px',
+                  height: 44,
+                  minHeight: 44,
+                  backgroundColor: '#7C3AED',
+                  transition: 'background 150ms',
                 }}
               >
-                <div className="w-11 h-11 rounded-xl bg-[#1A1A2E] border border-[#2D2D44] flex items-center justify-center flex-shrink-0">
-                  <FolderOpen size={20} className="text-[#7C3AED]" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-white font-medium text-sm truncate">
-                    {folder.name}
-                  </p>
-                  <p className="text-[#9CA3AF] text-xs mt-0.5">
-                    {folder.count} video{folder.count !== 1 ? 's' : ''}
-                  </p>
-                </div>
+                <RefreshCw size={16} />
+                Scan Again
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* ════════════════════════════════════════════════════ */}
+        {/* ALL VIDEOS / RECENT / DOWNLOADS TABS */}
+        {/* ════════════════════════════════════════════════════ */}
+        {(activeTab === 'all' || activeTab === 'recent' || activeTab === 'downloads') && (
+          <>
+            {videoView === 'grid' ? (
+              /* ── GRID VIEW ── */
+              <div
+                className="grid grid-cols-2 gap-3 p-4"
+                style={{ contentVisibility: 'auto' }}
+              >
+                {filteredVideos.map((video) => {
+                  const thumb = thumbnails[video.id];
+                  const resume = getResumeInfo(video.id);
+                  const resolution = getResolution(video);
+
+                  return (
+                    <VideoGridCard
+                      key={video.id}
+                      video={video}
+                      thumbnail={thumb}
+                      resolution={resolution}
+                      resume={resume}
+                      onThumbnailNeeded={enqueueThumbnail}
+                      onSelect={handleVideoSelect}
+                      onMenu={openSheet}
+                    />
+                  );
+                })}
               </div>
+            ) : (
+              /* ── LIST VIEW ── */
+              <div
+                className="flex flex-col"
+                style={{ contentVisibility: 'auto' }}
+              >
+                {filteredVideos.map((video) => {
+                  const thumb = thumbnails[video.id];
+                  const resume = getResumeInfo(video.id);
+                  const resolution = getResolution(video);
+
+                  return (
+                    <VideoListRow
+                      key={video.id}
+                      video={video}
+                      thumbnail={thumb}
+                      resolution={resolution}
+                      resume={resume}
+                      onThumbnailNeeded={enqueueThumbnail}
+                      onSelect={handleVideoSelect}
+                      onMenu={openSheet}
+                    />
+                  );
+                })}
+              </div>
+            )}
+          </>
+        )}
+
+        {/* ════════════════════════════════════════════════════ */}
+        {/* FOLDERS TAB */}
+        {/* ════════════════════════════════════════════════════ */}
+        {activeTab === 'folders' && (
+          <div className="flex flex-col p-4 gap-2" style={{ contentVisibility: 'auto' }}>
+            {folders.length === 0 && !scanning && (
+              <div className="flex flex-col items-center justify-center py-16 gap-3">
+                <FolderOpen size={48} className="text-[#1F1F1F]" />
+                <p className="text-[#9CA3AF] text-sm">No folders found</p>
+              </div>
+            )}
+            {folders.map((folder) => (
+              <button
+                key={folder.path}
+                className="flex items-center gap-3 rounded-xl px-4 w-full text-left"
+                style={{
+                  height: 56,
+                  minHeight: 44,
+                  backgroundColor: '#141414',
+                  border: '1px solid #1F1F1F',
+                  transition: 'background 150ms',
+                }}
+              >
+                <FolderOpen size={22} className="text-[#7C3AED] shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-white text-sm font-medium truncate">{folder.name}</p>
+                  <p className="text-[#9CA3AF] text-xs">{folder.count} video{folder.count !== 1 ? 's' : ''}</p>
+                </div>
+              </button>
             ))}
           </div>
         )}
       </div>
-    )
-  }, [folders])
 
-  // ════════════════════════════════════════════════════════════
-  // RENDER: RECENTLY PLAYED TAB
-  // ════════════════════════════════════════════════════════════
-
-  const renderRecentTab = useCallback(() => {
-    if (videoHistory.length === 0) {
-      return (
-        <div className="flex flex-col items-center justify-center py-20">
-          <div className="w-16 h-16 rounded-2xl bg-[#1A1A2E] border border-[#2D2D44] flex items-center justify-center mb-4">
-            <Clock size={28} className="text-[#9CA3AF]" />
-          </div>
-          <p className="text-white font-semibold text-base mb-1">No Recent Plays</p>
-          <p className="text-[#9CA3AF] text-sm text-center px-8">
-            Videos you watch will appear here
-          </p>
-        </div>
-      )
-    }
-
-    return (
-      <div className="px-3 space-y-1">
-        {videoHistory.map((entry) => {
-          const video = videos.find((v) => v.id === entry.id)
-          const thumb = video?.thumbnail || thumbnailCache[entry.id] || null
-
-          return (
-            <div
-              key={entry.id}
-              className="flex items-center gap-3 px-2 py-2 rounded-xl active:bg-[#1A1A2E] transition-colors duration-150"
-              style={{
-                contentVisibility: 'auto',
-                containIntrinsicSize: '0 72px',
-                minHeight: '72px',
-              }}
-            >
-              {/* Thumbnail */}
-              <div className="w-24 h-[54px] rounded-lg flex-shrink-0 overflow-hidden bg-[#0D0D0D]">
-                {thumb ? (
-                  <img
-                    src={thumb}
-                    alt={entry.name}
-                    className="w-full h-full object-cover"
-                    loading="lazy"
-                  />
-                ) : (
-                  <div className="w-full h-full bg-gradient-to-br from-[#7C3AED]/40 to-[#16213E] flex items-center justify-center">
-                    <Film size={18} className="text-white/50" />
-                  </div>
-                )}
-              </div>
-
-              {/* Info */}
-              <div className="flex-1 min-w-0">
-                <p className="text-white font-medium text-sm truncate leading-tight">
-                  {entry.name}
-                </p>
-                <div className="flex items-center gap-2 mt-1">
-                  <span className="text-[#06B6D4] text-xs font-medium">
-                    Stopped at {formatDuration(entry.position)}
-                  </span>
-                </div>
-              </div>
-
-              {/* Resume button */}
-              <button
-                onClick={() => handleResumeVideo(entry)}
-                className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-[#7C3AED] text-white text-xs font-semibold active:scale-95 transition-transform duration-150 flex-shrink-0"
-                aria-label={`Resume ${entry.name}`}
-              >
-                <RotateCcw size={12} />
-                Resume
-              </button>
-            </div>
-          )
-        })}
-      </div>
-    )
-  }, [videoHistory, videos, thumbnailCache, handleResumeVideo])
-
-  // ════════════════════════════════════════════════════════════
-  // RENDER: MAIN CONTENT
-  // ════════════════════════════════════════════════════════════
-
-  const renderContent = useCallback(() => {
-    // Empty state — no videos at all
-    if (videos.length === 0 && !scanning) {
-      return (
-        <div className="flex flex-col items-center justify-center py-20">
-          <div className="w-20 h-20 rounded-2xl bg-[#1A1A2E] border border-[#2D2D44] flex items-center justify-center mb-5">
-            <Film size={36} className="text-[#7C3AED]" />
-          </div>
-          <p className="text-white font-bold text-lg mb-1">No Videos Found</p>
-          <p className="text-[#9CA3AF] text-sm text-center px-8 mb-6">
-            Scan your device for video files to get started
-          </p>
-          <button
-            onClick={handleScan}
-            className="flex items-center gap-2 px-8 py-3 rounded-xl bg-[#7C3AED] text-white text-sm font-semibold active:scale-95 transition-transform duration-150"
-          >
-            <Film size={16} />
-            Scan for Videos
-          </button>
-        </div>
-      )
-    }
-
-    // Scanning spinner state
-    if (scanning) {
-      return (
-        <div className="flex flex-col items-center justify-center py-20">
-          <Loader2 size={40} className="text-[#7C3AED] animate-spin mb-4" />
-          <p className="text-white font-semibold text-base mb-1">Scanning...</p>
-          <p className="text-[#9CA3AF] text-sm">Looking for video files on your device</p>
-        </div>
-      )
-    }
-
-    // Tab-specific rendering
-    if (activeTab === 'folders') {
-      return renderFoldersTab()
-    }
-
-    if (activeTab === 'recent') {
-      return renderRecentTab()
-    }
-
-    // Search / filter empty state
-    if (displayedVideos.length === 0) {
-      return (
-        <div className="flex flex-col items-center justify-center py-20">
-          <div className="w-16 h-16 rounded-2xl bg-[#1A1A2E] border border-[#2D2D44] flex items-center justify-center mb-4">
-            <Search size={28} className="text-[#9CA3AF]" />
-          </div>
-          <p className="text-white font-semibold text-base mb-1">No Results</p>
-          <p className="text-[#9CA3AF] text-sm text-center px-8">
-            {debouncedQuery
-              ? `No videos matching "${debouncedQuery}"`
-              : 'No videos in this category'}
-          </p>
-        </div>
-      )
-    }
-
-    // Grid or List view
-    return videoView === 'grid' ? renderGridView() : renderListView()
-  }, [
-    videos,
-    scanning,
-    activeTab,
-    displayedVideos,
-    debouncedQuery,
-    videoView,
-    handleScan,
-    renderGridView,
-    renderListView,
-    renderFoldersTab,
-    renderRecentTab,
-  ])
-
-  // ════════════════════════════════════════════════════════════
-  // RENDER
-  // ════════════════════════════════════════════════════════════
-
-  return (
-    <div className="flex flex-col min-h-screen bg-[#0D0D0D]">
-      {/* ════════════════════════════════════════════════════════
-          1. HEADER
-          ════════════════════════════════════════════════════════ */}
-      <header className="sticky top-0 z-40 bg-[#0D0D0D] border-b border-[#2D2D44]">
-        <div className="flex items-center justify-between h-14 px-4">
-          {/* Back */}
-          <button
-            onClick={onBack}
-            className="flex items-center justify-center w-11 h-11 rounded-xl active:scale-90 transition-transform duration-150"
-            aria-label="Go back"
-          >
-            <ArrowLeft size={22} className="text-white" />
-          </button>
-
-          {/* Title */}
-          <h1 className="text-white font-bold text-lg absolute left-1/2 -translate-x-1/2">
-            Video Player
-          </h1>
-
-          {/* Right actions */}
-          <div className="flex items-center gap-1">
-            <button
-              onClick={handleScan}
-              className="flex items-center justify-center min-h-[44px] min-w-[44px] rounded-xl active:scale-90 transition-transform duration-150 cursor-pointer"
-              aria-label="Refresh library"
-              title="Refresh library"
-            >
-              <RefreshCw size={20} className={`text-[#9CA3AF] ${scanning ? 'animate-spin' : ''}`} />
-            </button>
-            <button
-              onClick={handleSearchToggle}
-              className="flex items-center justify-center min-h-[44px] min-w-[44px] rounded-xl active:scale-90 transition-transform duration-150 cursor-pointer"
-              aria-label={searchOpen ? 'Close search' : 'Open search'}
-            >
-              {searchOpen ? (
-                <X size={20} className="text-white" />
-              ) : (
-                <Search size={20} className="text-white" />
-              )}
-            </button>
-            <button
-              onClick={handleHeaderMenuToggle}
-              className="flex items-center justify-center min-h-[44px] min-w-[44px] rounded-xl active:scale-90 transition-transform duration-150 cursor-pointer"
-              aria-label="More options"
-            >
-              <MoreVertical size={20} className="text-white" />
-            </button>
-          </div>
-        </div>
-
-        {/* ════════════════════════════════════════════════════════
-            9. SEARCH OVERLAY — slides down (150ms)
-            ════════════════════════════════════════════════════════ */}
-        <div
-          className={`overflow-hidden transition-all duration-150 ease-out ${
-            searchOpen ? 'max-h-16 opacity-100' : 'max-h-0 opacity-0'
-          }`}
-        >
-          <div className="px-4 pb-3">
-            <div className="flex items-center gap-2 bg-[#1A1A2E] rounded-xl px-3 h-11 border border-[#2D2D44]">
-              <Search size={16} className="text-[#9CA3AF] flex-shrink-0" />
-              <input
-                ref={searchInputRef}
-                type="text"
-                value={searchQuery}
-                onChange={handleSearchChange}
-                placeholder="Search videos..."
-                className="flex-1 bg-transparent text-white text-sm outline-none placeholder:text-[#9CA3AF]"
-              />
-              {searchQuery && (
-                <button
-                  onClick={clearSearch}
-                  className="flex items-center justify-center w-8 h-8 rounded-lg active:scale-90 transition-transform duration-150"
-                  aria-label="Clear search"
-                >
-                  <X size={14} className="text-[#9CA3AF]" />
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
-      </header>
-
-      {/* ════════════════════════════════════════════════════════
-          HEADER DROPDOWN MENU (3-dot)
-          ════════════════════════════════════════════════════════ */}
-      {headerMenuOpen && (
-        <div
-          className="fixed inset-0 z-50"
-          onClick={() => setHeaderMenuOpen(false)}
-        >
+      {/* ════════════════════════════════════════════════════════ */}
+      {/* VIDEO OPTIONS BOTTOM SHEET */}
+      {/* ════════════════════════════════════════════════════════ */}
+      {sheetOpen && selectedVideo && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center">
           <div
-            className="absolute top-14 right-4 w-48 bg-[#1A1A2E] border border-[#2D2D44] rounded-xl overflow-hidden shadow-lg shadow-black/60 animate-[fade-in_100ms_ease-out]"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <button
-              onClick={() => {
-                handleScan()
-                setHeaderMenuOpen(false)
-              }}
-              className="flex items-center gap-3 w-full px-4 py-3 text-white text-sm active:bg-[#16213E] transition-colors duration-150"
-            >
-              <Film size={16} className="text-[#7C3AED]" />
-              Scan for Videos
-            </button>
-            <button
-              onClick={() => {
-                setVideoView(videoView === 'grid' ? 'list' : 'grid')
-                setHeaderMenuOpen(false)
-              }}
-              className="flex items-center gap-3 w-full px-4 py-3 text-white text-sm active:bg-[#16213E] transition-colors duration-150"
-            >
-              {videoView === 'grid' ? (
-                <List size={16} className="text-[#06B6D4]" />
-              ) : (
-                <Grid3X3 size={16} className="text-[#06B6D4]" />
-              )}
-              {videoView === 'grid' ? 'List View' : 'Grid View'}
-            </button>
-            <button
-              onClick={() => {
-                setHeaderMenuOpen(false)
-              }}
-              className="flex items-center gap-3 w-full px-4 py-3 text-white text-sm active:bg-[#16213E] transition-colors duration-150"
-            >
-              <Play size={16} className="text-[#7C3AED]" />
-              Play All
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* ════════════════════════════════════════════════════════
-          2. TAB FILTER ROW (horizontal scroll, hide scrollbar)
-          ════════════════════════════════════════════════════════ */}
-      <div className="sticky top-14 z-30 bg-[#0D0D0D]">
-        <div className="flex items-center justify-between">
+            className="absolute inset-0 bg-black/50"
+            onClick={closeSheet}
+          />
           <div
-            ref={tabScrollRef}
-            className="flex gap-2 px-4 py-3 overflow-x-auto scrollbar-hide flex-1"
+            className="relative w-full max-w-lg rounded-t-2xl z-10"
+            style={{ backgroundColor: '#141414', borderTop: '1px solid #1F1F1F' }}
           >
-            {TABS.map((tab) => {
-              const isActive = activeTab === tab.key
-              return (
-                <button
-                  key={tab.key}
-                  ref={(el) => {
-                    tabRefs.current[tab.key] = el
-                  }}
-                  onClick={() => handleTabChange(tab.key)}
-                  className={`flex items-center gap-1.5 px-4 py-1.5 rounded-full text-sm font-medium whitespace-nowrap transition-colors duration-150 active:scale-95 ${
-                    isActive
-                      ? 'bg-[#7C3AED] text-white'
-                      : 'border border-[#2D2D44] text-[#9CA3AF]'
-                  }`}
-                  aria-pressed={isActive}
-                >
-                  {tab.icon}
-                  {tab.label}
-                </button>
-              )
-            })}
-          </div>
-
-          {/* ════════════════════════════════════════════════════════
-              3. VIEW TOGGLE — Grid / List (top-right of tab row)
-              ════════════════════════════════════════════════════════ */}
-          {activeTab === 'all' && (
-            <button
-              onClick={handleViewToggle}
-              className="flex items-center justify-center w-11 h-11 rounded-xl mr-3 active:scale-90 transition-transform duration-150"
-              aria-label={videoView === 'grid' ? 'Switch to list view' : 'Switch to grid view'}
-            >
-              {videoView === 'grid' ? (
-                <List size={18} className="text-[#9CA3AF]" />
-              ) : (
-                <Grid3X3 size={18} className="text-[#9CA3AF]" />
-              )}
-            </button>
-          )}
-        </div>
-
-        {/* Video count */}
-        {activeTab === 'all' && displayedVideos.length > 0 && (
-          <div className="flex items-center px-4 pb-2">
-            <span className="text-[#9CA3AF] text-xs">
-              {displayedVideos.length} video{displayedVideos.length !== 1 ? 's' : ''}
-            </span>
-          </div>
-        )}
-      </div>
-
-      {/* ════════════════════════════════════════════════════════
-          4-8. MAIN CONTENT
-          ════════════════════════════════════════════════════════ */}
-      <main className="flex-1 pb-4">
-        <div className="max-h-[calc(100vh-180px)] overflow-y-auto">
-          {renderContent()}
-        </div>
-      </main>
-
-      {/* ════════════════════════════════════════════════════════
-          TOAST NOTIFICATION — library updated
-          ════════════════════════════════════════════════════════ */}
-      {showToast && toastMsg && (
-        <div className="fixed bottom-20 left-1/2 -translate-x-1/2 z-[60] px-4 py-2.5 bg-[#1A1A2E] border border-[#7C3AED] rounded-xl shadow-lg shadow-black/60 text-white text-sm font-medium animate-slide-up">
-          {toastMsg}
-        </div>
-      )}
-
-      {/* ════════════════════════════════════════════════════════
-          6. VIDEO CONTEXT MENU BOTTOM SHEET
-          ════════════════════════════════════════════════════════ */}
-      {contextSheetOpen && contextVideo && (
-        <div
-          className="fixed inset-0 z-50 flex items-end justify-center"
-          onClick={closeContextSheet}
-        >
-          {/* Backdrop */}
-          <div className="absolute inset-0 bg-black/60" />
-
-          {/* Slide-up panel */}
-          <div
-            className="relative w-full max-w-lg bg-[#1A1A2E] border-t border-[#2D2D44] rounded-t-2xl animate-[fade-in_150ms_ease-out]"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* Handle */}
-            <div className="flex justify-center pt-3 pb-2">
-              <div className="w-10 h-1 rounded-full bg-[#2D2D44]" />
-            </div>
-
-            {/* Video preview in sheet header */}
-            <div className="flex items-center gap-3 px-5 pb-4 border-b border-[#2D2D44]">
-              <div className="w-16 h-9 rounded-lg flex-shrink-0 overflow-hidden bg-[#0D0D0D]">
-                {(() => {
-                  const thumb =
-                    contextVideo.thumbnail || thumbnailCache[contextVideo.id]
-                  if (thumb) {
-                    return (
-                      <img
-                        src={thumb}
-                        alt={contextVideo.name}
-                        className="w-full h-full object-cover"
-                      />
-                    )
-                  }
-                  return (
-                    <div className="w-full h-full bg-gradient-to-br from-[#7C3AED]/40 to-[#16213E] flex items-center justify-center">
-                      <Film size={14} className="text-white/50" />
-                    </div>
-                  )
-                })()}
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-white font-medium text-sm truncate">
-                  {contextVideo.name}
-                </p>
-                <div className="flex items-center gap-2 mt-0.5">
-                  <span className="text-[#7C3AED] text-[10px] font-semibold uppercase">
-                    {contextVideo.format}
-                  </span>
-                  <span className="text-[#9CA3AF] text-xs">
-                    {formatFileSize(contextVideo.size)}
-                  </span>
-                  {contextVideo.duration > 0 && (
-                    <>
-                      <span className="text-[#2D2D44] text-xs">·</span>
-                      <span className="text-[#9CA3AF] text-xs">
-                        {formatDuration(contextVideo.duration)}
-                      </span>
-                    </>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            {/* Actions: Play / Play Next / Add to Queue / Rename / Share / Info / Delete */}
-            <div className="pb-6 max-h-96 overflow-y-auto">
-              {/* Play action at top */}
-              <button
-                onClick={() => {
-                  handleVideoTap(contextVideo)
-                  closeContextSheet()
+            {/* Video info header */}
+            <div className="flex items-center gap-3 px-4 py-3" style={{ borderBottom: '1px solid #1F1F1F' }}>
+              <div
+                className="rounded-lg overflow-hidden shrink-0 flex items-center justify-center"
+                style={{
+                  width: 48,
+                  height: 48,
+                  backgroundColor: '#0A0A0A',
                 }}
-                className="flex items-center gap-4 w-full px-5 py-3.5 text-sm font-medium active:bg-[#16213E] transition-colors duration-150"
               >
-                <span className="text-[#7C3AED]">
-                  <Play size={18} />
-                </span>
-                <span className="text-white">Play</span>
+                <Film size={20} className="text-[#7C3AED]" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-white text-sm font-medium truncate">{selectedVideo.name}</p>
+                <p className="text-[#9CA3AF] text-xs">
+                  {selectedVideo.format.toUpperCase()} • {formatFileSize(selectedVideo.size)}
+                </p>
+              </div>
+              <button
+                onClick={closeSheet}
+                className="flex items-center justify-center rounded-full hover:bg-white/10"
+                style={{ width: 44, height: 44, minWidth: 44, minHeight: 44 }}
+                aria-label="Close"
+              >
+                <X size={20} className="text-white" />
               </button>
+            </div>
 
-              {CONTEXT_ACTIONS.map((action) => (
+            {/* Options */}
+            <div className="py-2">
+              {sheetOptions.map((opt) => (
                 <button
-                  key={action.id}
-                  onClick={() => handleContextAction(action.id)}
-                  className="flex items-center gap-4 w-full px-5 py-3.5 text-sm font-medium active:bg-[#16213E] transition-colors duration-150"
+                  key={opt.label}
+                  onClick={opt.action}
+                  className="w-full flex items-center gap-3 px-4 py-3 hover:bg-[#1F1F1F] active:bg-[#2A2A2A]"
+                  style={{ minHeight: 44, transition: 'background 150ms' }}
                 >
-                  <span className={action.color}>{action.icon}</span>
-                  <span className="text-white">{action.label}</span>
+                  <span className={opt.danger ? 'text-red-500' : 'text-[#9CA3AF]'}>{opt.icon}</span>
+                  <span className={`text-sm ${opt.danger ? 'text-red-500' : 'text-white'}`}>
+                    {opt.label}
+                  </span>
                 </button>
               ))}
             </div>
           </div>
         </div>
       )}
+
+      {/* ── Spin animation for refresh ── */}
+      <style dangerouslySetInnerHTML={{ __html: `
+        @keyframes spin {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+        }
+      `}} />
     </div>
-  )
+  );
+}
+
+// ══════════════════════════════════════════════════════════════
+// GRID CARD SUBCOMPONENT
+// ══════════════════════════════════════════════════════════════
+
+interface VideoGridCardProps {
+  video: VideoFile;
+  thumbnail: string | undefined;
+  resolution: string;
+  resume: HistoryEntry | undefined;
+  onThumbnailNeeded: (id: string) => void;
+  onSelect: (video: VideoFile) => void;
+  onMenu: (video: VideoFile, e?: React.MouseEvent) => void;
+}
+
+function VideoGridCard({
+  video,
+  thumbnail,
+  resolution,
+  resume,
+  onThumbnailNeeded,
+  onSelect,
+  onMenu,
+}: VideoGridCardProps) {
+  const cardRef = useRef<HTMLDivElement>(null);
+  const observedRef = useRef(false);
+
+  // ── Intersection Observer for lazy thumbnail generation ──
+  useEffect(() => {
+    if (observedRef.current) return;
+    const el = cardRef.current;
+    if (!el) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting) {
+          onThumbnailNeeded(video.id);
+          observer.disconnect();
+          observedRef.current = true;
+        }
+      },
+      { threshold: 0.1 }
+    );
+
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [video.id, onThumbnailNeeded]);
+
+  return (
+    <div
+      ref={cardRef}
+      className="rounded-xl overflow-hidden cursor-pointer active:scale-[0.97]"
+      style={{
+        backgroundColor: '#141414',
+        border: '1px solid #1F1F1F',
+        transition: 'transform 100ms',
+      }}
+      onClick={() => onSelect(video)}
+    >
+      {/* Thumbnail */}
+      <div className="relative" style={{ aspectRatio: '16/9' }}>
+        {thumbnail ? (
+          <img
+            src={thumbnail}
+            alt={video.name}
+            className="w-full h-full object-cover"
+            loading="lazy"
+          />
+        ) : (
+          <div
+            className="w-full h-full flex items-center justify-center"
+            style={{ backgroundColor: '#0A0A0A' }}
+          >
+            <Film size={24} className="text-[#1F1F1F]" />
+          </div>
+        )}
+
+        {/* Format badge (top-left) */}
+        <div
+          className="absolute top-2 left-2 text-white text-xs px-2 rounded"
+          style={{ backgroundColor: 'rgba(0,0,0,0.7)' }}
+        >
+          {video.format.toUpperCase()}
+        </div>
+
+        {/* Duration badge (bottom-right) */}
+        {video.duration > 0 && (
+          <div
+            className="absolute bottom-2 right-2 text-white text-xs px-2 rounded"
+            style={{ backgroundColor: 'rgba(0,0,0,0.7)' }}
+          >
+            {formatDuration(video.duration)}
+          </div>
+        )}
+
+        {/* Resume badge */}
+        {resume && resume.position > 5 && (
+          <div
+            className="absolute bottom-2 left-2 text-xs px-2 rounded font-medium"
+            style={{ backgroundColor: 'rgba(0,0,0,0.7)', color: '#06B6D4' }}
+          >
+            Resume from {formatDuration(resume.position)}
+          </div>
+        )}
+
+        {/* Play circle center */}
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+          <div
+            className="flex items-center justify-center rounded-full"
+            style={{
+              width: 50,
+              height: 50,
+              backgroundColor: 'rgba(0,0,0,0.5)',
+            }}
+          >
+            <Play size={22} className="text-white ml-1" />
+          </div>
+        </div>
+      </div>
+
+      {/* Info */}
+      <div className="p-2.5">
+        <p className="text-white text-[13px] font-medium truncate">{video.name}</p>
+        <p className="text-[#9CA3AF] text-[11px] truncate mt-0.5">
+          {video.format.toUpperCase()}
+          {resolution && ` • ${resolution}`}
+          {` • ${formatFileSize(video.size)}`}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════
+// LIST ROW SUBCOMPONENT
+// ══════════════════════════════════════════════════════════════
+
+interface VideoListRowProps {
+  video: VideoFile;
+  thumbnail: string | undefined;
+  resolution: string;
+  resume: HistoryEntry | undefined;
+  onThumbnailNeeded: (id: string) => void;
+  onSelect: (video: VideoFile) => void;
+  onMenu: (video: VideoFile, e?: React.MouseEvent) => void;
+}
+
+function VideoListRow({
+  video,
+  thumbnail,
+  resolution,
+  resume,
+  onThumbnailNeeded,
+  onSelect,
+  onMenu,
+}: VideoListRowProps) {
+  const rowRef = useRef<HTMLDivElement>(null);
+  const observedRef = useRef(false);
+
+  // ── Intersection Observer for lazy thumbnail ──
+  useEffect(() => {
+    if (observedRef.current) return;
+    const el = rowRef.current;
+    if (!el) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting) {
+          onThumbnailNeeded(video.id);
+          observer.disconnect();
+          observedRef.current = true;
+        }
+      },
+      { threshold: 0.1 }
+    );
+
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [video.id, onThumbnailNeeded]);
+
+  return (
+    <div
+      ref={rowRef}
+      className="flex items-center gap-3 px-4 cursor-pointer hover:bg-[#141414] active:bg-[#1A1A1A]"
+      style={{
+        height: 72,
+        minHeight: 72,
+        transition: 'background 150ms',
+      }}
+      onClick={() => onSelect(video)}
+    >
+      {/* Thumbnail */}
+      <div
+        className="rounded-lg overflow-hidden shrink-0"
+        style={{ width: 96, height: 54 }}
+      >
+        {thumbnail ? (
+          <img
+            src={thumbnail}
+            alt={video.name}
+            className="w-full h-full object-cover"
+            loading="lazy"
+          />
+        ) : (
+          <div
+            className="w-full h-full flex items-center justify-center"
+            style={{ backgroundColor: '#141414' }}
+          >
+            <Film size={18} className="text-[#1F1F1F]" />
+          </div>
+        )}
+      </div>
+
+      {/* Info */}
+      <div className="flex-1 min-w-0">
+        <p className="text-white text-sm font-medium truncate">{video.name}</p>
+        <p className="text-[#9CA3AF] text-xs truncate mt-0.5">
+          {video.format.toUpperCase()}
+          {resolution && ` • ${resolution}`}
+          {` • ${formatFileSize(video.size)}`}
+          {video.duration > 0 && ` • ${formatDuration(video.duration)}`}
+        </p>
+        {resume && resume.position > 5 && (
+          <p className="text-xs mt-0.5 font-medium" style={{ color: '#06B6D4' }}>
+            Resume from {formatDuration(resume.position)}
+          </p>
+        )}
+      </div>
+
+      {/* Menu button */}
+      <button
+        onClick={(e) => onMenu(video, e)}
+        className="flex items-center justify-center rounded-full hover:bg-white/10 shrink-0"
+        style={{ width: 44, height: 44, minWidth: 44, minHeight: 44, transition: 'transform 100ms' }}
+        aria-label="Video options"
+      >
+        <MoreVertical size={18} className="text-[#9CA3AF]" />
+      </button>
+    </div>
+  );
 }

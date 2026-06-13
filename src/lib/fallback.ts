@@ -1,9 +1,8 @@
 // ── Play Nexa Fallback Movies ───────────────────────────────────
-// These show when YouTube API quota is exceeded or network fails.
-// Real movie data. Real YouTube IDs.
+// These show when API quota is exceeded or network fails.
 // Users NEVER see an empty screen.
 
-import type { YouTubeMovie } from './youtube'
+import type { YouTubeMovie } from './types'
 
 export const FALLBACK_MOVIES: YouTubeMovie[] = [
   {
@@ -25,7 +24,7 @@ export const FALLBACK_MOVIES: YouTubeMovie[] = [
     genre: ['Action', 'Crime'],
     category: 'Hollywood',
     free: true,
-    source: 'YouTube',
+    source: 'Fallback',
     trending: true,
     viral: false,
   },
@@ -48,7 +47,7 @@ export const FALLBACK_MOVIES: YouTubeMovie[] = [
     genre: ['Sci-Fi', 'Adventure'],
     category: 'Hollywood',
     free: true,
-    source: 'YouTube',
+    source: 'Fallback',
     trending: true,
     viral: false,
   },
@@ -71,7 +70,7 @@ export const FALLBACK_MOVIES: YouTubeMovie[] = [
     genre: ['Action', 'Adventure'],
     category: 'Hollywood',
     free: true,
-    source: 'YouTube',
+    source: 'Fallback',
     trending: true,
     viral: true,
   },
@@ -94,7 +93,7 @@ export const FALLBACK_MOVIES: YouTubeMovie[] = [
     genre: ['Anime', 'Romance'],
     category: 'Anime',
     free: true,
-    source: 'YouTube',
+    source: 'Fallback',
     trending: false,
     viral: true,
   },
@@ -117,7 +116,7 @@ export const FALLBACK_MOVIES: YouTubeMovie[] = [
     genre: ['Thriller', 'Drama'],
     category: 'Korean',
     free: true,
-    source: 'YouTube',
+    source: 'Fallback',
     trending: false,
     viral: false,
   },
@@ -140,7 +139,7 @@ export const FALLBACK_MOVIES: YouTubeMovie[] = [
     genre: ['Comedy', 'Drama'],
     category: 'Bollywood',
     free: true,
-    source: 'YouTube',
+    source: 'Fallback',
     trending: true,
     viral: true,
   },
@@ -163,7 +162,7 @@ export const FALLBACK_MOVIES: YouTubeMovie[] = [
     genre: ['Anime', 'Fantasy'],
     category: 'Anime',
     free: true,
-    source: 'YouTube',
+    source: 'Fallback',
     trending: false,
     viral: false,
   },
@@ -186,7 +185,7 @@ export const FALLBACK_MOVIES: YouTubeMovie[] = [
     genre: ['Drama', 'Sport'],
     category: 'Bollywood',
     free: true,
-    source: 'YouTube',
+    source: 'Fallback',
     trending: false,
     viral: false,
   },
@@ -209,7 +208,7 @@ export const FALLBACK_MOVIES: YouTubeMovie[] = [
     genre: ['Horror', 'Action'],
     category: 'Korean',
     free: true,
-    source: 'YouTube',
+    source: 'Fallback',
     trending: false,
     viral: false,
   },
@@ -232,7 +231,7 @@ export const FALLBACK_MOVIES: YouTubeMovie[] = [
     genre: ['Action', 'Adventure'],
     category: 'Bollywood',
     free: true,
-    source: 'YouTube',
+    source: 'Fallback',
     trending: true,
     viral: true,
   },
@@ -255,7 +254,7 @@ export const FALLBACK_MOVIES: YouTubeMovie[] = [
     genre: ['Sci-Fi', 'Action'],
     category: 'Hollywood',
     free: true,
-    source: 'YouTube',
+    source: 'Fallback',
     trending: false,
     viral: false,
   },
@@ -278,14 +277,13 @@ export const FALLBACK_MOVIES: YouTubeMovie[] = [
     genre: ['Anime', 'Action'],
     category: 'Anime',
     free: true,
-    source: 'YouTube',
+    source: 'Fallback',
     trending: true,
     viral: false,
   },
 ]
 
 // ── Category filter helpers ──
-// Return fallback movies filtered by category
 
 export const getFallbackByCategory = (category: string): YouTubeMovie[] => {
   if (category === 'Trending')
@@ -322,7 +320,6 @@ export const getFallbackByCategory = (category: string): YouTubeMovie[] => {
 }
 
 // ── Region filter helpers ──
-// Return fallback movies filtered by geo-region
 
 export const getFallbackByRegion = (region: string): YouTubeMovie[] => {
   if (region === 'bangladesh')

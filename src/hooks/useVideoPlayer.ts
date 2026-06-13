@@ -70,6 +70,7 @@ function writeHistory(history: Record<string, HistoryEntry>): void {
 export function useVideoPlayer() {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const saveIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [currentTime, setCurrentTime] = useState<number>(0);
@@ -175,6 +176,34 @@ export function useVideoPlayer() {
     return cleanup;
   }, [attachVideoListeners]);
 
+  // ── Periodic position save (every 5s while playing) ─────────────────
+  useEffect(() => {
+    if (saveIntervalRef.current) {
+      clearInterval(saveIntervalRef.current);
+    }
+    saveIntervalRef.current = setInterval(() => {
+      const el = videoRef.current;
+      if (el && currentVideo && isPlaying && el.currentTime > 0) {
+        try {
+          const history = readHistory();
+          history[currentVideo.id] = {
+            position: el.currentTime,
+            updatedAt: Date.now(),
+          };
+          writeHistory(history);
+        } catch {
+          // silently ignore
+        }
+      }
+    }, 5000);
+
+    return () => {
+      if (saveIntervalRef.current) {
+        clearInterval(saveIntervalRef.current);
+      }
+    };
+  }, [currentVideo, isPlaying]);
+
   // ── Sync volume to element ──────────────────────────────────────────
   useEffect(() => {
     const el = videoRef.current;
@@ -261,7 +290,6 @@ export function useVideoPlayer() {
         // silently ignore storage errors
       }
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentVideo]);
 
   // ── Controls ────────────────────────────────────────────────────────
@@ -328,7 +356,6 @@ export function useVideoPlayer() {
     if (!el) return;
     try {
       if (isNativePlatform()) {
-        // On native, use Capacitor PiP if available
         const w = window as unknown as {
           Capacitor?: {
             Plugins?: {
@@ -343,7 +370,6 @@ export function useVideoPlayer() {
           await pipPlugin.enter();
         }
       } else {
-        // Web PiP API
         if (document.pictureInPictureElement) {
           await document.exitPictureInPicture();
         } else {
@@ -372,7 +398,6 @@ export function useVideoPlayer() {
     const el = videoRef.current;
     if (!el) return;
 
-    // AudioTrackList is a non-standard API available in some browsers
     const audioTracks = (el as HTMLVideoElement & { audioTracks?: { length: number; [i: number]: { enabled: boolean } } }).audioTracks;
     if (audioTracks && audioTracks.length > 0) {
       for (let i = 0; i < audioTracks.length; i++) {
@@ -445,8 +470,6 @@ export function useVideoPlayer() {
       setResumePosition(null);
 
       if (el) {
-        // Convert native file path for Capacitor — without this,
-        // Android WebView cannot access file:/// URIs directly
         const src = getVideoSrc(video.url || video.path);
         el.src = src;
         el.load();
