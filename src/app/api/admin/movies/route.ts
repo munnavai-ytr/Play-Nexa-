@@ -44,7 +44,8 @@ export async function POST(req: NextRequest) {
       duration: duration || null,
       description: description || null,
       language: 'Bangla',
-      views: 0,
+      view_count: 0,
+      is_hidden: false,
       published_at: new Date().toISOString(),
     }]).select()
 

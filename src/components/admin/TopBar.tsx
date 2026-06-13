@@ -8,6 +8,7 @@ import { usePathname } from 'next/navigation'
 
 const PAGE_TITLES: Record<string, string> = {
   '/admin': 'Dashboard',
+  '/admin/channels': 'Channel Manager',
   '/admin/features': 'Feature Control',
   '/admin/movies': 'Movie Manager',
   '/admin/users': 'User Manager',

@@ -24,14 +24,14 @@ import {
 // ── Channel options matching movies table channel_name ──
 
 const CHANNEL_OPTIONS = [
-  { value: 'gseries_movies', label: '🎬 G-Series Movies' },
-  { value: 'eagle_movies', label: '🦅 Eagle Movies' },
-  { value: 'chorki_free', label: '🍿 Chorki Free' },
-  { value: 'bongobd', label: '🎭 BongoBD' },
-  { value: 'goldmines', label: '🌟 Goldmines' },
-  { value: 'pen_movies', label: '🎥 Pen Movies' },
-  { value: 'sonyliv_free', label: '📡 SonyLIV Free' },
-  { value: 'yrf', label: '🎵 YRF' },
+  { value: 'G-Series', label: '🎬 G-Series' },
+  { value: 'Eagle Movies', label: '🦅 Eagle Movies' },
+  { value: 'Chorki', label: '🍿 Chorki' },
+  { value: 'BongoBD', label: '🎭 BongoBD' },
+  { value: 'SVF', label: '🌟 SVF' },
+  { value: 'Goldmines', label: '🎥 Goldmines' },
+  { value: 'Pen Movies', label: '📽️ Pen Movies' },
+  { value: 'SonyLIV', label: '📡 SonyLIV' },
 ]
 
 // ── Animation keyframes ──

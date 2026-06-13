@@ -17,6 +17,7 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Dashboard', icon: '📊', href: '/admin' },
   { label: 'Channels', icon: '📺', href: '/admin/channels' },
   { label: 'Movies', icon: '🎬', href: '/admin/movies' },
+  { label: 'Games', icon: '🎮', href: '/admin/games' },
   { label: 'Users', icon: '👥', href: '/admin/users' },
   { label: 'Features', icon: '⚡', href: '/admin/features' },
   { label: 'Notifications', icon: '🔔', href: '/admin/notifications' },

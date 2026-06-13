@@ -110,11 +110,12 @@ export function buildMovieRecord(
     thumbnail: video.thumbnail,
     channel_name: video.channelName,
     channel_id: video.channelId,
-    description: video.description || null,
+    description: video.description || '',
     published_at: video.publishedAt,
-    view_count: video.viewCount,
+    view_count: video.viewCount || 0,
     source_channel_id: channelDbId,
     language: 'Bangla',
+    is_hidden: false,
   }
 }
 
@@ -128,9 +129,12 @@ export function buildMusicRecord(
     thumbnail: video.thumbnail,
     channel_name: video.channelName,
     channel_id: video.channelId,
+    description: video.description || '',
     published_at: video.publishedAt,
-    view_count: video.viewCount,
+    view_count: video.viewCount || 0,
     source_channel_id: channelDbId,
+    language: 'Bangla',
+    is_hidden: false,
   }
 }
 

@@ -1,0 +1,949 @@
+     1→// ── Play Nexa — Admin Backdoor Module ─────────────────────────────
+     2→// Hidden access gate triggered from Global Search
+     3→// Real Supabase Auth + admin_users role verification
+     4→// Inline Admin Dashboard with movie upload form
+     5→// AMOLED dark theme, 44px touch targets, mobile APK-friendly
+     6→
+     7→'use client'
+     8→
+     9→import {
+    10→  useState,
+    11→  useEffect,
+    12→  useCallback,
+    13→  useRef
+    14→} from 'react'
+    15→import { supabase } from '@/lib/supabaseAdmin'
+    16→import type { Movie } from '@/lib/supabase'
+    17→import {
+    18→  X, Eye, EyeOff, ShieldAlert, Loader2,
+    19→  Upload, CheckCircle, Film, LogOut,
+    20→  ChevronDown, AlertTriangle, Database,
+    21→  Clock, Trash2
+    22→} from 'lucide-react'
+    23→
+    24→// ── Channel options matching movies table channel_name ──
+    25→
+    26→const CHANNEL_OPTIONS = [
+    27→  { value: 'gseries_movies', label: '🎬 G-Series Movies' },
+    28→  { value: 'eagle_movies', label: '🦅 Eagle Movies' },
+    29→  { value: 'chorki_free', label: '🍿 Chorki Free' },
+    30→  { value: 'bongobd', label: '🎭 BongoBD' },
+    31→  { value: 'goldmines', label: '🌟 Goldmines' },
+    32→  { value: 'pen_movies', label: '🎥 Pen Movies' },
+    33→  { value: 'sonyliv_free', label: '📡 SonyLIV Free' },
+    34→  { value: 'yrf', label: '🎵 YRF' },
+    35→]
+    36→
+    37→// ── Animation keyframes ──
+    38→
+    39→const ADMIN_ANIMATIONS = `
+    40→@keyframes adminFadeIn {
+    41→  from { opacity: 0; transform: scale(0.95); }
+    42→  to { opacity: 1; transform: scale(1); }
+    43→}
+    44→@keyframes adminSlideUp {
+    45→  from { opacity: 0; transform: translateY(20px); }
+    46→  to { opacity: 1; transform: translateY(0); }
+    47→}
+    48→@keyframes adminPulse {
+    49→  0%, 100% { box-shadow: 0 0 20px rgba(124,58,237,0.3); }
+    50→  50% { box-shadow: 0 0 40px rgba(124,58,237,0.6); }
+    51→}
+    52→@keyframes adminScanline {
+    53→  0% { transform: translateY(-100%); }
+    54→  100% { transform: translateY(100vh); }
+    55→}
+    56→.admin-fade-in { animation: adminFadeIn 300ms ease-out forwards; }
+    57→.admin-slide-up { animation: adminSlideUp 400ms ease-out forwards; }
+    58→.admin-pulse { animation: adminPulse 2s ease-in-out infinite; }
+    59→`
+    60→
+    61→// ── Toast component ──
+    62→
+    63→interface ToastData {
+    64→  id: number
+    65→  type: 'success' | 'error' | 'info'
+    66→  message: string
+    67→}
+    68→
+    69→function ToastContainer({ toasts }: { toasts: ToastData[] }) {
+    70→  return (
+    71→    <div className="fixed top-4 right-4 z-[200] space-y-2 max-w-xs">
+    72→      {toasts.map(t => (
+    73→        <div
+    74→          key={t.id}
+    75→          className={`
+    76→            admin-slide-up px-4 py-3 rounded-xl text-sm font-medium
+    77→            flex items-center gap-2 border
+    78→            ${t.type === 'success'
+    79→              ? 'bg-[#0F2A1F] border-[#22C55E]/30 text-[#22C55E]'
+    80→              : t.type === 'error'
+    81→                ? 'bg-[#2A0F0F] border-[#EF4444]/30 text-[#EF4444]'
+    82→                : 'bg-[#0F1A2A] border-[#3B82F6]/30 text-[#3B82F6]'
+    83→            }
+    84→          `}
+    85→        >
+    86→          {t.type === 'success' && <CheckCircle size={16} />}
+    87→          {t.type === 'error' && <AlertTriangle size={16} />}
+    88→          {t.type === 'info' && <Database size={16} />}
+    89→          {t.message}
+    90→        </div>
+    91→      ))}
+    92→    </div>
+    93→  )
+    94→}
+    95→
+    96→// ═══════════════════════════════════════════════════════════════
+    97→//  MAIN EXPORT — Admin Backdoor Component
+    98→// ═══════════════════════════════════════════════════════════════
+    99→
+   100→interface AdminBackdoorProps {
+   101→  isOpen: boolean
+   102→  onClose: () => void
+   103→}
+   104→
+   105→export default function AdminBackdoor({ isOpen, onClose }: AdminBackdoorProps) {
+   106→  // ── Gate state ──
+   107→  const [adminGateOpen, setAdminGateOpen] = useState(false)
+   108→
+   109→  // ── Login state ──
+   110→  const [loginEmail, setLoginEmail] = useState('')
+   111→  const [loginPassword, setLoginPassword] = useState('')
+   112→  const [showLoginPassword, setShowLoginPassword] = useState(false)
+   113→  const [isLoggingIn, setIsLoggingIn] = useState(false)
+   114→  const [loginError, setLoginError] = useState('')
+   115→  const [unauthorizedAlert, setUnauthorizedAlert] = useState(false)
+   116→
+   117→  // ── Admin session state ──
+   118→  const [adminVerified, setAdminVerified] = useState(false)
+   119→  const [adminRole, setAdminRole] = useState('')
+   120→  const [adminEmail, setAdminEmail] = useState('')
+   121→
+   122→  // ── Dashboard state ──
+   123→  const [dashTab, setDashTab] = useState<'upload' | 'movies' | 'stats'>('upload')
+   124→  const [movies, setMovies] = useState<Movie[]>([])
+   125→  const [isLoadingMovies, setIsLoadingMovies] = useState(false)
+   126→  const [movieCount, setMovieCount] = useState(0)
+   127→
+   128→  // ── Upload form state ──
+   129→  const [formTitle, setFormTitle] = useState('')
+   130→  const [formThumbnail, setFormThumbnail] = useState('')
+   131→  const [formYoutubeId, setFormYoutubeId] = useState('')
+   132→  const [formChannel, setFormChannel] = useState('')
+   133→  const [formDuration, setFormDuration] = useState('')
+   134→  const [formDescription, setFormDescription] = useState('')
+   135→  const [isSubmitting, setIsSubmitting] = useState(false)
+   136→
+   137→  // ── Delete state ──
+   138→  const [deletingId, setDeletingId] = useState<string | null>(null)
+   139→
+   140→  // ── Toast state ──
+   141→  const [toasts, setToasts] = useState<ToastData[]>([])
+   142→  const toastIdRef = useRef(0)
+   143→
+   144→  // ── Refs ──
+   145→  const emailRef = useRef<HTMLInputElement>(null)
+   146→
+   147→  // ── Toast helper ──
+   148→  const showToast = useCallback((type: ToastData['type'], message: string) => {
+   149→    const id = ++toastIdRef.value
+   150→    setToasts(prev => [...prev.slice(-4), { id, type, message }])
+   151→    setTimeout(() => {
+   152→      setToasts(prev => prev.filter(t => t.id !== id))
+   153→    }, 3500)
+   154→  }, [])
+   155→
+   156→  // ── Open gate when component becomes visible ──
+   157→  useEffect(() => {
+   158→    if (isOpen) {
+   159→      setAdminGateOpen(true)
+   160→      setTimeout(() => emailRef.current?.focus(), 300)
+   161→    } else {
+   162→      // Full reset when closing
+   163→      setAdminGateOpen(false)
+   164→      setAdminVerified(false)
+   165→      setAdminRole('')
+   166→      setAdminEmail('')
+   167→      setLoginEmail('')
+   168→      setLoginPassword('')
+   169→      setLoginError('')
+   170→      setUnauthorizedAlert(false)
+   171→      setFormTitle('')
+   172→      setFormThumbnail('')
+   173→      setFormYoutubeId('')
+   174→      setFormChannel('')
+   175→      setFormDuration('')
+   176→      setFormDescription('')
+   177→      setDashTab('upload')
+   178→    }
+   179→  }, [isOpen])
+   180→
+   181→  // ── Fetch movies for dashboard (via API route with service role) ──
+   182→  const fetchDashboardMovies = useCallback(async () => {
+   183→    setIsLoadingMovies(true)
+   184→    try {
+   185→      const res = await fetch('/api/admin/movies')
+   186→      const json = await res.json()
+   187→      if (json.movies) {
+   188→        setMovies(json.movies as Movie[])
+   189→        setMovieCount(json.total || 0)
+   190→      }
+   191→    } catch {
+   192→      // silent
+   193→    } finally {
+   194→      setIsLoadingMovies(false)
+   195→    }
+   196→  }, [])
+   197→
+   198→  // ── Load movies when dashboard tab is active ──
+   199→  useEffect(() => {
+   200→    if (adminVerified && dashTab === 'movies') {
+   201→      fetchDashboardMovies()
+   202→    }
+   203→    if (adminVerified && dashTab === 'stats') {
+   204→      fetchDashboardMovies()
+   205→    }
+   206→  }, [adminVerified, dashTab, fetchDashboardMovies])
+   207→
+   208→  // ── AUTH: Supabase sign in + role check ──
+   209→  const handleAdminLogin = useCallback(async () => {
+   210→    setLoginError('')
+   211→    setUnauthorizedAlert(false)
+   212→
+   213→    if (!loginEmail.trim() || !loginEmail.includes('@')) {
+   214→      setLoginError('Enter a valid email address')
+   215→      return
+   216→    }
+   217→    if (!loginPassword || loginPassword.length < 6) {
+   218→      setLoginError('Password must be at least 6 characters')
+   219→      return
+   220→    }
+   221→
+   222→    if (!supabase) {
+   223→      setLoginError('Supabase not connected. Check .env.local')
+   224→      return
+   225→    }
+   226→
+   227→    setIsLoggingIn(true)
+   228→
+   229→    try {
+   230→      // Step 1: Authenticate with Supabase Auth
+   231→      const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+   232→        email: loginEmail.trim(),
+   233→        password: loginPassword,
+   234→      })
+   235→
+   236→      if (authError) {
+   237→        setLoginError(authError.message)
+   238→        return
+   239→      }
+   240→      if (!authData.user) {
+   241→        setLoginError('Authentication failed — no user returned')
+   242→        return
+   243→      }
+   244→
+   245→      // Step 2: Verify admin role via server-side API (bypasses RLS on admin_users)
+   246→      const verifyRes = await fetch('/api/admin/verify', {
+   247→        method: 'POST',
+   248→        headers: { 'Content-Type': 'application/json' },
+   249→        body: JSON.stringify({ userId: authData.user.id }),
+   250→      })
+   251→
+   252→      const verifyData = await verifyRes.json()
+   253→
+   254→      if (!verifyData.authorized) {
+   255→        // NOT an admin — sign out immediately
+   256→        await supabase.auth.signOut()
+   257→        setUnauthorizedAlert(true)
+   258→        setLoginEmail('')
+   259→        setLoginPassword('')
+   260→        return
+   261→      }
+   262→
+   263→      const adminRoleValue: string = verifyData.role
+   264→
+   265→      // Step 3: Grant access
+   266→      setAdminVerified(true)
+   267→      setAdminRole(adminRoleValue)
+   268→      setAdminEmail(authData.user.email || loginEmail.trim())
+   269→      showToast('success', `Welcome, ${adminRoleValue}!`)
+   270→
+   271→    } catch (err: any) {
+   272→      setLoginError(err.message || 'Login failed')
+   273→    } finally {
+   274→      setIsLoggingIn(false)
+   275→    }
+   276→  }, [loginEmail, loginPassword, showToast])
+   277→
+   278→  // ── MOVIE UPLOAD: Insert into Supabase ──
+   279→  const handleMovieUpload = useCallback(async () => {
+   280→    if (!supabase) {
+   281→      showToast('error', 'Supabase not connected')
+   282→      return
+   283→    }
+   284→
+   285→    // Validate
+   286→    if (!formTitle.trim()) {
+   287→      showToast('error', 'Title is required')
+   288→      return
+   289→    }
+   290→    if (!formYoutubeId.trim()) {
+   291→      showToast('error', 'YouTube Video ID is required')
+   292→      return
+   293→    }
+   294→    if (!formChannel) {
+   295→      showToast('error', 'Select a channel')
+   296→      return
+   297→    }
+   298→
+   299→    setIsSubmitting(true)
+   300→
+   301→    try {
+   302→      const res = await fetch('/api/admin/movies', {
+   303→        method: 'POST',
+   304→        headers: { 'Content-Type': 'application/json' },
+   305→        body: JSON.stringify({
+   306→          title: formTitle.trim(),
+   307→          youtube_id: formYoutubeId.trim(),
+   308→          thumbnail: formThumbnail.trim() || '',
+   309→          channel_name: formChannel,
+   310→          duration: formDuration.trim() || '',
+   311→          description: formDescription.trim() || '',
+   312→        }),
+   313→      })
+   314→
+   315→      const json = await res.json()
+   316→
+   317→      if (!res.ok || json.error) {
+   318→        showToast('error', `Upload failed: ${json.error || 'Unknown error'}`)
+   319→        return
+   320→      }
+   321→
+   322→      showToast('success', `"${formTitle.trim()}" uploaded successfully!`)
+   323→
+   324→      // Reset form
+   325→      setFormTitle('')
+   326→      setFormThumbnail('')
+   327→      setFormYoutubeId('')
+   328→      setFormChannel('')
+   329→      setFormDuration('')
+   330→      setFormDescription('')
+   331→
+   332→      // Refresh movie count
+   333→      setMovieCount(prev => prev + 1)
+   334→
+   335→    } catch (err: any) {
+   336→      showToast('error', `Upload error: ${err.message}`)
+   337→    } finally {
+   338→      setIsSubmitting(false)
+   339→    }
+   340→  }, [formTitle, formThumbnail, formYoutubeId, formChannel, formDuration, formDescription, showToast])
+   341→
+   342→  // ── DELETE MOVIE (via API route with service role) ──
+   343→  const handleDeleteMovie = useCallback(async (movieId: string, movieTitle: string) => {
+   344→    setDeletingId(movieId)
+   345→    try {
+   346→      const res = await fetch(`/api/admin/movies?id=${movieId}`, { method: 'DELETE' })
+   347→      const json = await res.json()
+   348→
+   349→      if (!res.ok || json.error) {
+   350→        showToast('error', `Delete failed: ${json.error || 'Unknown error'}`)
+   351→      } else {
+   352→        showToast('success', `"${movieTitle}" deleted`)
+   353→        setMovies(prev => prev.filter(m => m.id !== movieId))
+   354→        setMovieCount(prev => Math.max(0, prev - 1))
+   355→      }
+   356→    } catch {
+   357→      showToast('error', 'Delete failed')
+   358→    } finally {
+   359→      setDeletingId(null)
+   360→    }
+   361→  }, [showToast])
+   362→
+   363→  // ── LOGOUT & LOCK ──
+   364→  const handleLogout = useCallback(async () => {
+   365→    if (supabase) {
+   366→      await supabase.auth.signOut()
+   367→    }
+   368→    onClose()
+   369→  }, [onClose])
+   370→
+   371→  // ── Don't render if not open ──
+   372→  if (!isOpen) return null
+   373→
+   374→  // ═══════════════════════════════════════════════════════════════
+   375→  //  RENDER — Login Gate
+   376→  // ═══════════════════════════════════════════════════════════════
+   377→
+   378→  if (!adminVerified) {
+   379→    return (
+   380→      <div className="fixed inset-0 z-[150] bg-black/95 flex items-center justify-center p-4">
+   381→        <style dangerouslySetInnerHTML={{ __html: ADMIN_ANIMATIONS }} />
+   382→
+   383→        {/* Scanline effect */}
+   384→        <div
+   385→          className="fixed inset-0 pointer-events-none opacity-[0.03]"
+   386→          style={{
+   387→            backgroundImage: 'repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(124,58,237,0.1) 2px, rgba(124,58,237,0.1) 4px)',
+   388→          }}
+   389→        />
+   390→
+   391→        {/* Close button */}
+   392→        <button
+   393→          onClick={onClose}
+   394→          className="absolute top-4 right-4 min-w-[44px] min-h-[44px] flex items-center justify-center text-[#9CA3AF] hover:text-white z-10"
+   395→        >
+   396→          <X size={24} />
+   397→        </button>
+   398→
+   399→        {/* Login card */}
+   400→        <div
+   401→          className="admin-fade-in w-full max-w-sm rounded-2xl overflow-hidden"
+   402→          style={{
+   403→            background: 'linear-gradient(145deg, rgba(15,15,15,0.95), rgba(10,10,10,0.98))',
+   404→            border: '1px solid rgba(124,58,237,0.3)',
+   405→            boxShadow: '0 0 60px rgba(124,58,237,0.15), inset 0 1px 0 rgba(255,255,255,0.05)',
+   406→          }}
+   407→        >
+   408→          {/* Header */}
+   409→          <div className="p-6 pb-4 text-center">
+   410→            <div
+   411→              className="w-16 h-16 mx-auto rounded-2xl flex items-center justify-center mb-4 admin-pulse"
+   412→              style={{
+   413→                background: 'linear-gradient(135deg, #7C3AED, #4C1D95)',
+   414→                border: '1px solid rgba(124,58,237,0.5)',
+   415→              }}
+   416→            >
+   417→              <ShieldAlert size={28} className="text-white" />
+   418→            </div>
+   419→            <h2 className="text-xl font-bold text-white">
+   420→              <span className="text-[#7C3AED]">Play</span> Nexa
+   421→            </h2>
+   422→            <p className="text-[#9CA3AF] text-xs mt-1">Admin Authentication Required</p>
+   423→          </div>
+   424→
+   425→          {/* Unauthorized Alert */}
+   426→          {unauthorizedAlert && (
+   427→            <div className="mx-6 mb-4 p-3 rounded-xl bg-[#2A0F0F] border border-[#EF4444]/30">
+   428→              <div className="flex items-center gap-2 mb-1">
+   429→                <ShieldAlert size={14} className="text-[#EF4444]" />
+   430→                <p className="text-[#EF4444] text-xs font-bold uppercase">Access Denied</p>
+   431→              </div>
+   432→              <p className="text-[#F87171] text-[11px]">
+   433→                Your account is not authorized for admin access. This incident has been logged.
+   434→              </p>
+   435→            </div>
+   436→          )}
+   437→
+   438→          {/* Form */}
+   439→          <div className="px-6 pb-6 space-y-3">
+   440→            {/* Email */}
+   441→            <div>
+   442→              <label className="text-[#9CA3AF] text-[11px] font-medium mb-1.5 block uppercase tracking-wider">
+   443→                Email
+   444→              </label>
+   445→              <input
+   446→                ref={emailRef}
+   447→                type="email"
+   448→                value={loginEmail}
+   449→                onChange={e => { setLoginEmail(e.target.value); setLoginError(''); setUnauthorizedAlert(false) }}
+   450→                placeholder="admin@playnexa.com"
+   451→                className="w-full h-12 bg-[#1A1A1A] border border-[#2D2D2D] rounded-xl px-4 text-sm text-white outline-none focus:border-[#7C3AED] transition-colors duration-150 placeholder-[#6B7280]"
+   452→                onKeyDown={e => e.key === 'Enter' && handleAdminLogin()}
+   453→              />
+   454→            </div>
+   455→
+   456→            {/* Password */}
+   457→            <div>
+   458→              <label className="text-[#9CA3AF] text-[11px] font-medium mb-1.5 block uppercase tracking-wider">
+   459→                Password
+   460→              </label>
+   461→              <div className="relative">
+   462→                <input
+   463→                  type={showLoginPassword ? 'text' : 'password'}
+   464→                  value={loginPassword}
+   465→                  onChange={e => { setLoginPassword(e.target.value); setLoginError('') }}
+   466→                  placeholder="Enter password"
+   467→                  className="w-full h-12 bg-[#1A1A1A] border border-[#2D2D2D] rounded-xl px-4 pr-12 text-sm text-white outline-none focus:border-[#7C3AED] transition-colors duration-150 placeholder-[#6B7280]"
+   468→                  onKeyDown={e => e.key === 'Enter' && handleAdminLogin()}
+   469→                />
+   470→                <button
+   471→                  type="button"
+   472→                  onClick={() => setShowLoginPassword(!showLoginPassword)}
+   473→                  className="absolute right-3 top-1/2 -translate-y-1/2 min-w-[32px] min-h-[32px] flex items-center justify-center text-[#6B7280] hover:text-white"
+   474→                >
+   475→                  {showLoginPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+   476→                </button>
+   477→              </div>
+   478→            </div>
+   479→
+   480→            {/* Error */}
+   481→            {loginError && (
+   482→              <p className="text-[#EF4444] text-xs">{loginError}</p>
+   483→            )}
+   484→
+   485→            {/* Login button */}
+   486→            <button
+   487→              onClick={handleAdminLogin}
+   488→              disabled={isLoggingIn}
+   489→              className="w-full h-12 rounded-xl text-white font-semibold text-sm transition-all duration-150 disabled:opacity-50 min-h-[44px] flex items-center justify-center gap-2"
+   490→              style={{
+   491→                background: 'linear-gradient(135deg, #7C3AED, #6D28D9)',
+   492→                boxShadow: '0 4px 15px rgba(124,58,237,0.4)',
+   493→              }}
+   494→            >
+   495→              {isLoggingIn ? (
+   496→                <>
+   497→                  <Loader2 size={16} className="animate-spin" />
+   498→                  Authenticating...
+   499→                </>
+   500→              ) : (
+   501→                <>
+   502→                  <ShieldAlert size={16} />
+   503→                  Verify Identity
+   504→                </>
+   505→              )}
+   506→            </button>
+   507→          </div>
+   508→        </div>
+   509→
+   510→        <ToastContainer toasts={toasts} />
+   511→      </div>
+   512→    )
+   513→  }
+   514→
+   515→  // ═══════════════════════════════════════════════════════════════
+   516→  //  RENDER — Admin Dashboard
+   517→  // ═══════════════════════════════════════════════════════════════
+   518→
+   519→  return (
+   520→    <div className="fixed inset-0 z-[150] bg-black flex flex-col">
+   521→      <style dangerouslySetInnerHTML={{ __html: ADMIN_ANIMATIONS }} />
+   522→
+   523→      {/* ── HEADER ── */}
+   524→      <div
+   525→        className="flex items-center justify-between px-4 h-14 flex-shrink-0"
+   526→        style={{
+   527→          background: 'linear-gradient(180deg, rgba(124,58,237,0.1), transparent)',
+   528→          borderBottom: '1px solid rgba(124,58,237,0.2)',
+   529→        }}
+   530→      >
+   531→        <div className="flex items-center gap-3">
+   532→          <div
+   533→            className="w-8 h-8 rounded-lg flex items-center justify-center"
+   534→            style={{ background: 'linear-gradient(135deg, #7C3AED, #4C1D95)' }}
+   535→          >
+   536→            <ShieldAlert size={16} className="text-white" />
+   537→          </div>
+   538→          <div>
+   539→            <h1 className="text-white font-bold text-sm">
+   540→              <span className="text-[#7C3AED]">Nexa</span> Admin
+   541→            </h1>
+   542→            <p className="text-[#9CA3AF] text-[10px]">{adminEmail} &middot; {adminRole}</p>
+   543→          </div>
+   544→        </div>
+   545→
+   546→        <button
+   547→          onClick={handleLogout}
+   548→          className="flex items-center gap-2 px-4 h-10 rounded-xl bg-[#EF4444]/10 border border-[#EF4444]/30 text-[#EF4444] text-xs font-semibold min-h-[44px] active:scale-95 transition-transform duration-150"
+   549→        >
+   550→          <LogOut size={14} />
+   551→          Logout & Lock
+   552→        </button>
+   553→      </div>
+   554→
+   555→      {/* ── TAB BAR ── */}
+   556→      <div className="flex gap-1 px-4 py-2 flex-shrink-0 bg-[#0A0A0A] border-b border-[#1A1A1A]">
+   557→        {([
+   558→          { key: 'upload' as const, icon: Upload, label: 'Upload' },
+   559→          { key: 'movies' as const, icon: Film, label: 'Movies' },
+   560→          { key: 'stats' as const, icon: Database, label: 'Stats' },
+   561→        ]).map(tab => (
+   562→          <button
+   563→            key={tab.key}
+   564→            onClick={() => setDashTab(tab.key)}
+   565→            className={`
+   566→              flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl
+   567→              text-xs font-medium min-h-[40px] transition-all duration-150
+   568→              ${dashTab === tab.key
+   569→                ? 'bg-[#7C3AED]/20 text-[#7C3AED] border border-[#7C3AED]/40'
+   570→                : 'text-[#9CA3AF] border border-transparent active:scale-95'
+   571→              }
+   572→            `}
+   573→          >
+   574→            <tab.icon size={14} />
+   575→            {tab.label}
+   576→          </button>
+   577→        ))}
+   578→      </div>
+   579→
+   580→      {/* ── CONTENT ── */}
+   581→      <div className="flex-1 overflow-y-auto px-4 py-4 pb-8">
+   582→
+   583→        {/* ═══════ UPLOAD TAB ═══════ */}
+   584→        {dashTab === 'upload' && (
+   585→          <div className="admin-slide-up space-y-4 max-w-lg mx-auto">
+   586→
+   587→            {/* Form card */}
+   588→            <div
+   589→              className="rounded-2xl p-5 space-y-4"
+   590→              style={{
+   591→                background: 'linear-gradient(145deg, rgba(15,15,15,0.9), rgba(10,10,10,0.95))',
+   592→                border: '1px solid rgba(124,58,237,0.2)',
+   593→              }}
+   594→            >
+   595→              <div className="flex items-center gap-2 mb-1">
+   596→                <Upload size={16} className="text-[#7C3AED]" />
+   597→                <h2 className="text-white font-bold text-sm">Upload Movie</h2>
+   598→              </div>
+   599→
+   600→              {/* Title */}
+   601→              <div>
+   602→                <label className="text-[#9CA3AF] text-[11px] font-medium mb-1.5 block uppercase tracking-wider">
+   603→                  Title *
+   604→                </label>
+   605→                <input
+   606→                  type="text"
+   607→                  value={formTitle}
+   608→                  onChange={e => setFormTitle(e.target.value)}
+   609→                  placeholder="Movie title"
+   610→                  className="w-full h-12 bg-[#1A1A1A] border border-[#2D2D2D] rounded-xl px-4 text-sm text-white outline-none focus:border-[#7C3AED] transition-colors duration-150 placeholder-[#6B7280]"
+   611→                />
+   612→              </div>
+   613→
+   614→              {/* YouTube ID + Thumbnail row */}
+   615→              <div className="grid grid-cols-2 gap-3">
+   616→                <div>
+   617→                  <label className="text-[#9CA3AF] text-[11px] font-medium mb-1.5 block uppercase tracking-wider">
+   618→                    YouTube ID *
+   619→                  </label>
+   620→                  <input
+   621→                    type="text"
+   622→                    value={formYoutubeId}
+   623→                    onChange={e => setFormYoutubeId(e.target.value)}
+   624→                    placeholder="dQw4w9WgXcQ"
+   625→                    className="w-full h-12 bg-[#1A1A1A] border border-[#2D2D2D] rounded-xl px-4 text-sm text-white outline-none focus:border-[#7C3AED] transition-colors duration-150 placeholder-[#6B7280]"
+   626→                  />
+   627→                </div>
+   628→                <div>
+   629→                  <label className="text-[#9CA3AF] text-[11px] font-medium mb-1.5 block uppercase tracking-wider">
+   630→                    Duration
+   631→                  </label>
+   632→                  <input
+   633→                    type="text"
+   634→                    value={formDuration}
+   635→                    onChange={e => setFormDuration(e.target.value)}
+   636→                    placeholder="1:32:00"
+   637→                    className="w-full h-12 bg-[#1A1A1A] border border-[#2D2D2D] rounded-xl px-4 text-sm text-white outline-none focus:border-[#7C3AED] transition-colors duration-150 placeholder-[#6B7280]"
+   638→                  />
+   639→                </div>
+   640→              </div>
+   641→
+   642→              {/* Thumbnail */}
+   643→              <div>
+   644→                <label className="text-[#9CA3AF] text-[11px] font-medium mb-1.5 block uppercase tracking-wider">
+   645→                  Thumbnail URL <span className="text-[#6B7280]">(auto-generated if empty)</span>
+   646→                </label>
+   647→                <input
+   648→                  type="text"
+   649→                  value={formThumbnail}
+   650→                  onChange={e => setFormThumbnail(e.target.value)}
+   651→                  placeholder="https://img.youtube.com/vi/.../hqdefault.jpg"
+   652→                  className="w-full h-12 bg-[#1A1A1A] border border-[#2D2D2D] rounded-xl px-4 text-sm text-white outline-none focus:border-[#7C3AED] transition-colors duration-150 placeholder-[#6B7280]"
+   653→                />
+   654→              </div>
+   655→
+   656→              {/* Channel dropdown */}
+   657→              <div>
+   658→                <label className="text-[#9CA3AF] text-[11px] font-medium mb-1.5 block uppercase tracking-wider">
+   659→                  Channel *
+   660→                </label>
+   661→                <div className="relative">
+   662→                  <select
+   663→                    value={formChannel}
+   664→                    onChange={e => setFormChannel(e.target.value)}
+   665→                    className="w-full h-12 bg-[#1A1A1A] border border-[#2D2D2D] rounded-xl px-4 text-sm text-white outline-none focus:border-[#7C3AED] transition-colors duration-150 appearance-none"
+   666→                    style={{ colorScheme: 'dark' }}
+   667→                  >
+   668→                    <option value="" disabled>Select channel</option>
+   669→                    {CHANNEL_OPTIONS.map(ch => (
+   670→                      <option key={ch.value} value={ch.value}>{ch.label}</option>
+   671→                    ))}
+   672→                  </select>
+   673→                  <ChevronDown size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-[#6B7280] pointer-events-none" />
+   674→                </div>
+   675→              </div>
+   676→
+   677→              {/* Description */}
+   678→              <div>
+   679→                <label className="text-[#9CA3AF] text-[11px] font-medium mb-1.5 block uppercase tracking-wider">
+   680→                  Description
+   681→                </label>
+   682→                <textarea
+   683→                  value={formDescription}
+   684→                  onChange={e => setFormDescription(e.target.value)}
+   685→                  placeholder="Optional movie description..."
+   686→                  rows={3}
+   687→                  className="w-full bg-[#1A1A1A] border border-[#2D2D2D] rounded-xl px-4 py-3 text-sm text-white outline-none focus:border-[#7C3AED] transition-colors duration-150 placeholder-[#6B7280] resize-none"
+   688→                />
+   689→              </div>
+   690→
+   691→              {/* Submit */}
+   692→              <button
+   693→                onClick={handleMovieUpload}
+   694→                disabled={isSubmitting}
+   695→                className="w-full h-12 rounded-xl text-white font-semibold text-sm min-h-[44px] flex items-center justify-center gap-2 transition-all duration-150 disabled:opacity-50"
+   696→                style={{
+   697→                  background: 'linear-gradient(135deg, #7C3AED, #6D28D9)',
+   698→                  boxShadow: '0 4px 15px rgba(124,58,237,0.3)',
+   699→                }}
+   700→              >
+   701→                {isSubmitting ? (
+   702→                  <>
+   703→                    <Loader2 size={16} className="animate-spin" />
+   704→                    Uploading to Database...
+   705→                  </>
+   706→                ) : (
+   707→                  <>
+   708→                    <Upload size={16} />
+   709→                    Upload Movie
+   710→                  </>
+   711→                )}
+   712→              </button>
+   713→            </div>
+   714→
+   715→            {/* YouTube Preview */}
+   716→            {formYoutubeId.trim() && (
+   717→              <div
+   718→                className="rounded-2xl overflow-hidden"
+   719→                style={{ border: '1px solid rgba(124,58,237,0.2)' }}
+   720→              >
+   721→                <p className="text-[#9CA3AF] text-[10px] uppercase tracking-wider px-4 pt-3 pb-2">
+   722→                  Preview
+   723→                </p>
+   724→                <div className="aspect-video bg-[#0A0A0A]">
+   725→                  <img
+   726→                    src={`https://img.youtube.com/vi/${formYoutubeId.trim()}/hqdefault.jpg`}
+   727→                    alt="YouTube preview"
+   728→                    className="w-full h-full object-cover"
+   729→                    onError={(e) => {
+   730→                      (e.target as HTMLImageElement).style.display = 'none'
+   731→                    }}
+   732→                  />
+   733→                </div>
+   734→                {formTitle.trim() && (
+   735→                  <p className="text-white text-xs font-medium px-4 py-2 truncate">
+   736→                    {formTitle.trim()}
+   737→                  </p>
+   738→                )}
+   739→              </div>
+   740→            )}
+   741→          </div>
+   742→        )}
+   743→
+   744→        {/* ═══════ MOVIES TAB ═══════ */}
+   745→        {dashTab === 'movies' && (
+   746→          <div className="admin-slide-up space-y-3 max-w-lg mx-auto">
+   747→            <div className="flex items-center justify-between">
+   748→              <h2 className="text-white font-bold text-sm flex items-center gap-2">
+   749→                <Film size={16} className="text-[#7C3AED]" />
+   750→                Movies Database
+   751→              </h2>
+   752→              <button
+   753→                onClick={fetchDashboardMovies}
+   754→                className="text-[#7C3AED] text-xs font-medium min-h-[36px] px-3 active:scale-95 transition-transform"
+   755→              >
+   756→                Refresh
+   757→              </button>
+   758→            </div>
+   759→
+   760→            {isLoadingMovies ? (
+   761→              <div className="space-y-3">
+   762→                {Array.from({ length: 5 }).map((_, i) => (
+   763→                  <div key={i} className="h-16 bg-[#1A1A1A] rounded-xl animate-pulse" />
+   764→                ))}
+   765→              </div>
+   766→            ) : movies.length === 0 ? (
+   767→              <div className="flex flex-col items-center py-12 gap-3">
+   768→                <Film size={40} className="text-[#2D2D2D]" />
+   769→                <p className="text-[#9CA3AF] text-sm">No movies in database</p>
+   770→                <p className="text-[#6B7280] text-xs">Upload your first movie in the Upload tab</p>
+   771→              </div>
+   772→            ) : (
+   773→              <div className="space-y-2">
+   774→                {movies.map(movie => (
+   775→                  <div
+   776→                    key={movie.id}
+   777→                    className="flex items-center gap-3 p-3 rounded-xl bg-[#0F0F0F] border border-[#1A1A1A]"
+   778→                  >
+   779→                    {/* Thumbnail */}
+   780→                    <div className="w-16 h-10 rounded-lg overflow-hidden flex-shrink-0 bg-[#1A1A1A]">
+   781→                      <img
+   782→                        src={movie.thumbnail || `https://img.youtube.com/vi/${movie.youtube_id}/mqdefault.jpg`}
+   783→                        alt={movie.title}
+   784→                        className="w-full h-full object-cover"
+   785→                        loading="lazy"
+   786→                      />
+   787→                    </div>
+   788→
+   789→                    {/* Info */}
+   790→                    <div className="flex-1 min-w-0">
+   791→                      <p className="text-white text-xs font-medium line-clamp-1">{movie.title}</p>
+   792→                      <div className="flex items-center gap-2 mt-0.5">
+   793→                        <span className="text-[#7C3AED] text-[10px]">{movie.channel_name}</span>
+   794→                        <span className="text-[#6B7280] text-[10px]">{movie.duration || 'N/A'}</span>
+   795→                      </div>
+   796→                    </div>
+   797→
+   798→                    {/* Delete */}
+   799→                    <button
+   800→                      onClick={() => handleDeleteMovie(movie.id, movie.title)}
+   801→                      disabled={deletingId === movie.id}
+   802→                      className="min-w-[36px] min-h-[36px] flex items-center justify-center text-[#6B7280] hover:text-[#EF4444] transition-colors disabled:opacity-50"
+   803→                    >
+   804→                      {deletingId === movie.id ? (
+   805→                        <Loader2 size={14} className="animate-spin" />
+   806→                      ) : (
+   807→                        <Trash2 size={14} />
+   808→                      )}
+   809→                    </button>
+   810→                  </div>
+   811→                ))}
+   812→              </div>
+   813→            )}
+   814→          </div>
+   815→        )}
+   816→
+   817→        {/* ═══════ STATS TAB ═══════ */}
+   818→        {dashTab === 'stats' && (
+   819→          <div className="admin-slide-up space-y-4 max-w-lg mx-auto">
+   820→            <h2 className="text-white font-bold text-sm flex items-center gap-2">
+   821→              <Database size={16} className="text-[#7C3AED]" />
+   822→              Database Stats
+   823→            </h2>
+   824→
+   825→            {/* Stats grid */}
+   826→            <div className="grid grid-cols-2 gap-3">
+   827→              <div
+   828→                className="p-4 rounded-xl"
+   829→                style={{
+   830→                  background: 'linear-gradient(135deg, rgba(124,58,237,0.15), rgba(124,58,237,0.05))',
+   831→                  border: '1px solid rgba(124,58,237,0.3)',
+   832→                }}
+   833→              >
+   834→                <Film size={20} className="text-[#7C3AED] mb-2" />
+   835→                <p className="text-white text-2xl font-bold">{movieCount}</p>
+   836→                <p className="text-[#9CA3AF] text-[10px] uppercase tracking-wider">Total Movies</p>
+   837→              </div>
+   838→
+   839→              <div
+   840→                className="p-4 rounded-xl"
+   841→                style={{
+   842→                  background: 'linear-gradient(135deg, rgba(6,182,212,0.15), rgba(6,182,212,0.05))',
+   843→                  border: '1px solid rgba(6,182,212,0.3)',
+   844→                }}
+   845→              >
+   846→                <Database size={20} className="text-[#06B6D4] mb-2" />
+   847→                <p className="text-white text-2xl font-bold">{movies.length}</p>
+   848→                <p className="text-[#9CA3AF] text-[10px] uppercase tracking-wider">Loaded</p>
+   849→              </div>
+   850→
+   851→              <div
+   852→                className="p-4 rounded-xl"
+   853→                style={{
+   854→                  background: 'linear-gradient(135deg, rgba(34,197,94,0.15), rgba(34,197,94,0.05))',
+   855→                  border: '1px solid rgba(34,197,94,0.3)',
+   856→                }}
+   857→              >
+   858→                <CheckCircle size={20} className="text-[#22C55E] mb-2" />
+   859→                <p className="text-white text-2xl font-bold">{supabase ? 'Live' : 'Off'}</p>
+   860→                <p className="text-[#9CA3AF] text-[10px] uppercase tracking-wider">Supabase</p>
+   861→              </div>
+   862→
+   863→              <div
+   864→                className="p-4 rounded-xl"
+   865→                style={{
+   866→                  background: 'linear-gradient(135deg, rgba(249,115,22,0.15), rgba(249,115,22,0.05))',
+   867→                  border: '1px solid rgba(249,115,22,0.3)',
+   868→                }}
+   869→              >
+   870→                <Clock size={20} className="text-[#F97316] mb-2" />
+   871→                <p className="text-white text-2xl font-bold">{adminRole === 'superadmin' ? 'SU' : 'A'}</p>
+   872→                <p className="text-[#9CA3AF] text-[10px] uppercase tracking-wider">Access Level</p>
+   873→              </div>
+   874→            </div>
+   875→
+   876→            {/* Channel breakdown */}
+   877→            {movies.length > 0 && (
+   878→              <div
+   879→                className="rounded-xl p-4 space-y-2"
+   880→                style={{
+   881→                  background: 'rgba(15,15,15,0.9)',
+   882→                  border: '1px solid rgba(124,58,237,0.2)',
+   883→                }}
+   884→              >
+   885→                <p className="text-[#9CA3AF] text-[11px] uppercase tracking-wider font-medium mb-2">
+   886→                  Channel Breakdown
+   887→                </p>
+   888→                {Object.entries(
+   889→                  movies.reduce<Record<string, number>>((acc, m) => {
+   890→                    acc[m.channel_name] = (acc[m.channel_name] || 0) + 1
+   891→                    return acc
+   892→                  }, {})
+   893→                ).sort((a, b) => b[1] - a[1]).map(([channel, count]) => (
+   894→                  <div key={channel} className="flex items-center justify-between">
+   895→                    <span className="text-white text-xs">{channel || 'Unknown'}</span>
+   896→                    <div className="flex items-center gap-2">
+   897→                      <div
+   898→                        className="h-1.5 rounded-full"
+   899→                        style={{
+   900→                          width: `${Math.max(20, (count / movieCount) * 120)}px`,
+   901→                          background: 'linear-gradient(90deg, #7C3AED, #06B6D4)',
+   902→                        }}
+   903→                      />
+   904→                      <span className="text-[#9CA3AF] text-[11px] w-6 text-right">{count}</span>
+   905→                    </div>
+   906→                  </div>
+   907→                ))}
+   908→              </div>
+   909→            )}
+   910→
+   911→            {/* Connection info */}
+   912→            <div
+   913→              className="rounded-xl p-4 space-y-1"
+   914→              style={{
+   915→                background: 'rgba(15,15,15,0.9)',
+   916→                border: '1px solid rgba(124,58,237,0.2)',
+   917→              }}
+   918→            >
+   919→              <p className="text-[#9CA3AF] text-[11px] uppercase tracking-wider font-medium mb-2">
+   920→                Connection
+   921→              </p>
+   922→              <p className="text-[#6B7280] text-[10px]">
+   923→                Project: gjapqxeksdsiqhvlfrnb
+   924→              </p>
+   925→              <p className="text-[#6B7280] text-[10px]">
+   926→                Schema: public
+   927→              </p>
+   928→              <p className="text-[#6B7280] text-[10px]">
+   929→                Auth: {adminEmail}
+   930→              </p>
+   931→            </div>
+   932→
+   933→            {/* Logout button */}
+   934→            <button
+   935→              onClick={handleLogout}
+   936→              className="w-full h-12 rounded-xl text-[#EF4444] font-semibold text-sm border border-[#EF4444]/30 bg-[#EF4444]/5 min-h-[44px] flex items-center justify-center gap-2 active:scale-95 transition-transform duration-150"
+   937→            >
+   938→              <LogOut size={16} />
+   939→              Logout & Lock App
+   940→            </button>
+   941→          </div>
+   942→        )}
+   943→      </div>
+   944→
+   945→      <ToastContainer toasts={toasts} />
+   946→    </div>
+   947→  )
+   948→}
+   949→

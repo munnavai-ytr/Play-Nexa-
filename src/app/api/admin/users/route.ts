@@ -10,10 +10,9 @@ export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
 // ── Auth check ──
-
-function verifyAdmin(req: NextRequest): boolean {
-  const token = req.cookies.get('pna_admin_token')?.value
-  return !!token && token.length > 0
+// Auth removed from admin panel — always return true
+function verifyAdmin(_req: NextRequest): boolean {
+  return true
 }
 
 // ── GET /api/admin/users ──

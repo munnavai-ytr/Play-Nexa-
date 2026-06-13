@@ -1,7 +1,8 @@
 // ── Play Nexa — YouTube RSS Parser ────────────────────────────
 // Fetches and parses YouTube channel RSS feeds
 // No API key required — uses YouTube's public RSS endpoint
-// Handles both UC... channel IDs and @handle usernames
+// Handles UC... channel IDs, @handles, and usernames
+// Multiple fallback strategies for @handle resolution
 // Returns structured video data for Gemini AI classification
 
 export interface RSSVideo {
@@ -18,37 +19,126 @@ export interface RSSVideo {
 /**
  * Fetch videos from a YouTube channel via its public RSS feed.
  * Returns up to 15 most recent videos (YouTube RSS limit).
- * Handles both UC... channel IDs and @handle/username formats.
+ * Handles UC... channel IDs, @handles, and username formats
+ * with multiple fallback strategies.
  */
 export async function fetchChannelRSS(
   channelId: string
 ): Promise<RSSVideo[]> {
-  // Build the correct RSS URL based on input type
-  let rssUrl: string
-  if (channelId.startsWith('UC') && channelId.length >= 20) {
-    // Standard UC... channel ID
-    rssUrl = `https://www.youtube.com/feeds/videos.xml?channel_id=${channelId}`
+  // Clean the ID — strip any remaining query params
+  const cleanId = channelId.split('?')[0].trim()
+
+  // Build RSS URL strategies based on identifier type
+  const rssStrategies: string[] = []
+
+  if (cleanId.startsWith('UC') && cleanId.length >= 20) {
+    // Standard UC... channel ID — direct RSS
+    rssStrategies.push(
+      `https://www.youtube.com/feeds/videos.xml?channel_id=${cleanId}`
+    )
+  } else if (cleanId.startsWith('@')) {
+    // @handle format — strip @ for user param
+    const handle = cleanId.slice(1)
+    rssStrategies.push(
+      `https://www.youtube.com/feeds/videos.xml?user=${handle}`
+    )
+    // Note: YouTube's ?user= param doesn't accept @handle
+    // but sometimes works with the bare username
   } else {
-    // @handle or username — use user= parameter
-    rssUrl = `https://www.youtube.com/feeds/videos.xml?user=${channelId}`
+    // Try as username first, then as channel ID
+    rssStrategies.push(
+      `https://www.youtube.com/feeds/videos.xml?user=${cleanId}`
+    )
+    rssStrategies.push(
+      `https://www.youtube.com/feeds/videos.xml?channel_id=${cleanId}`
+    )
   }
 
-  const res = await fetch(rssUrl, {
-    headers: {
-      'User-Agent':
-        'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 ' +
-        '(KHTML, like Gecko) Chrome/125.0.0.0 Mobile Safari/537.36',
-      'Accept': 'application/xml,text/xml,application/rss+xml',
-    },
-    signal: AbortSignal.timeout(10000),
-  })
+  // Try each RSS strategy
+  for (const rssUrl of rssStrategies) {
+    try {
+      console.log('[RSS Parser] Trying:', rssUrl)
+      const res = await fetch(rssUrl, {
+        headers: {
+          'User-Agent':
+            'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 ' +
+            '(KHTML, like Gecko) Chrome/125.0.0.0 Mobile Safari/537.36',
+          'Accept': 'application/xml,text/xml,application/rss+xml',
+        },
+        signal: AbortSignal.timeout(10000),
+      })
 
-  if (!res.ok) {
-    throw new Error(`RSS fetch failed: ${res.status}`)
+      if (res.ok) {
+        const xml = await res.text()
+        // Validate: real YouTube RSS has <feed> and <entry>
+        if (xml.includes('<feed') && xml.includes('<entry>')) {
+          console.log('[RSS Parser] Success via:', rssUrl)
+          return parseRSSXML(xml)
+        }
+      }
+    } catch {
+      continue // try next strategy
+    }
   }
 
-  const xml = await res.text()
-  return parseRSSXML(xml)
+  // Fallback: If @handle, try scraping YouTube page to get real UC... ID
+  if (cleanId.startsWith('@')) {
+    try {
+      const handle = cleanId.slice(1)
+      console.log('[RSS Parser] Trying YouTube page scrape for @' + handle)
+      const pageRes = await fetch(
+        `https://www.youtube.com/@${handle}`,
+        {
+          headers: {
+            'User-Agent':
+              'Mozilla/5.0 (iPhone; CPU iPhone OS 14_0 like Mac OS X) ' +
+              'AppleWebKit/605.1.15',
+          },
+          signal: AbortSignal.timeout(8000),
+        }
+      )
+
+      if (pageRes.ok) {
+        const html = await pageRes.text()
+
+        // Extract channel ID from page HTML
+        const channelIdMatch =
+          html.match(/"channelId":"(UC[\w-]{10,})"/) ||
+          html.match(/channel\/(UC[\w-]{10,})/)
+
+        if (channelIdMatch) {
+          const realChannelId = channelIdMatch[1]
+          console.log('[RSS Parser] Found real channel ID:', realChannelId)
+          // Fetch RSS with the real UC... channel ID
+          const rssRes = await fetch(
+            `https://www.youtube.com/feeds/videos.xml?channel_id=${realChannelId}`,
+            {
+              headers: {
+                'User-Agent':
+                  'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36',
+                'Accept': 'application/xml,text/xml',
+              },
+              signal: AbortSignal.timeout(10000),
+            }
+          )
+          if (rssRes.ok) {
+            const xml = await rssRes.text()
+            if (xml.includes('<entry>')) {
+              console.log('[RSS Parser] Success via page scrape + channel ID')
+              return parseRSSXML(xml)
+            }
+          }
+        }
+      }
+    } catch {
+      console.log('[RSS Parser] Page scrape fallback also failed')
+    }
+  }
+
+  throw new Error(
+    `RSS fetch failed for channel: ${cleanId}. ` +
+    `Try using direct channel ID (UC...) format.`
+  )
 }
 
 /**
@@ -123,5 +213,6 @@ function parseRSSXML(xml: string): RSSVideo[] {
     })
   }
 
+  console.log(`[RSS Parser] Parsed ${videos.length} videos`)
   return videos
 }
