@@ -5,7 +5,7 @@
 
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 
 // ── Types ──
 
@@ -51,6 +51,18 @@ interface DisplaySettings {
   display_name: string
   badge_color: string
   border_color: string
+}
+
+interface ScanState {
+  status: 'idle' | 'scanning' | 'paused' | 'completed'
+  totalOnChannel: number
+  imported: number
+  movieCount: number
+  musicCount: number
+  remaining: number
+  progress: number
+  batchNumber: number
+  scannedCount: number
 }
 
 const BADGE_PRESETS = [
@@ -130,6 +142,8 @@ export default function ChannelManagerPage() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<Channel | null>(null)
   const [scanningIds, setScanningIds] = useState<Set<string>>(new Set())
+  const [scanStates, setScanStates] = useState<Record<string, ScanState>>({})
+  const pollRefs = useRef<Record<string, NodeJS.Timeout>>({})
   const [toast, setToast] = useState({ show: false, msg: '', type: '' })
 
   // Add modal state
@@ -187,6 +201,145 @@ export default function ChannelManagerPage() {
     fetchChannels()
     fetchScanJobs()
   }, [fetchChannels, fetchScanJobs])
+
+  // ── Load scan status for all channels ──
+  useEffect(() => {
+    if (channels.length > 0) {
+      channels.forEach(ch => loadScanStatus(ch.id))
+    }
+  }, [channels])
+
+  const loadScanStatus = async (chId: string) => {
+    try {
+      const res = await fetch(
+        `/api/admin/scan-status?channelId=${chId}`
+      )
+      const data = await res.json()
+      if (data.status) {
+        setScanStates(prev => ({ ...prev, [chId]: data }))
+        // If was scanning, resume polling
+        if (data.status === 'scanning') {
+          startPolling(chId)
+        }
+      }
+    } catch {}
+  }
+
+  // ── Polling for scan progress ──
+  const startPolling = (chId: string) => {
+    if (pollRefs.current[chId]) return
+
+    pollRefs.current[chId] = setInterval(async () => {
+      try {
+        const res = await fetch(
+          `/api/admin/scan-status?channelId=${chId}`
+        )
+        const data = await res.json()
+        if (data.status) {
+          setScanStates(prev => ({ ...prev, [chId]: data }))
+
+          // Auto trigger next batch if scanning
+          if (data.status === 'scanning') {
+            fetch('/api/admin/auto-scan', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                channelDbId: chId,
+                action: 'resume',
+              }),
+            }).catch(() => {})
+          }
+
+          // Stop polling when done
+          if (data.status !== 'scanning') {
+            stopPolling(chId)
+          }
+        }
+      } catch {}
+    }, 8000) // poll every 8 seconds
+  }
+
+  const stopPolling = (chId: string) => {
+    if (pollRefs.current[chId]) {
+      clearInterval(pollRefs.current[chId])
+      delete pollRefs.current[chId]
+    }
+  }
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      Object.keys(pollRefs.current).forEach(stopPolling)
+    }
+  }, [])
+
+  // ── Auto Scan Actions ──
+  const handleStartScan = async (chId: string) => {
+    setScanStates(prev => ({
+      ...prev,
+      [chId]: { ...prev[chId], status: 'scanning' },
+    }))
+
+    await fetch('/api/admin/auto-scan', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ channelDbId: chId, action: 'start' }),
+    })
+
+    startPolling(chId)
+    showToast('Auto scan started!', 'success')
+  }
+
+  const handlePause = async (chId: string) => {
+    stopPolling(chId)
+    await fetch('/api/admin/auto-scan', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ channelDbId: chId, action: 'pause' }),
+    })
+    setScanStates(prev => ({
+      ...prev,
+      [chId]: { ...prev[chId], status: 'paused' },
+    }))
+    showToast('Scan paused', 'info')
+  }
+
+  const handleResume = async (chId: string) => {
+    await fetch('/api/admin/auto-scan', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ channelDbId: chId, action: 'resume' }),
+    })
+    setScanStates(prev => ({
+      ...prev,
+      [chId]: { ...prev[chId], status: 'scanning' },
+    }))
+    startPolling(chId)
+    showToast('Scan resumed', 'success')
+  }
+
+  const handleStop = async (chId: string) => {
+    stopPolling(chId)
+    await fetch('/api/admin/auto-scan', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ channelDbId: chId, action: 'stop' }),
+    })
+    setScanStates(prev => ({
+      ...prev,
+      [chId]: {
+        ...prev[chId],
+        status: 'idle',
+        imported: 0,
+        movieCount: 0,
+        musicCount: 0,
+        remaining: 0,
+        progress: 0,
+        scannedCount: 0,
+      },
+    }))
+    showToast('Scan stopped & reset', 'info')
+  }
 
   // ── Fetch channel info from RSS ──
   const handleFetchInfo = async () => {
@@ -549,7 +702,7 @@ export default function ChannelManagerPage() {
                   </div>
                 </div>
 
-                {/* Scanning indicator */}
+                {/* Scanning indicator (legacy gemini-scan) */}
                 {isScanning && (
                   <div className="mt-3 pt-3 border-t border-[#1A1A1A]">
                     <div className="flex items-center gap-2 text-xs text-[#A78BFA]">
@@ -561,6 +714,131 @@ export default function ChannelManagerPage() {
                     </div>
                   </div>
                 )}
+
+                {/* ── Auto Scan Status UI ── */}
+                {(() => {
+                  const scan = scanStates[ch.id]
+                  if (!scan) return null
+                  return (
+                    <div className="mt-3 border-t border-[#2D2D44] pt-3">
+
+                      {/* Stats row */}
+                      <div className="grid grid-cols-3 gap-2 mb-3">
+                        <div className="bg-[#0D0D0D] rounded-xl p-2 text-center">
+                          <p className="text-[#9CA3AF] text-[10px]">On Channel</p>
+                          <p className="text-white font-bold text-sm">{scan.totalOnChannel || '?'}</p>
+                        </div>
+                        <div className="bg-[#0D0D0D] rounded-xl p-2 text-center">
+                          <p className="text-[#9CA3AF] text-[10px]">Imported</p>
+                          <p className="text-[#7C3AED] font-bold text-sm">{scan.imported || 0}</p>
+                          {(scan.movieCount || 0) > 0 && (
+                            <p className="text-[10px] text-[#9CA3AF]">
+                              🎬{scan.movieCount} 🎵{scan.musicCount}
+                            </p>
+                          )}
+                        </div>
+                        <div className="bg-[#0D0D0D] rounded-xl p-2 text-center">
+                          <p className="text-[#9CA3AF] text-[10px]">Remaining</p>
+                          <p className="text-[#06B6D4] font-bold text-sm">{scan.remaining || 0}</p>
+                        </div>
+                      </div>
+
+                      {/* Progress bar */}
+                      {(scan.progress || 0) > 0 && (
+                        <div className="mb-3">
+                          <div className="flex justify-between text-[10px] text-[#9CA3AF] mb-1">
+                            <span>Progress</span>
+                            <span>{scan.progress || 0}%</span>
+                          </div>
+                          <div className="h-1.5 bg-[#2D2D44] rounded-full overflow-hidden">
+                            <div
+                              className="h-full rounded-full transition-all duration-500"
+                              style={{
+                                width: `${scan.progress || 0}%`,
+                                background: 'linear-gradient(90deg, #7C3AED, #06B6D4)',
+                              }}
+                            />
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Status indicator */}
+                      {scan.status === 'scanning' && (
+                        <div className="flex items-center gap-2 mb-3">
+                          <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+                          <span className="text-green-400 text-xs">
+                            Auto scanning... (Batch {scan.batchNumber || 1})
+                          </span>
+                        </div>
+                      )}
+                      {scan.status === 'paused' && (
+                        <div className="flex items-center gap-2 mb-3">
+                          <div className="w-2 h-2 rounded-full bg-yellow-400" />
+                          <span className="text-yellow-400 text-xs">
+                            Paused — {scan.imported || 0} imported
+                          </span>
+                        </div>
+                      )}
+                      {scan.status === 'completed' && (
+                        <div className="flex items-center gap-2 mb-3">
+                          <div className="w-2 h-2 rounded-full bg-[#7C3AED]" />
+                          <span className="text-[#A78BFA] text-xs">
+                            ✅ Scan complete — {scan.imported || 0} total imported
+                          </span>
+                        </div>
+                      )}
+
+                      {/* Action buttons */}
+                      <div className="flex gap-2">
+                        {/* Start (idle/completed) */}
+                        {(scan.status === 'idle' || scan.status === 'completed' || !scan.status) && (
+                          <button
+                            onClick={() => handleStartScan(ch.id)}
+                            className="flex-1 flex items-center justify-center gap-2 py-2.5 bg-[#7C3AED] rounded-xl text-white text-sm font-semibold min-h-[44px] active:opacity-80"
+                          >
+                            🤖 Auto Scan
+                          </button>
+                        )}
+                        {/* Pause (scanning) */}
+                        {scan.status === 'scanning' && (
+                          <button
+                            onClick={() => handlePause(ch.id)}
+                            className="flex-1 flex items-center justify-center gap-2 py-2.5 bg-yellow-600 rounded-xl text-white text-sm font-semibold min-h-[44px] active:opacity-80"
+                          >
+                            ⏸ Pause
+                          </button>
+                        )}
+                        {/* Resume (paused) */}
+                        {scan.status === 'paused' && (
+                          <button
+                            onClick={() => handleResume(ch.id)}
+                            className="flex-1 flex items-center justify-center gap-2 py-2.5 bg-green-700 rounded-xl text-white text-sm font-semibold min-h-[44px] active:opacity-80"
+                          >
+                            ▶ Resume
+                          </button>
+                        )}
+                        {/* Stop (scanning or paused) */}
+                        {(scan.status === 'scanning' || scan.status === 'paused') && (
+                          <button
+                            onClick={() => handleStop(ch.id)}
+                            className="px-4 py-2.5 bg-red-800/50 border border-red-700 rounded-xl text-red-400 text-sm font-semibold min-h-[44px] active:opacity-80"
+                          >
+                            ⏹ Stop
+                          </button>
+                        )}
+                        {/* Re-scan (completed) */}
+                        {scan.status === 'completed' && (
+                          <button
+                            onClick={() => handleStartScan(ch.id)}
+                            className="px-4 py-2.5 bg-[#1A1A2E] border border-[#2D2D44] rounded-xl text-[#9CA3AF] text-xs min-h-[44px] active:opacity-80"
+                          >
+                            🔄 Re-scan
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })()}
               </div>
             )
           })}

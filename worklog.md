@@ -71,3 +71,45 @@ Stage Summary:
 - gemini-scan: rate limited, soft errors, enhanced RSS, proper channel_display
 - .env.local: NOT touched
 - Zero placeholder code
+---
+Task ID: auto-scan-system
+Agent: main
+Task: Build complete Auto Progressive Scanner system for Play Nexa Admin
+
+Work Log:
+- Created auto-scan/route.ts — progressive batch scanner with start/pause/resume/stop actions
+  - Uses scanned_video_ids array in yt_channels to track processed videos (dedup)
+  - Filters out already-scanned video IDs before classification
+  - Checks pause/stop status mid-batch for responsive control
+  - Saves progress every 5 videos
+  - Gemini rate limit: 5s delay every 14 calls
+  - Uses upsert with onConflict: 'youtube_id' for both movies and music_tracks
+  - channel_display visibility updated after successful inserts
+  - If all fetched videos already scanned, marks as completed
+- Created scan-status/route.ts — real-time progress endpoint
+  - Returns scan_status, totalOnChannel, imported, movieCount, musicCount, remaining, progress %
+  - Queries actual DB counts (movies + music_tracks) for accuracy
+  - Returns batchNumber, lastSynced, channelType, scannedCount
+- Modified channels/page.tsx — added Auto Scan UI
+  - Added ScanState interface and scanStates/pollRefs state
+  - Added loadScanStatus() to load status for all channels on mount
+  - Added startPolling/stopPolling with 8s interval
+  - Polling auto-triggers resume action if status is 'scanning'
+  - Added handleStartScan/handlePause/handleResume/handleStop actions
+  - Cleanup on unmount clears all polling intervals
+  - Added Auto Scan UI in each channel card:
+    - Stats row (On Channel / Imported / Remaining)
+    - Progress bar with gradient (0-100%)
+    - Status indicators (scanning green pulse / paused yellow / completed purple)
+    - Action buttons (Auto Scan / Pause / Resume / Stop / Re-scan)
+  - Kept legacy scanning indicator for gemini-scan compatibility
+- Verified rssParser.ts and geminiScanner.ts already export needed functions
+- Build succeeds with zero errors, new routes visible in build output
+- Tested scan-status endpoint returns 404 for non-existent channel (correct)
+
+Stage Summary:
+- 2 new API routes: auto-scan, scan-status
+- channels/page.tsx enhanced with Auto Scan UI + polling
+- SQL needed: UNIQUE indexes on youtube_id + 5 new columns on yt_channels
+- .env.local: NOT touched
+- Zero placeholder code
