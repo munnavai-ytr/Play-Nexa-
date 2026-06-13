@@ -2,7 +2,7 @@
 // Scans a YouTube channel's RSS feed using Gemini 1.5 Flash
 // Classifies each video as movie/music/skip
 // Routes content based on channel_type: movies | music | mixed
-// Inserts movies into `movies` table, music into `music_tracks`
+// Upserts into `movies` and `music_tracks` with onConflict: 'youtube_id'
 // Enhanced: tries uploads playlist (UC→UU) for more than 15 videos
 // Rate limits Gemini calls (4s delay every 14 req = stays under 15/min)
 // Soft error handling: returns 200 + error message (UI shows msg, not crash)
@@ -170,60 +170,65 @@ export async function POST(req: NextRequest) {
         if (shouldInsertMovie) {
           const { error: movieErr } = await supabaseAdmin
             .from('movies')
-            .insert([
-              {
-                youtube_id: video.videoId,
-                title: video.title,
-                thumbnail: video.thumbnail,
-                channel_name: channel.channel_name,
-                channel_id: channel.channel_id,
-                description: video.description || '',
-                published_at: video.publishedAt,
-                view_count: video.viewCount || 0,
-                source_channel_id: channelDbId,
-                language: 'Bangla',
-                is_hidden: false,
-              },
-            ])
+            .upsert(
+              [
+                {
+                  youtube_id: video.videoId,
+                  title: video.title,
+                  thumbnail: video.thumbnail,
+                  channel_name: channel.channel_name,
+                  channel_id: channel.channel_id,
+                  description: video.description || '',
+                  published_at: video.publishedAt,
+                  view_count: video.viewCount || 0,
+                  source_channel_id: channelDbId,
+                  language: 'Bangla',
+                  is_hidden: false,
+                },
+              ],
+              { onConflict: 'youtube_id' }
+            )
 
           if (!movieErr) {
             moviesFound++
             console.log(
-              `[SCAN] Movie added: ${video.title.slice(0, 30)}`
+              `[SCAN] Movie upserted: ${video.title.slice(0, 30)}`
             )
-          } else if (movieErr.code !== '23505') {
-            // 23505 = duplicate key — safe to ignore
+          } else {
             console.error(
-              `[SCAN] Movie insert error: ${movieErr.message}`
+              `[SCAN] Movie upsert error: ${movieErr.message}`
             )
           }
         } else if (shouldInsertMusic) {
           const { error: musicErr } = await supabaseAdmin
             .from('music_tracks')
-            .insert([
-              {
-                youtube_id: video.videoId,
-                title: video.title,
-                thumbnail: video.thumbnail,
-                channel_name: channel.channel_name,
-                channel_id: channel.channel_id,
-                description: video.description || '',
-                published_at: video.publishedAt,
-                view_count: video.viewCount || 0,
-                source_channel_id: channelDbId,
-                language: '',
-                is_hidden: false,
-              },
-            ])
+            .upsert(
+              [
+                {
+                  youtube_id: video.videoId,
+                  title: video.title,
+                  thumbnail: video.thumbnail,
+                  channel_name: channel.channel_name,
+                  channel_id: channel.channel_id,
+                  description: video.description || '',
+                  published_at: video.publishedAt,
+                  view_count: video.viewCount || 0,
+                  source_channel_id: channelDbId,
+                  language: '',
+                  is_hidden: false,
+                },
+              ],
+              { onConflict: 'youtube_id' }
+            )
 
           if (!musicErr) {
             musicFound++
             console.log(
-              `[SCAN] Music added: ${video.title.slice(0, 30)}`
+              `[SCAN] Music upserted: ${video.title.slice(0, 30)}`
             )
-          } else if (musicErr.code !== '23505') {
+          } else {
             console.error(
-              `[SCAN] Music insert error: ${musicErr.message}`
+              `[SCAN] Music upsert error: ${musicErr.message}`
             )
           }
         } else {
