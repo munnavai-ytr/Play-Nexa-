@@ -183,15 +183,9 @@ export default function ChannelManagerPage() {
   // ── Fetch scan jobs ──
   const fetchScanJobs = useCallback(async () => {
     try {
-      const { getSupabase } = await import('@/lib/supabase')
-      const sb = getSupabase()
-      if (!sb) return
-      const { data } = await sb
-        .from('ai_scan_jobs')
-        .select('*')
-        .order('started_at', { ascending: false })
-        .limit(10)
-      if (data) setScanJobs(data as ScanJob[])
+      const res = await fetch('/api/admin/scan-jobs')
+      const data = await res.json()
+      if (data.jobs) setScanJobs(data.jobs as ScanJob[])
     } catch {
       // ai_scan_jobs table may not exist yet — silent
     }
@@ -412,22 +406,22 @@ export default function ChannelManagerPage() {
 
       const savedChannel = savedData.channel
 
-      // 2. Save display settings
+      // 2. Save display settings via API route (avoids client-side RLS issues)
       try {
-        const { getSupabase } = await import('@/lib/supabase')
-        const sb = getSupabase()
-        if (sb) {
-          await sb.from('channel_display').upsert([{
+        await fetch('/api/admin/channel-display', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
             channel_id: savedChannel.id,
             display_name: displaySettings.display_name || fetchedInfo.name,
             logo_url: fetchedInfo.avatar,
             badge_color: displaySettings.badge_color,
             border_color: displaySettings.border_color,
             is_visible: true,
-          }], { onConflict: 'channel_id', ignoreDuplicates: true })
-        }
+          }),
+        })
       } catch {
-        // channel_display table may not exist — silent
+        // channel_display save failed — non-critical
       }
 
       // 3. Start Gemini AI scan
@@ -526,17 +520,17 @@ export default function ChannelManagerPage() {
   const saveEditSettings = async () => {
     if (!editChannel) return
     try {
-      const { getSupabase } = await import('@/lib/supabase')
-      const sb = getSupabase()
-      if (sb) {
-        await sb.from('channel_display').upsert([{
+      await fetch('/api/admin/channel-display', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
           channel_id: editChannel.id,
           display_name: editChannel.channel_name,
           badge_color: editBadgeColor,
           border_color: editBadgeColor,
           is_visible: true,
-        }], { onConflict: 'channel_id' })
-      }
+        }),
+      })
       showToast('Display settings updated!', 'success')
     } catch {
       showToast('Failed to update display settings', 'error')

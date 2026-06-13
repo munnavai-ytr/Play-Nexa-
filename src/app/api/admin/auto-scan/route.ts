@@ -354,11 +354,13 @@ async function runBatch(channel: any) {
     )
 
     // Update channel_display visibility
+    // Use channel.id (UUID from yt_channels) — NOT channel.channel_id (UC... string)
+    // This prevents duplicate entries in channel_display
     if (moviesAdded > 0 || musicAdded > 0) {
       await supabaseAdmin.from('channel_display').upsert(
         [
           {
-            channel_id: channel.channel_id,
+            channel_id: channel.id,
             display_name: channel.channel_name,
             logo_url: channel.channel_avatar || '',
             badge_color: '#7C3AED',

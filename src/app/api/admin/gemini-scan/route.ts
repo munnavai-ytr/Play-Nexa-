@@ -269,12 +269,13 @@ export async function POST(req: NextRequest) {
       .eq('id', channelDbId)
 
     // ── Ensure channel_display entry exists ──
-    // Use channel_id (UC... string) as the conflict key, not channelDbId
+    // Use channel.id (UUID from yt_channels) — NOT channel.channel_id (UC... string)
+    // This prevents duplicate entries in channel_display
     // Only mark visible if content was actually found
     await supabaseAdmin.from('channel_display').upsert(
       [
         {
-          channel_id: channel.channel_id,
+          channel_id: channel.id,
           display_name: channel.channel_name,
           logo_url: channel.channel_avatar || '',
           badge_color: '#7C3AED',

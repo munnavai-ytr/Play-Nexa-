@@ -23,19 +23,13 @@ export async function GET(req: NextRequest) {
     )
   }
 
-  const { data: ch } = await supabaseAdmin
+  const { data: ch, error: chErr } = await supabaseAdmin
     .from('yt_channels')
-    .select(
-      `id, channel_name, scan_status,
-      total_videos_on_channel,
-      videos_imported, scan_batch,
-      last_synced_at, channel_type,
-      scanned_video_ids`
-    )
+    .select('*')
     .eq('id', channelId)
     .single()
 
-  if (!ch) {
+  if (chErr || !ch) {
     return NextResponse.json({ error: 'Not found' }, { status: 404 })
   }
 
@@ -59,7 +53,7 @@ export async function GET(req: NextRequest) {
 
   return NextResponse.json({
     status: ch.scan_status || 'idle',
-    totalOnChannel: total,
+    totalOnChannel: ch.total_videos_on_channel || 0,
     imported,
     movieCount: movieCount || 0,
     musicCount: musicCount || 0,
@@ -68,6 +62,6 @@ export async function GET(req: NextRequest) {
     batchNumber: ch.scan_batch || 0,
     lastSynced: ch.last_synced_at,
     channelType: ch.channel_type,
-    scannedCount: (ch.scanned_video_ids || []).length,
+    scannedCount: Array.isArray(ch.scanned_video_ids) ? ch.scanned_video_ids.length : 0,
   })
 }

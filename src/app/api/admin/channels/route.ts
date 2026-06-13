@@ -170,6 +170,19 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: 'Server not configured' }, { status: 500 })
     }
 
+    // Delete associated channel_display entries first
+    await admin
+      .from('channel_display')
+      .delete()
+      .eq('channel_id', id)
+
+    // Delete associated scan jobs
+    await admin
+      .from('ai_scan_jobs')
+      .delete()
+      .eq('channel_id', id)
+
+    // Delete the channel itself
     const { error } = await admin
       .from('yt_channels')
       .delete()

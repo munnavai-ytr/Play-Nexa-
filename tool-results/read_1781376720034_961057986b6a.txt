@@ -1,0 +1,816 @@
+     1→// ── Play Nexa Admin — Game Manager (Phase 3) ───────────────────
+     2→// Full CRUD for games table with Supabase.
+     3→// Supports 4 game types: offline, download, online, mini.
+     4→// Conditional URL fields based on game_type.
+     5→// AMOLED dark theme, no backdrop-blur, no styled-jsx.
+     6→
+     7→'use client'
+     8→
+     9→import { useState, useEffect, useCallback } from 'react'
+    10→import { supabase } from '@/lib/supabaseAdmin'
+    11→import { useToast } from '@/components/admin/Toast'
+    12→import { logActivity } from '@/lib/adminAuth'
+    13→import ConfirmModal from '@/components/admin/ConfirmModal'
+    14→
+    15→// ── Types ──────────────────────────────────────────────────────
+    16→
+    17→type GameType = 'offline' | 'download' | 'online' | 'mini'
+    18→
+    19→interface Game {
+    20→  id: string
+    21→  name: string
+    22→  description: string | null
+    23→  category: string
+    24→  game_type: GameType
+    25→  apk_url: string | null
+    26→  web_url: string | null
+    27→  cover_url: string
+    28→  size: string
+    29→  version: string
+    30→  min_android: string
+    31→  is_featured: boolean
+    32→  is_hidden: boolean
+    33→  is_free: boolean
+    34→  downloads: number
+    35→  rating: number
+    36→  created_at: string
+    37→  updated_at: string
+    38→}
+    39→
+    40→interface FormState {
+    41→  name: string
+    42→  category: string
+    43→  game_type: GameType
+    44→  apk_url: string
+    45→  web_url: string
+    46→  cover_url: string
+    47→  size: string
+    48→  version: string
+    49→  min_android: string
+    50→  description: string
+    51→  is_featured: boolean
+    52→  is_free: boolean
+    53→}
+    54→
+    55→const EMPTY_FORM: FormState = {
+    56→  name: '',
+    57→  category: '',
+    58→  game_type: 'offline',
+    59→  apk_url: '',
+    60→  web_url: '',
+    61→  cover_url: '',
+    62→  size: '0 MB',
+    63→  version: '1.0',
+    64→  min_android: '5.0',
+    65→  description: '',
+    66→  is_featured: false,
+    67→  is_free: true,
+    68→}
+    69→
+    70→const CATEGORIES = [
+    71→  'Action', 'Puzzle', 'Sports', 'Racing',
+    72→  'Adventure', 'Casual', 'Arcade', 'Strategy',
+    73→  'RPG', 'Simulation', 'Board', 'Card',
+    74→] as const
+    75→
+    76→const GAME_TYPES: { value: GameType; label: string; desc: string }[] = [
+    77→  { value: 'offline',  label: '📴 Offline',  desc: 'HTML5 game, plays in WebView' },
+    78→  { value: 'download', label: '📥 Download', desc: 'APK file, user downloads & installs' },
+    79→  { value: 'online',   label: '🌐 Online',   desc: 'External URL, plays in WebView' },
+    80→  { value: 'mini',     label: '⚡ Mini',      desc: 'Built-in small HTML5 game' },
+    81→]
+    82→
+    83→const CATEGORY_COLORS: Record<string, string> = {
+    84→  Action: '#EF4444',
+    85→  Puzzle: '#7C3AED',
+    86→  Sports: '#10B981',
+    87→  Racing: '#F59E0B',
+    88→  Adventure: '#06B6D4',
+    89→  Casual: '#A78BFA',
+    90→  Arcade: '#EC4899',
+    91→  Strategy: '#F97316',
+    92→  RPG: '#8B5CF6',
+    93→  Simulation: '#14B8A6',
+    94→  Board: '#6366F1',
+    95→  Card: '#D946EF',
+    96→}
+    97→
+    98→const TYPE_COLORS: Record<GameType, string> = {
+    99→  offline: '#6B7280',
+   100→  download: '#3B82F6',
+   101→  online: '#10B981',
+   102→  mini: '#F59E0B',
+   103→}
+   104→
+   105→// ── Helpers ────────────────────────────────────────────────────
+   106→
+   107→function formatDownloads(n: number): string {
+   108→  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M'
+   109→  if (n >= 1_000) return (n / 1_000).toFixed(1) + 'K'
+   110→  return n.toString()
+   111→}
+   112→
+   113→function formatDate(iso: string): string {
+   114→  if (!iso) return '—'
+   115→  try {
+   116→    return new Date(iso).toLocaleDateString('en-US', {
+   117→      month: 'short',
+   118→      day: 'numeric',
+   119→      year: 'numeric',
+   120→    })
+   121→  } catch {
+   122→    return '—'
+   123→  }
+   124→}
+   125→
+   126→// ── Component ──────────────────────────────────────────────────
+   127→
+   128→export default function GameManagerPage() {
+   129→  const { showToast } = useToast()
+   130→
+   131→  // Data state
+   132→  const [games, setGames] = useState<Game[]>([])
+   133→  const [isLoading, setIsLoading] = useState(true)
+   134→  const [error, setError] = useState<string | null>(null)
+   135→
+   136→  // Modal state
+   137→  const [showAddModal, setShowAddModal] = useState(false)
+   138→  const [editGame, setEditGame] = useState<Game | null>(null)
+   139→  const [deleteTarget, setDeleteTarget] = useState<Game | null>(null)
+   140→  const [form, setForm] = useState<FormState>(EMPTY_FORM)
+   141→  const [isSaving, setIsSaving] = useState(false)
+   142→
+   143→  // ── Fetch games ──
+   144→
+   145→  const fetchGames = useCallback(async () => {
+   146→    if (!supabase) {
+   147→      setError('Supabase admin client not available')
+   148→      setIsLoading(false)
+   149→      return
+   150→    }
+   151→
+   152→    setIsLoading(true)
+   153→    setError(null)
+   154→
+   155→    try {
+   156→      const { data, error: fetchError } = await supabase
+   157→        .from('games')
+   158→        .select('*')
+   159→        .order('created_at', { ascending: false })
+   160→
+   161→      if (fetchError) throw fetchError
+   162→      setGames((data as Game[]) || [])
+   163→    } catch (err: any) {
+   164→      const msg = err?.message || 'Failed to load games'
+   165→      setError(msg)
+   166→      showToast(msg, 'error')
+   167→      setGames([])
+   168→    } finally {
+   169→      setIsLoading(false)
+   170→    }
+   171→  }, [showToast])
+   172→
+   173→  useEffect(() => {
+   174→    fetchGames()
+   175→  }, [fetchGames])
+   176→
+   177→  // ── Open add modal ──
+   178→
+   179→  const openAddModal = () => {
+   180→    setForm(EMPTY_FORM)
+   181→    setEditGame(null)
+   182→    setShowAddModal(true)
+   183→  }
+   184→
+   185→  // ── Open edit modal ──
+   186→
+   187→  const openEditModal = (game: Game) => {
+   188→    setForm({
+   189→      name: game.name,
+   190→      category: game.category,
+   191→      game_type: game.game_type || 'offline',
+   192→      apk_url: game.apk_url || '',
+   193→      web_url: game.web_url || '',
+   194→      cover_url: game.cover_url || '',
+   195→      size: game.size || '0 MB',
+   196→      version: game.version || '1.0',
+   197→      min_android: game.min_android || '5.0',
+   198→      description: game.description || '',
+   199→      is_featured: game.is_featured,
+   200→      is_free: game.is_free !== false,
+   201→    })
+   202→    setEditGame(game)
+   203→    setShowAddModal(true)
+   204→  }
+   205→
+   206→  // ── Close modal ──
+   207→
+   208→  const closeModal = () => {
+   209→    setShowAddModal(false)
+   210→    setEditGame(null)
+   211→    setForm(EMPTY_FORM)
+   212→  }
+   213→
+   214→  // ── Handle game_type change — reset URL fields ──
+   215→
+   216→  const handleGameTypeChange = (newType: GameType) => {
+   217→    setForm(f => ({
+   218→      ...f,
+   219→      game_type: newType,
+   220→      // Reset URL fields when switching type to avoid confusion
+   221→      apk_url: newType === 'download' ? f.apk_url : '',
+   222→      web_url: (newType === 'offline' || newType === 'online' || newType === 'mini')
+   223→        ? f.web_url
+   224→        : '',
+   225→    }))
+   226→  }
+   227→
+   228→  // ── Save game ──
+   229→
+   230→  const saveGame = async () => {
+   231→    if (!supabase) return
+   232→    if (!form.name.trim() || !form.category.trim()) {
+   233→      showToast('Name and Category are required', 'error')
+   234→      return
+   235→    }
+   236→    if (!form.cover_url.trim()) {
+   237→      showToast('Cover Image URL is required', 'error')
+   238→      return
+   239→    }
+   240→
+   241→    setIsSaving(true)
+   242→    try {
+   243→      const now = new Date().toISOString()
+   244→      const payload = {
+   245→        name: form.name.trim(),
+   246→        category: form.category.trim(),
+   247→        game_type: form.game_type,
+   248→        apk_url: form.game_type === 'download' ? form.apk_url.trim() : null,
+   249→        web_url: (form.game_type === 'offline' || form.game_type === 'online' || form.game_type === 'mini')
+   250→          ? form.web_url.trim()
+   251→          : null,
+   252→        cover_url: form.cover_url.trim(),
+   253→        size: form.size.trim() || '0 MB',
+   254→        version: form.version.trim() || '1.0',
+   255→        min_android: form.min_android.trim() || '5.0',
+   256→        description: form.description.trim() || null,
+   257→        is_featured: form.is_featured,
+   258→        is_free: form.is_free,
+   259→        updated_at: now,
+   260→      }
+   261→
+   262→      if (editGame) {
+   263→        const { error } = await supabase
+   264→          .from('games')
+   265→          .update(payload)
+   266→          .eq('id', editGame.id)
+   267→
+   268→        if (error) throw error
+   269→
+   270→        showToast('Game updated!', 'success')
+   271→        logActivity('UPDATE_GAME', editGame.name, { id: editGame.id })
+   272→      } else {
+   273→        const { error } = await supabase
+   274→          .from('games')
+   275→          .insert([{
+   276→            ...payload,
+   277→            is_hidden: false,
+   278→            downloads: 0,
+   279→            rating: 0,
+   280→            created_at: now,
+   281→          }])
+   282→
+   283→        if (error) throw error
+   284→
+   285→        showToast('Game added!', 'success')
+   286→        logActivity('ADD_GAME', form.name.trim())
+   287→      }
+   288→
+   289→      closeModal()
+   290→      fetchGames()
+   291→    } catch (err: any) {
+   292→      showToast(err?.message || 'Failed to save game', 'error')
+   293→    } finally {
+   294→      setIsSaving(false)
+   295→    }
+   296→  }
+   297→
+   298→  // ── Delete game ──
+   299→
+   300→  const deleteGame = async () => {
+   301→    if (!supabase || !deleteTarget) return
+   302→
+   303→    try {
+   304→      const { error } = await supabase
+   305→        .from('games')
+   306→        .delete()
+   307→        .eq('id', deleteTarget.id)
+   308→
+   309→      if (error) throw error
+   310→
+   311→      showToast('Game deleted', 'success')
+   312→      logActivity('DELETE_GAME', deleteTarget.name)
+   313→      setDeleteTarget(null)
+   314→      fetchGames()
+   315→    } catch (err: any) {
+   316→      showToast(err?.message || 'Failed to delete game', 'error')
+   317→    }
+   318→  }
+   319→
+   320→  // ── Toggle featured ──
+   321→
+   322→  const toggleFeatured = async (game: Game) => {
+   323→    if (!supabase) return
+   324→
+   325→    try {
+   326→      const { error } = await supabase
+   327→        .from('games')
+   328→        .update({ is_featured: !game.is_featured, updated_at: new Date().toISOString() })
+   329→        .eq('id', game.id)
+   330→
+   331→      if (error) throw error
+   332→
+   333→      showToast(`${game.is_featured ? 'Unfeatured' : 'Featured'}: ${game.name}`, 'success')
+   334→      logActivity('UPDATE_GAME', game.name, { is_featured: !game.is_featured })
+   335→      fetchGames()
+   336→    } catch (err: any) {
+   337→      showToast(err?.message || 'Failed to toggle featured', 'error')
+   338→    }
+   339→  }
+   340→
+   341→  // ── Toggle hidden ──
+   342→
+   343→  const toggleHidden = async (game: Game) => {
+   344→    if (!supabase) return
+   345→
+   346→    try {
+   347→      const { error } = await supabase
+   348→        .from('games')
+   349→        .update({ is_hidden: !game.is_hidden, updated_at: new Date().toISOString() })
+   350→        .eq('id', game.id)
+   351→
+   352→      if (error) throw error
+   353→
+   354→      showToast(`${game.is_hidden ? 'Shown' : 'Hidden'}: ${game.name}`, 'success')
+   355→      logActivity('UPDATE_GAME', game.name, { is_hidden: !game.is_hidden })
+   356→      fetchGames()
+   357→    } catch (err: any) {
+   358→      showToast(err?.message || 'Failed to toggle visibility', 'error')
+   359→    }
+   360→  }
+   361→
+   362→  // ── Loading state ──
+   363→
+   364→  if (isLoading) {
+   365→    return (
+   366→      <div className="flex items-center justify-center min-h-[60vh]">
+   367→        <div className="flex flex-col items-center gap-4">
+   368→          <div className="w-10 h-10 border-2 border-[#7C3AED] border-t-transparent rounded-full animate-spin" />
+   369→          <p className="text-[#9CA3AF] text-sm">Loading games...</p>
+   370→        </div>
+   371→      </div>
+   372→    )
+   373→  }
+   374→
+   375→  // ── Error state ──
+   376→
+   377→  if (error) {
+   378→    return (
+   379→      <div className="flex items-center justify-center min-h-[60vh]">
+   380→        <div className="flex flex-col items-center gap-4 max-w-md text-center">
+   381→          <div className="w-14 h-14 rounded-2xl bg-[#2A0A0A] border border-[#EF4444]/20 flex items-center justify-center">
+   382→            <span className="text-[#EF4444] text-2xl">✕</span>
+   383→          </div>
+   384→          <p className="text-white font-semibold text-lg">Something went wrong</p>
+   385→          <p className="text-[#9CA3AF] text-sm">{error}</p>
+   386→          <button
+   387→            onClick={fetchGames}
+   388→            className="min-h-[44px] px-6 bg-[#7C3AED] hover:bg-[#6D28D9] text-white text-sm font-medium rounded-xl transition-colors duration-150"
+   389→          >
+   390→            Retry
+   391→          </button>
+   392→        </div>
+   393→      </div>
+   394→    )
+   395→  }
+   396→
+   397→  // ── Render ──
+   398→
+   399→  return (
+   400→    <div className="space-y-5">
+   401→      {/* Header */}
+   402→      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+   403→        <div className="flex items-center gap-3">
+   404→          <h1 className="text-xl sm:text-2xl font-bold text-white">
+   405→            Game Manager
+   406→          </h1>
+   407→          <span className="px-2.5 py-0.5 bg-[#10B981]/20 text-[#10B981] text-xs font-semibold rounded-full">
+   408→            {games.length}
+   409→          </span>
+   410→        </div>
+   411→        <button
+   412→          onClick={openAddModal}
+   413→          className="h-11 px-5 bg-[#7C3AED] hover:bg-[#6D28D9] text-white text-sm font-semibold rounded-xl transition-colors duration-150 min-h-[44px]"
+   414→        >
+   415→          + Add Game
+   416→        </button>
+   417→      </div>
+   418→
+   419→      {/* Games Grid */}
+   420→      {games.length === 0 ? (
+   421→        <div className="flex flex-col items-center justify-center py-20 gap-4">
+   422→          <div className="w-16 h-16 rounded-2xl bg-[#1A1A1A] flex items-center justify-center text-3xl">
+   423→            🎮
+   424→          </div>
+   425→          <p className="text-[#6B7280] text-sm">No games found</p>
+   426→          <button
+   427→            onClick={openAddModal}
+   428→            className="min-h-[44px] px-6 bg-[#7C3AED] hover:bg-[#6D28D9] text-white text-sm font-medium rounded-xl transition-colors duration-150"
+   429→          >
+   430→            Add Your First Game
+   431→          </button>
+   432→        </div>
+   433→      ) : (
+   434→        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+   435→          {games.map(game => {
+   436→            const catColor = CATEGORY_COLORS[game.category] || '#6B7280'
+   437→            const typeColor = TYPE_COLORS[game.game_type] || '#6B7280'
+   438→            const typeLabel = GAME_TYPES.find(t => t.value === game.game_type)?.label || game.game_type
+   439→
+   440→            return (
+   441→              <div
+   442→                key={game.id}
+   443→                className={`bg-[#0F0F0F] border border-[#1A1A1A] rounded-2xl overflow-hidden ${game.is_hidden ? 'opacity-50' : ''}`}
+   444→              >
+   445→                {/* Cover Image */}
+   446→                <div className="relative aspect-video bg-[#1A1A1A]">
+   447→                  {game.cover_url ? (
+   448→                    <img
+   449→                      src={game.cover_url}
+   450→                      alt={game.name}
+   451→                      className="w-full h-full object-cover"
+   452→                      loading="lazy"
+   453→                    />
+   454→                  ) : (
+   455→                    <div className="w-full h-full flex items-center justify-center text-4xl">
+   456→                      🎮
+   457→                    </div>
+   458→                  )}
+   459→
+   460→                  {/* Game type badge */}
+   461→                  <span
+   462→                    className="absolute top-3 left-3 px-2 py-0.5 text-xs font-semibold rounded-lg text-white"
+   463→                    style={{ backgroundColor: typeColor + 'CC' }}
+   464→                  >
+   465→                    {typeLabel}
+   466→                  </span>
+   467→
+   468→                  {/* Featured star */}
+   469→                  <button
+   470→                    onClick={() => toggleFeatured(game)}
+   471→                    className={`absolute top-3 right-3 w-9 h-9 rounded-xl flex items-center justify-center transition-colors duration-150 min-h-[44px] min-w-[44px] ${
+   472→                      game.is_featured
+   473→                        ? 'bg-[#F59E0B]/20 text-[#F59E0B]'
+   474→                        : 'bg-black/50 text-[#6B7280] hover:text-[#F59E0B]'
+   475→                    }`}
+   476→                    title={game.is_featured ? 'Unfeature' : 'Feature'}
+   477→                  >
+   478→                    ★
+   479→                  </button>
+   480→
+   481→                  {/* Hidden badge */}
+   482→                  {game.is_hidden && (
+   483→                    <div className="absolute top-3 left-24 px-2 py-0.5 bg-[#EF4444]/80 text-white text-xs font-semibold rounded-lg">
+   484→                      HIDDEN
+   485→                    </div>
+   486→                  )}
+   487→
+   488→                  {/* FREE badge */}
+   489→                  {game.is_free && (
+   490→                    <div className="absolute bottom-3 left-3 px-2 py-0.5 bg-[#10B981]/80 text-white text-[10px] font-bold rounded-lg">
+   491→                      FREE
+   492→                    </div>
+   493→                  )}
+   494→                </div>
+   495→
+   496→                {/* Card Content */}
+   497→                <div className="p-4">
+   498→                  {/* Name + Category */}
+   499→                  <div className="flex items-center gap-2 mb-2">
+   500→                    <h3 className="text-white font-semibold text-sm truncate flex-1" title={game.name}>
+   501→                      {game.name}
+   502→                    </h3>
+   503→                    <span
+   504→                      className="flex-shrink-0 inline-flex px-2 py-0.5 rounded-full text-xs font-semibold"
+   505→                      style={{ backgroundColor: catColor + '22', color: catColor }}
+   506→                    >
+   507→                      {game.category}
+   508→                    </span>
+   509→                  </div>
+   510→
+   511→                  {/* Version + Size + Downloads */}
+   512→                  <div className="flex items-center gap-3 text-xs text-[#9CA3AF] mb-3">
+   513→                    {game.version && <span>v{game.version}</span>}
+   514→                    {game.size && <span>{game.size}</span>}
+   515→                    <span>{formatDownloads(game.downloads)} downloads</span>
+   516→                  </div>
+   517→
+   518→                  {/* Web/APK URL preview */}
+   519→                  {(game.web_url || game.apk_url) && (
+   520→                    <p className="text-[9px] text-[#6B7280] truncate mb-3">
+   521→                      {game.web_url || game.apk_url}
+   522→                    </p>
+   523→                  )}
+   524→
+   525→                  {/* Action Buttons */}
+   526→                  <div className="flex items-center gap-2">
+   527→                    <button
+   528→                      onClick={() => openEditModal(game)}
+   529→                      className="flex-1 h-10 rounded-xl bg-[#1A1A1A] border border-[#2D2D2D] text-[#9CA3AF] text-xs font-medium transition-colors duration-150 hover:text-white hover:border-[#4B5563] min-h-[44px]"
+   530→                    >
+   531→                      Edit
+   532→                    </button>
+   533→                    <button
+   534→                      onClick={() => toggleHidden(game)}
+   535→                      className={`flex-1 h-10 rounded-xl border text-xs font-medium transition-colors duration-150 min-h-[44px] ${
+   536→                        game.is_hidden
+   537→                          ? 'bg-[#10B981]/10 border-[#10B981]/30 text-[#10B981] hover:bg-[#10B981]/20'
+   538→                          : 'bg-[#1A1A1A] border-[#2D2D2D] text-[#9CA3AF] hover:text-white hover:border-[#4B5563]'
+   539→                      }`}
+   540→                    >
+   541→                      {game.is_hidden ? 'Show' : 'Hide'}
+   542→                    </button>
+   543→                    <button
+   544→                      onClick={() => setDeleteTarget(game)}
+   545→                      className="flex-1 h-10 rounded-xl bg-[#1A1A1A] border border-[#2D2D2D] text-[#EF4444] text-xs font-medium transition-colors duration-150 hover:bg-[#EF4444]/10 hover:border-[#EF4444]/30 min-h-[44px]"
+   546→                    >
+   547→                      Delete
+   548→                    </button>
+   549→                  </div>
+   550→                </div>
+   551→              </div>
+   552→            )
+   553→          })}
+   554→        </div>
+   555→      )}
+   556→
+   557→      {/* ── Add / Edit Modal ── */}
+   558→      {showAddModal && (
+   559→        <div className="fixed inset-0 z-[80] flex items-center justify-center p-4">
+   560→          {/* Overlay */}
+   561→          <div className="absolute inset-0 bg-black/80" onClick={closeModal} />
+   562→
+   563→          {/* Modal */}
+   564→          <div className="relative w-full max-w-lg bg-[#0F0F0F] border border-[#242424] rounded-2xl p-6 max-h-[90vh] overflow-y-auto">
+   565→            <h2 className="text-white font-bold text-lg mb-5">
+   566→              {editGame ? 'Edit Game' : 'Add Game'}
+   567→            </h2>
+   568→
+   569→            <div className="space-y-4">
+   570→              {/* Name */}
+   571→              <div>
+   572→                <label className="block text-[#9CA3AF] text-xs font-medium mb-1.5">
+   573→                  Name <span className="text-[#EF4444]">*</span>
+   574→                </label>
+   575→                <input
+   576→                  type="text"
+   577→                  value={form.name}
+   578→                  onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
+   579→                  placeholder="Game name"
+   580→                  className="w-full h-11 bg-[#1A1A1A] border border-[#2D2D2D] rounded-xl px-4 text-white text-sm outline-none focus:border-[#7C3AED] transition-colors duration-150 placeholder:text-[#6B7280]"
+   581→                />
+   582→              </div>
+   583→
+   584→              {/* Game Type (radio) */}
+   585→              <div>
+   586→                <label className="block text-[#9CA3AF] text-xs font-medium mb-2">
+   587→                  Game Type <span className="text-[#EF4444]">*</span>
+   588→                </label>
+   589→                <div className="grid grid-cols-2 gap-2">
+   590→                  {GAME_TYPES.map(gt => (
+   591→                    <button
+   592→                      key={gt.value}
+   593→                      type="button"
+   594→                      onClick={() => handleGameTypeChange(gt.value)}
+   595→                      className={`text-left p-3 rounded-xl border text-xs transition-colors duration-150 ${
+   596→                        form.game_type === gt.value
+   597→                          ? 'border-[#7C3AED] bg-[#7C3AED]/10 text-white'
+   598→                          : 'border-[#2D2D2D] bg-[#1A1A1A] text-[#9CA3AF] hover:border-[#4B5563]'
+   599→                      }`}
+   600→                    >
+   601→                      <div className="font-semibold mb-0.5">{gt.label}</div>
+   602→                      <div className="text-[9px] text-[#6B7280]">{gt.desc}</div>
+   603→                    </button>
+   604→                  ))}
+   605→                </div>
+   606→              </div>
+   607→
+   608→              {/* Category */}
+   609→              <div>
+   610→                <label className="block text-[#9CA3AF] text-xs font-medium mb-1.5">
+   611→                  Category <span className="text-[#EF4444]">*</span>
+   612→                </label>
+   613→                <select
+   614→                  value={form.category}
+   615→                  onChange={e => setForm(f => ({ ...f, category: e.target.value }))}
+   616→                  className="w-full h-11 bg-[#1A1A1A] border border-[#2D2D2D] rounded-xl px-4 text-white text-sm outline-none focus:border-[#7C3AED] transition-colors duration-150 appearance-none cursor-pointer"
+   617→                >
+   618→                  <option value="" className="bg-[#1A1A1A]">
+   619→                    Select category...
+   620→                  </option>
+   621→                  {CATEGORIES.map(cat => (
+   622→                    <option key={cat} value={cat} className="bg-[#1A1A1A]">
+   623→                      {cat}
+   624→                    </option>
+   625→                  ))}
+   626→                </select>
+   627→              </div>
+   628→
+   629→              {/* URL field — changes based on game_type */}
+   630→              {form.game_type === 'download' ? (
+   631→                <div>
+   632→                  <label className="block text-[#9CA3AF] text-xs font-medium mb-1.5">
+   633→                    APK Download URL <span className="text-[#EF4444]">*</span>
+   634→                  </label>
+   635→                  <input
+   636→                    type="text"
+   637→                    value={form.apk_url}
+   638→                    onChange={e => setForm(f => ({ ...f, apk_url: e.target.value }))}
+   639→                    placeholder="https://storage.example.com/game.apk"
+   640→                    className="w-full h-11 bg-[#1A1A1A] border border-[#2D2D2D] rounded-xl px-4 text-white text-sm outline-none focus:border-[#7C3AED] transition-colors duration-150 placeholder:text-[#6B7280]"
+   641→                  />
+   642→                </div>
+   643→              ) : (
+   644→                <div>
+   645→                  <label className="block text-[#9CA3AF] text-xs font-medium mb-1.5">
+   646→                    Game URL (HTML5 / Web) <span className="text-[#EF4444]">*</span>
+   647→                  </label>
+   648→                  <input
+   649→                    type="text"
+   650→                    value={form.web_url}
+   651→                    onChange={e => setForm(f => ({ ...f, web_url: e.target.value }))}
+   652→                    placeholder={
+   653→                      form.game_type === 'online'
+   654→                        ? 'https://example.com/game'
+   655→                        : 'https://storage.example.com/game/index.html'
+   656→                    }
+   657→                    className="w-full h-11 bg-[#1A1A1A] border border-[#2D2D2D] rounded-xl px-4 text-white text-sm outline-none focus:border-[#7C3AED] transition-colors duration-150 placeholder:text-[#6B7280]"
+   658→                  />
+   659→                </div>
+   660→              )}
+   661→
+   662→              {/* Cover Image URL */}
+   663→              <div>
+   664→                <label className="block text-[#9CA3AF] text-xs font-medium mb-1.5">
+   665→                  Cover Image URL <span className="text-[#EF4444]">*</span>
+   666→                </label>
+   667→                <input
+   668→                  type="text"
+   669→                  value={form.cover_url}
+   670→                  onChange={e => setForm(f => ({ ...f, cover_url: e.target.value }))}
+   671→                  placeholder="https://..."
+   672→                  className="w-full h-11 bg-[#1A1A1A] border border-[#2D2D2D] rounded-xl px-4 text-white text-sm outline-none focus:border-[#7C3AED] transition-colors duration-150 placeholder:text-[#6B7280]"
+   673→                />
+   674→              </div>
+   675→
+   676→              {/* Cover preview */}
+   677→              {form.cover_url && (
+   678→                <div className="rounded-xl overflow-hidden border border-[#242424]">
+   679→                  <img
+   680→                    src={form.cover_url}
+   681→                    alt="Cover preview"
+   682→                    className="w-full h-auto max-h-40 object-cover"
+   683→                    onError={e => { (e.target as HTMLImageElement).style.display = 'none' }}
+   684→                  />
+   685→                </div>
+   686→              )}
+   687→
+   688→              {/* Size + Version + Min Android row */}
+   689→              <div className="grid grid-cols-3 gap-3">
+   690→                <div>
+   691→                  <label className="block text-[#9CA3AF] text-xs font-medium mb-1.5">
+   692→                    Size
+   693→                  </label>
+   694→                  <input
+   695→                    type="text"
+   696→                    value={form.size}
+   697→                    onChange={e => setForm(f => ({ ...f, size: e.target.value }))}
+   698→                    placeholder="45 MB"
+   699→                    className="w-full h-11 bg-[#1A1A1A] border border-[#2D2D2D] rounded-xl px-4 text-white text-sm outline-none focus:border-[#7C3AED] transition-colors duration-150 placeholder:text-[#6B7280]"
+   700→                  />
+   701→                </div>
+   702→                <div>
+   703→                  <label className="block text-[#9CA3AF] text-xs font-medium mb-1.5">
+   704→                    Version
+   705→                  </label>
+   706→                  <input
+   707→                    type="text"
+   708→                    value={form.version}
+   709→                    onChange={e => setForm(f => ({ ...f, version: e.target.value }))}
+   710→                    placeholder="1.0"
+   711→                    className="w-full h-11 bg-[#1A1A1A] border border-[#2D2D2D] rounded-xl px-4 text-white text-sm outline-none focus:border-[#7C3AED] transition-colors duration-150 placeholder:text-[#6B7280]"
+   712→                  />
+   713→                </div>
+   714→                <div>
+   715→                  <label className="block text-[#9CA3AF] text-xs font-medium mb-1.5">
+   716→                    Min Android
+   717→                  </label>
+   718→                  <input
+   719→                    type="text"
+   720→                    value={form.min_android}
+   721→                    onChange={e => setForm(f => ({ ...f, min_android: e.target.value }))}
+   722→                    placeholder="5.0"
+   723→                    className="w-full h-11 bg-[#1A1A1A] border border-[#2D2D2D] rounded-xl px-4 text-white text-sm outline-none focus:border-[#7C3AED] transition-colors duration-150 placeholder:text-[#6B7280]"
+   724→                  />
+   725→                </div>
+   726→              </div>
+   727→
+   728→              {/* Description */}
+   729→              <div>
+   730→                <label className="block text-[#9CA3AF] text-xs font-medium mb-1.5">
+   731→                  Description
+   732→                </label>
+   733→                <textarea
+   734→                  value={form.description}
+   735→                  onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
+   736→                  rows={3}
+   737→                  placeholder="Game description..."
+   738→                  className="w-full bg-[#1A1A1A] border border-[#2D2D2D] rounded-xl px-4 py-3 text-white text-sm outline-none focus:border-[#7C3AED] transition-colors duration-150 placeholder:text-[#6B7280] resize-none"
+   739→                />
+   740→              </div>
+   741→
+   742→              {/* Toggles row */}
+   743→              <div className="flex items-center justify-between gap-4">
+   744→                {/* Featured toggle */}
+   745→                <div className="flex items-center gap-3">
+   746→                  <label className="text-[#9CA3AF] text-xs font-medium">Featured</label>
+   747→                  <button
+   748→                    type="button"
+   749→                    onClick={() => setForm(f => ({ ...f, is_featured: !f.is_featured }))}
+   750→                    className={`relative w-12 h-7 rounded-full transition-colors duration-150 ${
+   751→                      form.is_featured ? 'bg-[#7C3AED]' : 'bg-[#2D2D2D]'
+   752→                    }`}
+   753→                  >
+   754→                    <span
+   755→                      className={`absolute top-0.5 left-0.5 w-6 h-6 bg-white rounded-full transition-transform duration-150 ${
+   756→                        form.is_featured ? 'translate-x-5' : 'translate-x-0'
+   757→                      }`}
+   758→                    />
+   759→                  </button>
+   760→                </div>
+   761→
+   762→                {/* Free toggle */}
+   763→                <div className="flex items-center gap-3">
+   764→                  <label className="text-[#9CA3AF] text-xs font-medium">Free</label>
+   765→                  <button
+   766→                    type="button"
+   767→                    onClick={() => setForm(f => ({ ...f, is_free: !f.is_free }))}
+   768→                    className={`relative w-12 h-7 rounded-full transition-colors duration-150 ${
+   769→                      form.is_free ? 'bg-[#10B981]' : 'bg-[#2D2D2D]'
+   770→                    }`}
+   771→                  >
+   772→                    <span
+   773→                      className={`absolute top-0.5 left-0.5 w-6 h-6 bg-white rounded-full transition-transform duration-150 ${
+   774→                        form.is_free ? 'translate-x-5' : 'translate-x-0'
+   775→                      }`}
+   776→                    />
+   777→                  </button>
+   778→                </div>
+   779→              </div>
+   780→            </div>
+   781→
+   782→            {/* Footer buttons */}
+   783→            <div className="flex gap-3 mt-6">
+   784→              <button
+   785→                onClick={closeModal}
+   786→                className="flex-1 h-12 rounded-xl border border-[#2D2D2D] text-[#9CA3AF] text-sm font-medium min-h-[44px] transition-colors duration-150 hover:bg-[#1A1A1A]"
+   787→              >
+   788→                Cancel
+   789→              </button>
+   790→              <button
+   791→                onClick={saveGame}
+   792→                disabled={isSaving}
+   793→                className="flex-1 h-12 rounded-xl bg-[#7C3AED] hover:bg-[#6D28D9] text-white text-sm font-semibold min-h-[44px] transition-colors duration-150 disabled:opacity-50"
+   794→              >
+   795→                {isSaving ? 'Saving...' : 'Save Game'}
+   796→              </button>
+   797→            </div>
+   798→          </div>
+   799→        </div>
+   800→      )}
+   801→
+   802→      {/* Delete Confirm Modal */}
+   803→      {deleteTarget && (
+   804→        <ConfirmModal
+   805→          title="Delete Game"
+   806→          message={`Are you sure you want to delete "${deleteTarget.name}"? This action cannot be undone.`}
+   807→          confirmLabel="Delete"
+   808→          onConfirm={deleteGame}
+   809→          onCancel={() => setDeleteTarget(null)}
+   810→          danger
+   811→        />
+   812→      )}
+   813→    </div>
+   814→  )
+   815→}
+   816→
