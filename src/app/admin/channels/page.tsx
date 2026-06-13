@@ -74,19 +74,47 @@ function timeAgo(dateStr: string | null): string {
   return `${months}mo ago`
 }
 
-function extractChannelId(url: string): string {
-  const patterns = [
-    /youtube\.com\/channel\/(UC[\w-]{22})/,
-    /youtube\.com\/@([\w.-]+)/,
-    /youtube\.com\/c\/([\w.-]+)/,
-    /youtube\.com\/user\/([\w.-]+)/,
-  ]
-  for (const p of patterns) {
-    const m = url.match(p)
-    if (m) return m[1]
+// Remove tracking params (?si=, etc.) from YouTube URLs
+const cleanYouTubeUrl = (url: string): string => {
+  try {
+    // Remove all query params (?si=, ?v=, etc)
+    const urlObj = new URL(url.trim())
+    // Keep only origin + pathname
+    const clean = urlObj.origin + urlObj.pathname
+    return clean
+  } catch {
+    // If not valid URL, return trimmed
+    return url.trim()
   }
-  if (/^UC[\w-]{22}$/.test(url.trim())) return url.trim()
-  return ''
+}
+
+// Extract channel identifier (handle, UC ID, user, c-name) from URL
+const extractChannelIdentifier = (url: string): string => {
+  const cleaned = cleanYouTubeUrl(url)
+
+  // Match patterns:
+  // youtube.com/channel/UCxxxxxx
+  const ucMatch = cleaned.match(/channel\/(UC[\w-]{10,})/)
+  if (ucMatch) return ucMatch[1]
+
+  // youtube.com/@handle
+  const handleMatch = cleaned.match(/\/@([\w.-]+)/)
+  if (handleMatch) return '@' + handleMatch[1]
+
+  // youtube.com/c/name
+  const cMatch = cleaned.match(/\/c\/([\w.-]+)/)
+  if (cMatch) return cMatch[1]
+
+  // youtube.com/user/name
+  const userMatch = cleaned.match(/\/user\/([\w.-]+)/)
+  if (userMatch) return userMatch[1]
+
+  // Bare UC.. ID pasted directly
+  if (/^UC[\w-]{10,}$/.test(cleaned.trim())) return cleaned.trim()
+  // Bare @handle pasted directly
+  if (/^@[\w.-]+$/.test(cleaned.trim())) return cleaned.trim()
+
+  return cleaned
 }
 
 // ── Component ──
@@ -162,17 +190,21 @@ export default function ChannelManagerPage() {
 
   // ── Fetch channel info from RSS ──
   const handleFetchInfo = async () => {
-    const id = extractChannelId(urlInput)
-    if (!id) {
-      showToast('Invalid YouTube URL. Use youtube.com/channel/UCxxx or youtube.com/@handle', 'error')
+    const identifier = extractChannelIdentifier(urlInput)
+
+    if (!identifier) {
+      showToast('Invalid YouTube URL', 'error')
       return
     }
+
     setIsFetching(true)
     try {
-      const res = await fetch(`/api/admin/channel-info?id=${encodeURIComponent(id)}`)
+      const res = await fetch(
+        `/api/admin/channel-info?id=${encodeURIComponent(identifier)}`
+      )
       const data = await res.json()
       if (data.error) {
-        showToast(data.error, 'error')
+        showToast(data.hint ? `${data.error} ${data.hint}` : data.error, 'error')
         setFetchedInfo(null)
       } else {
         setFetchedInfo(data)
