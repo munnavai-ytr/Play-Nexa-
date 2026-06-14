@@ -46,7 +46,7 @@ export default function AdminSidebar({ adminEmail }: AdminSidebarProps = { admin
 
   return (
     <aside
-      className={`bg-[#0A0A0A] border-r border-[#1A1A1A] flex flex-col h-screen transition-[width] duration-200 ${
+      className={`bg-[#0A0A0A] border-r border-[#1A1A1A] flex flex-col h-screen transition-[width] duration-200 w-56 ${
         collapsed ? 'w-16' : 'w-56'
       }`}
     >

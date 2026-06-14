@@ -49,15 +49,34 @@ following Play Nexa coding standards.
 `
 
 export async function POST(req: NextRequest) {
+  // Auth check
+  const token = req.cookies.get('pna_admin_token')?.value
+  if (!token || token.length <= 10) {
+    return NextResponse.json({ reply: '❌ Unauthorized. Please log in to admin panel.' }, { status: 401 })
+  }
+
   try {
-    const { message, history, apiKey, sessionId } = await req.json()
+    const { message, history, keyId, sessionId } = await req.json()
 
     if (!message || typeof message !== 'string') {
       return NextResponse.json({ reply: '❌ No message provided.' })
     }
 
-    // Get API key: provided key > active DB key > env key
-    let key = apiKey || ''
+    // Get API key: keyId from DB > active DB key > env key
+    let key = ''
+
+    if (keyId && supabaseAdmin) {
+      // Look up key by ID (never expose the key to the client)
+      const { data: keyById } = await supabaseAdmin
+        .from('gemini_keys')
+        .select('api_key')
+        .eq('id', keyId)
+        .single()
+
+      if (keyById?.api_key) {
+        key = keyById.api_key
+      }
+    }
 
     if (!key && supabaseAdmin) {
       const { data: activeKey } = await supabaseAdmin

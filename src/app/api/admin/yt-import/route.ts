@@ -3,7 +3,7 @@
 // Filters by duration > 60 mins + Bengali/English movie keywords
 // Uses Gemini AI for smart classification on uncertain videos
 // Upserts to Supabase movies table with onConflict: youtube_id
-// AMOLED dark theme compatible, no backdrop-blur
+// Verifies pna_admin_token cookie for every request
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
@@ -15,6 +15,12 @@ const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || ''
 const YOUTUBE_API_KEY = process.env.NEXT_PUBLIC_YOUTUBE_API_KEY || ''
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || ''
+
+// ── Auth check ──
+function verifyAdmin(req: NextRequest): boolean {
+  const token = req.cookies.get('pna_admin_token')?.value
+  return !!token && token.length > 10
+}
 
 // ── Types ──
 
@@ -273,6 +279,9 @@ async function resolveToChannelId(
 // ═══════════════════════════════════════════════════════════════
 
 export async function POST(request: NextRequest) {
+  if (!verifyAdmin(request)) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
   try {
     const body = await request.json()
     const { channelUrl, maxResults = 50, useGemini = true } = body
@@ -524,7 +533,10 @@ export async function POST(request: NextRequest) {
 
 // ── GET: Check if YouTube API key is configured ──
 
-export async function GET() {
+export async function GET(req: NextRequest) {
+  if (!verifyAdmin(req)) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
   return NextResponse.json({
     configured: !!YOUTUBE_API_KEY,
     message: YOUTUBE_API_KEY

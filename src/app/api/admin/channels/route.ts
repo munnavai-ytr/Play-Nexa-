@@ -4,6 +4,7 @@
 // PATCH: update a channel
 // DELETE: remove a channel
 // Uses service role key to bypass RLS on writes
+// Verifies pna_admin_token cookie for every request
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
@@ -18,8 +19,17 @@ function getAdminClient() {
   })
 }
 
+// ── Auth check ──
+function verifyAdmin(req: NextRequest): boolean {
+  const token = req.cookies.get('pna_admin_token')?.value
+  return !!token && token.length > 10
+}
+
 // ── GET: List all channels ──
-export async function GET() {
+export async function GET(req: NextRequest) {
+  if (!verifyAdmin(req)) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
   try {
     const admin = getAdminClient()
     if (!admin) {
@@ -46,6 +56,9 @@ export async function GET() {
 
 // ── POST: Add a new channel ──
 export async function POST(req: NextRequest) {
+  if (!verifyAdmin(req)) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
   try {
     const body = await req.json()
     const {
@@ -114,6 +127,9 @@ export async function POST(req: NextRequest) {
 
 // ── PATCH: Update a channel ──
 export async function PATCH(req: NextRequest) {
+  if (!verifyAdmin(req)) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
   try {
     const body = await req.json()
     const { id, ...updates } = body
@@ -154,6 +170,9 @@ export async function PATCH(req: NextRequest) {
 
 // ── DELETE: Remove a channel ──
 export async function DELETE(req: NextRequest) {
+  if (!verifyAdmin(req)) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
   try {
     const { searchParams } = new URL(req.url)
     const id = searchParams.get('id')

@@ -1,0 +1,1252 @@
+You are a Senior Full-Stack Developer (20 years exp)
+building the complete Feedback Dashboard and
+Automated Daily Report system for Play Nexa Admin.
+
+Stack: Next.js 14 App Router, TypeScript,
+Tailwind CSS 4, Supabase JS v2, Gemini AI.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🔴 ABSOLUTE RULES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. NEVER modify .env.local
+2. NEVER delete any existing keys
+3. ONLY create/modify:
+   → src/app/admin/feedback/page.tsx
+   → src/app/api/admin/daily-report/route.ts
+   → src/app/api/admin/feedback-stats/route.ts
+   → src/components/feedback/FeedbackWidget.tsx
+4. Zero placeholder code — 100% real
+5. No backdrop-blur, no style jsx
+6. Min 44px touch targets
+7. AMOLED dark theme (#000000)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🗄️ SQL — Run in Supabase FIRST
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+-- Add auto-rotate settings to app_settings
+INSERT INTO app_settings (key, value)
+VALUES (
+  'gemini_auto_rotate',
+  '{"enabled": true, "threshold": 80}'
+) ON CONFLICT (key) DO NOTHING;
+
+-- CRON job for daily report at midnight
+SELECT cron.schedule(
+  'daily-feedback-report',
+  '0 0 * * *',
+  $$
+  SELECT net.http_post(
+    url := current_setting(
+      'app.site_url', true) ||
+      '/api/admin/daily-report',
+    headers := jsonb_build_object(
+      'Content-Type', 'application/json',
+      'x-cron-secret', current_setting(
+        'app.cron_secret', true)),
+    body := '{}'::jsonb,
+    timeout_milliseconds := 10000
+  )
+  $$
+);
+
+-- Index for faster feedback queries
+CREATE INDEX IF NOT EXISTS 
+  idx_feedback_priority
+  ON user_feedback (priority);
+
+CREATE INDEX IF NOT EXISTS
+  idx_feedback_category
+  ON user_feedback (category);
+
+CREATE INDEX IF NOT EXISTS
+  idx_feedback_status
+  ON user_feedback (status);
+
+CREATE INDEX IF NOT EXISTS
+  idx_feedback_created
+  ON user_feedback (created_at DESC);
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📣 PART A — FEEDBACK WIDGET (App Side)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+File: src/components/feedback/FeedbackWidget.tsx
+
+'use client'
+import { useState } from 'react'
+
+interface FeedbackWidgetProps {
+  userId?: string | null
+}
+
+export default function FeedbackWidget({
+  userId
+}: FeedbackWidgetProps) {
+  const [isOpen, setIsOpen] = useState(false)
+  const [category, setCategory] = useState('')
+  const [description, setDescription] = useState('')
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [isDone, setIsDone] = useState(false)
+  const [charCount, setCharCount] = useState(0)
+
+  const CATEGORIES = [
+    { emoji: '🎬', label: 'Movie', 
+      desc: 'মুভি সমস্যা' },
+    { emoji: '🎵', label: 'Music', 
+      desc: 'মিউজিক সমস্যা' },
+    { emoji: '🎮', label: 'Game',  
+      desc: 'গেম সমস্যা' },
+    { emoji: '📱', label: 'App',   
+      desc: 'অ্যাপ সমস্যা' },
+    { emoji: '🐛', label: 'Bug',   
+      desc: 'বাগ রিপোর্ট' },
+    { emoji: '💡', label: 'Idea',  
+      desc: 'নতুন আইডিয়া' },
+  ]
+
+  const submitFeedback = async () => {
+    if (!category) return
+    if (description.trim().length < 10) return
+    
+    setIsSubmitting(true)
+    
+    try {
+      await fetch('/api/admin/feedback-ai', {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          category,
+          description: description.trim(),
+          userId: userId || null,
+        })
+      })
+      
+      setIsDone(true)
+      setTimeout(() => {
+        setIsOpen(false)
+        setIsDone(false)
+        setCategory('')
+        setDescription('')
+        setCharCount(0)
+      }, 2500)
+      
+    } catch {
+      setIsSubmitting(false)
+    }
+  }
+
+  const reset = () => {
+    setIsOpen(false)
+    setCategory('')
+    setDescription('')
+    setCharCount(0)
+    setIsSubmitting(false)
+    setIsDone(false)
+  }
+
+  return (
+    <>
+      {/* Floating Button */}
+      <button
+        onClick={() => setIsOpen(true)}
+        className="fixed bottom-20 right-4 z-35
+          w-13 h-13 bg-[#7C3AED] rounded-full
+          flex items-center justify-center
+          shadow-lg shadow-[#7C3AED]/30
+          active:scale-95 transition-transform
+          duration-150"
+        style={{ 
+          width: '52px', 
+          height: '52px',
+          zIndex: 35 
+        }}
+        title="Report a problem"
+      >
+        <svg width="22" height="22"
+          viewBox="0 0 24 24" fill="none"
+          stroke="white" strokeWidth="2"
+          strokeLinecap="round">
+          <path d="M21 15a2 2 0 0 1-2 2H7
+            l-4 4V5a2 2 0 0 1 2-2h14
+            a2 2 0 0 1 2 2z"/>
+        </svg>
+      </button>
+
+      {/* Backdrop */}
+      {isOpen && (
+        <div
+          className="fixed inset-0 bg-black/60
+            z-[58]"
+          onClick={reset}
+        />
+      )}
+
+      {/* Bottom Sheet */}
+      {isOpen && (
+        <div className="fixed bottom-0 left-0
+          right-0 z-[59] bg-[#0F0F0F]
+          rounded-t-3xl border-t border-[#1A1A1A]
+          pb-10">
+          
+          {/* Handle */}
+          <div className="w-10 h-1 bg-[#2D2D2D]
+            rounded-full mx-auto mt-4 mb-5"/>
+
+          {isDone ? (
+            // Success state
+            <div className="flex flex-col
+              items-center py-10 px-6">
+              <div className="w-16 h-16
+                bg-green-500/20 rounded-full
+                flex items-center justify-center
+                mb-4">
+                <svg width="32" height="32"
+                  viewBox="0 0 24 24" fill="none"
+                  stroke="#22C55E" strokeWidth="2.5">
+                  <polyline points="20 6 9 17 4 12"/>
+                </svg>
+              </div>
+              <p className="text-white font-bold
+                text-lg mb-2">
+                ধন্যবাদ! ✅
+              </p>
+              <p className="text-[#9CA3AF] text-sm
+                text-center">
+                তোমার report পাওয়া গেছে।
+                আমরা শীঘ্রই দেখবো।
+              </p>
+            </div>
+          ) : (
+            <div className="px-6">
+              <div className="flex items-center
+                justify-between mb-5">
+                <h2 className="text-white font-bold
+                  text-lg">
+                  📣 সমস্যা জানাও
+                </h2>
+                <button
+                  onClick={reset}
+                  className="w-8 h-8 rounded-full
+                    bg-[#1A1A1A] text-[#9CA3AF]
+                    flex items-center justify-center
+                    text-lg active:bg-[#2D2D2D]">
+                  ✕
+                </button>
+              </div>
+
+              {/* Category Grid */}
+              <p className="text-[#9CA3AF] text-xs
+                mb-3">
+                কোন ধরনের সমস্যা?
+              </p>
+              <div className="grid grid-cols-3
+                gap-2 mb-5">
+                {CATEGORIES.map(cat => (
+                  <button
+                    key={cat.label}
+                    onClick={() => 
+                      setCategory(cat.label)}
+                    className={`py-3 px-2 rounded-xl
+                      flex flex-col items-center
+                      gap-1 min-h-[72px]
+                      transition-all duration-150
+                      border
+                      ${category === cat.label
+                        ? 'bg-[#7C3AED]/20 border-[#7C3AED]'
+                        : 'bg-[#1A1A1A] border-[#2D2D2D]'
+                      }`}
+                  >
+                    <span className="text-2xl">
+                      {cat.emoji}
+                    </span>
+                    <span className={`text-xs
+                      font-medium
+                      ${category === cat.label
+                        ? 'text-[#A78BFA]'
+                        : 'text-[#9CA3AF]'
+                      }`}>
+                      {cat.label}
+                    </span>
+                  </button>
+                ))}
+              </div>
+
+              {/* Description */}
+              <p className="text-[#9CA3AF] text-xs
+                mb-2">
+                বিস্তারিত বলো (কমপক্ষে 10 অক্ষর)
+              </p>
+              <div className="relative mb-2">
+                <textarea
+                  value={description}
+                  onChange={e => {
+                    const val = e.target.value
+                      .slice(0, 300)
+                    setDescription(val)
+                    setCharCount(val.length)
+                  }}
+                  placeholder="তোমার সমস্যা বিস্তারিত
+লিখো..."
+                  rows={4}
+                  className="w-full bg-[#1A1A1A]
+                    border border-[#2D2D2D]
+                    rounded-xl px-4 py-3
+                    text-white text-sm outline-none
+                    resize-none
+                    placeholder-[#4B5563]
+                    focus:border-[#7C3AED]"
+                />
+                <span className="absolute bottom-3
+                  right-3 text-[#4B5563] text-xs">
+                  {charCount}/300
+                </span>
+              </div>
+
+              {/* Submit */}
+              <button
+                onClick={submitFeedback}
+                disabled={
+                  !category ||
+                  description.trim().length < 10 ||
+                  isSubmitting
+                }
+                className="w-full h-12
+                  bg-[#7C3AED] rounded-xl
+                  text-white font-semibold text-sm
+                  disabled:opacity-40
+                  active:opacity-80 mt-2
+                  flex items-center
+                  justify-center gap-2">
+                {isSubmitting ? (
+                  <>
+                    <div className="w-4 h-4
+                      border-2 border-white
+                      border-t-transparent
+                      rounded-full animate-spin"/>
+                    পাঠানো হচ্ছে...
+                  </>
+                ) : (
+                  '📤 Report পাঠাও'
+                )}
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+    </>
+  )
+}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📊 PART B — FEEDBACK DASHBOARD
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+File: src/app/admin/feedback/page.tsx
+
+'use client'
+import { useState, useEffect } from 'react'
+import { supabaseAdmin } from '@/lib/supabaseAdmin'
+
+interface Feedback {
+  id: string
+  category: string
+  description: string
+  ai_summary: string
+  priority: 'high' | 'medium' | 'low'
+  status: 'open' | 'in_progress' | 'resolved'
+  is_duplicate: boolean
+  same_issue_count: number
+  created_at: string
+  ai_verified: boolean
+}
+
+interface DailyReport {
+  id: string
+  report_date: string
+  total_feedback: number
+  high_count: number
+  medium_count: number
+  low_count: number
+  top_issues: Array<{
+    category: string
+    count: number
+    sample: string
+  }>
+}
+
+export default function FeedbackPage() {
+  const [feedbacks, setFeedbacks] = useState<
+    Feedback[]>([])
+  const [stats, setStats] = useState({
+    total: 0, high: 0, medium: 0, 
+    low: 0, resolved: 0
+  })
+  const [filters, setFilters] = useState({
+    priority: 'all',
+    status: 'all',
+    category: 'all',
+  })
+  const [isLoading, setIsLoading] = useState(true)
+  const [selectedFeedback, setSelectedFeedback] = 
+    useState<Feedback | null>(null)
+  const [fixPrompt, setFixPrompt] = useState('')
+  const [showFixModal, setShowFixModal] = 
+    useState(false)
+  const [loadingFix, setLoadingFix] = useState(false)
+  const [reports, setReports] = useState<
+    DailyReport[]>([])
+  const [activeView, setActiveView] = useState<
+    'feedback' | 'reports'>('feedback')
+  const [spikes, setSpikes] = useState<
+    Array<{category: string; count: number}>>([])
+
+  // Load on mount + when filters change
+  useEffect(() => {
+    fetchFeedbacks()
+    fetchReports()
+    detectSpikes()
+  }, [filters])
+
+  const fetchFeedbacks = async () => {
+    setIsLoading(true)
+    let query = supabaseAdmin
+      .from('user_feedback')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(100)
+
+    if (filters.priority !== 'all')
+      query = query.eq('priority', filters.priority)
+    if (filters.status !== 'all')
+      query = query.eq('status', filters.status)
+    if (filters.category !== 'all')
+      query = query.eq('category', filters.category)
+
+    const { data } = await query
+    const all = data || []
+    setFeedbacks(all)
+
+    setStats({
+      total: all.length,
+      high: all.filter(
+        f => f.priority === 'high').length,
+      medium: all.filter(
+        f => f.priority === 'medium').length,
+      low: all.filter(
+        f => f.priority === 'low').length,
+      resolved: all.filter(
+        f => f.status === 'resolved').length,
+    })
+    setIsLoading(false)
+  }
+
+  const fetchReports = async () => {
+    const { data } = await supabaseAdmin
+      .from('admin_reports')
+      .select('*')
+      .order('report_date', { ascending: false })
+      .limit(7)
+    setReports(data || [])
+  }
+
+  const detectSpikes = async () => {
+    const oneHourAgo = new Date(
+      Date.now() - 3600000).toISOString()
+    
+    const { data } = await supabaseAdmin
+      .from('user_feedback')
+      .select('category')
+      .eq('priority', 'high')
+      .gte('created_at', oneHourAgo)
+
+    if (!data) return
+    
+    const grouped = data.reduce((acc, f) => {
+      acc[f.category] = (acc[f.category] || 0) + 1
+      return acc
+    }, {} as Record<string, number>)
+    
+    const detected = Object.entries(grouped)
+      .filter(([, count]) => count >= 3)
+      .map(([category, count]) => ({ 
+        category, count }))
+    
+    setSpikes(detected)
+  }
+
+  const updateStatus = async (
+    id: string,
+    status: string
+  ) => {
+    await supabaseAdmin
+      .from('user_feedback')
+      .update({ status })
+      .eq('id', id)
+    
+    setFeedbacks(prev => prev.map(f =>
+      f.id === id ? { ...f, status: status as any } : f
+    ))
+  }
+
+  const getFixPrompt = async (fb: Feedback) => {
+    setSelectedFeedback(fb)
+    setLoadingFix(true)
+    setShowFixModal(true)
+    
+    try {
+      const res = await fetch('/api/admin/chat', {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: `Play Nexa app এ এই user 
+সমস্যার জন্য Z.ai তে দেওয়ার
+detailed fix prompt দাও:
+
+Category: ${fb.category}
+Priority: ${fb.priority}
+Issue: ${fb.description}
+AI Summary: ${fb.ai_summary}
+Same issue reported by: 
+  ${fb.same_issue_count} users
+
+Z.ai prompt format এ লিখো।
+STRICT RULES section সহ।`,
+          history: [],
+        })
+      })
+      const data = await res.json()
+      setFixPrompt(data.reply || '')
+    } catch {
+      setFixPrompt('Could not generate prompt. 
+        Check API key.')
+    } finally {
+      setLoadingFix(false)
+    }
+  }
+
+  const PRIORITY_STYLE = {
+    high: 'bg-red-900/30 text-red-400 
+      border-red-800/50',
+    medium: 'bg-yellow-900/30 text-yellow-400
+      border-yellow-800/50',
+    low: 'bg-green-900/30 text-green-400
+      border-green-800/50',
+  }
+
+  const STATUS_STYLE = {
+    open: 'bg-blue-900/30 text-blue-400',
+    in_progress: 'bg-purple-900/30 text-purple-400',
+    resolved: 'bg-green-900/30 text-green-400',
+  }
+
+  return (
+    <div className="p-4 pb-24 min-h-screen">
+
+      {/* Spike Alerts */}
+      {spikes.length > 0 && (
+        <div className="mb-4 space-y-2">
+          {spikes.map(spike => (
+            <div key={spike.category}
+              className="bg-red-900/20 border
+                border-red-700/50 rounded-xl
+                px-4 py-3 flex items-center gap-3">
+              <span className="text-red-400 text-xl">
+                🚨
+              </span>
+              <div className="flex-1">
+                <p className="text-red-400 font-semibold
+                  text-sm">
+                  Spike Detected!
+                </p>
+                <p className="text-red-300 text-xs">
+                  {spike.count} high priority 
+                  {spike.category} reports 
+                  in last hour
+                </p>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Page header */}
+      <div className="flex items-center
+        justify-between mb-6">
+        <h1 className="text-white font-bold text-xl">
+          📣 User Feedback
+        </h1>
+        <button
+          onClick={fetchFeedbacks}
+          className="w-10 h-10 bg-[#1A1A1A]
+            rounded-xl flex items-center
+            justify-center text-[#9CA3AF]
+            active:bg-[#2D2D2D]">
+          ↻
+        </button>
+      </div>
+
+      {/* View Toggle */}
+      <div className="flex gap-2 mb-6">
+        <button
+          onClick={() => setActiveView('feedback')}
+          className={`flex-1 py-2.5 rounded-xl
+            text-sm font-semibold min-h-[44px]
+            ${activeView === 'feedback'
+              ? 'bg-[#7C3AED] text-white'
+              : 'bg-[#1A1A1A] text-[#9CA3AF]'}`}>
+          📣 Live Feedback
+        </button>
+        <button
+          onClick={() => setActiveView('reports')}
+          className={`flex-1 py-2.5 rounded-xl
+            text-sm font-semibold min-h-[44px]
+            ${activeView === 'reports'
+              ? 'bg-[#7C3AED] text-white'
+              : 'bg-[#1A1A1A] text-[#9CA3AF]'}`}>
+          📊 Daily Reports
+        </button>
+      </div>
+
+      {activeView === 'feedback' ? (
+        <>
+          {/* Stats Cards */}
+          <div className="grid grid-cols-2 gap-3
+            mb-6">
+            {[
+              { label: 'Total', value: stats.total,
+                color: '#7C3AED', emoji: '📊' },
+              { label: '🔴 High', value: stats.high,
+                color: '#EF4444', emoji: '' },
+              { label: '🟡 Medium', 
+                value: stats.medium,
+                color: '#F59E0B', emoji: '' },
+              { label: '✅ Resolved',
+                value: stats.resolved,
+                color: '#22C55E', emoji: '' },
+            ].map(card => (
+              <div key={card.label}
+                className="bg-[#0F0F0F] border
+                  border-[#1A1A1A] rounded-2xl p-4">
+                <p className="text-[#9CA3AF] text-xs
+                  mb-1">{card.label}</p>
+                <p className="font-bold text-2xl"
+                  style={{ color: card.color }}>
+                  {card.value}
+                </p>
+              </div>
+            ))}
+          </div>
+
+          {/* Filters */}
+          <div className="space-y-3 mb-6">
+            {/* Priority filter */}
+            <div className="flex gap-2 overflow-x-auto
+              scrollbar-hide pb-1">
+              {['all','high','medium','low'].map(p => (
+                <button
+                  key={p}
+                  onClick={() => setFilters(
+                    prev => ({...prev, priority: p}))}
+                  className={`px-4 py-2 rounded-full
+                    text-xs font-medium whitespace-nowrap
+                    min-h-[36px] flex-shrink-0
+                    ${filters.priority === p
+                      ? 'bg-[#7C3AED] text-white'
+                      : 'bg-[#1A1A1A] text-[#9CA3AF]'
+                    }`}>
+                  {p === 'all' ? 'All Priority'
+                    : p === 'high' ? '🔴 High'
+                    : p === 'medium' ? '🟡 Medium'
+                    : '✅ Low'}
+                </button>
+              ))}
+            </div>
+
+            {/* Status filter */}
+            <div className="flex gap-2 overflow-x-auto
+              scrollbar-hide pb-1">
+              {['all','open','in_progress',
+                'resolved'].map(s => (
+                <button
+                  key={s}
+                  onClick={() => setFilters(
+                    prev => ({...prev, status: s}))}
+                  className={`px-4 py-2 rounded-full
+                    text-xs font-medium whitespace-nowrap
+                    min-h-[36px] flex-shrink-0
+                    ${filters.status === s
+                      ? 'bg-[#7C3AED] text-white'
+                      : 'bg-[#1A1A1A] text-[#9CA3AF]'
+                    }`}>
+                  {s === 'all' ? 'All Status'
+                    : s === 'open' ? '🔵 Open'
+                    : s === 'in_progress' 
+                      ? '🟣 In Progress'
+                    : '✅ Resolved'}
+                </button>
+              ))}
+            </div>
+
+            {/* Category filter */}
+            <div className="flex gap-2 overflow-x-auto
+              scrollbar-hide pb-1">
+              {['all','Movie','Music','Game',
+                'App','Bug','Idea'].map(c => (
+                <button
+                  key={c}
+                  onClick={() => setFilters(
+                    prev => ({...prev, category: c}))}
+                  className={`px-4 py-2 rounded-full
+                    text-xs font-medium whitespace-nowrap
+                    min-h-[36px] flex-shrink-0
+                    ${filters.category === c
+                      ? 'bg-[#7C3AED] text-white'
+                      : 'bg-[#1A1A1A] text-[#9CA3AF]'
+                    }`}>
+                  {c === 'all' ? 'All Category' : c}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Feedback List */}
+          {isLoading ? (
+            <div className="flex justify-center py-12">
+              <div className="w-8 h-8 border-2
+                border-[#7C3AED] border-t-transparent
+                rounded-full animate-spin"/>
+            </div>
+          ) : feedbacks.length === 0 ? (
+            <div className="text-center py-16">
+              <p className="text-[#4B5563] text-4xl
+                mb-3">📭</p>
+              <p className="text-[#9CA3AF] text-sm">
+                No feedback found</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {feedbacks.map(fb => (
+                <div key={fb.id}
+                  className="bg-[#0F0F0F] border
+                    border-[#1A1A1A] rounded-2xl p-4">
+
+                  {/* Header row */}
+                  <div className="flex items-start
+                    justify-between mb-2">
+                    <div className="flex items-center
+                      gap-2 flex-wrap">
+                      <span className={`text-xs px-2.5
+                        py-1 rounded-full border
+                        font-medium capitalize
+                        ${PRIORITY_STYLE[fb.priority]}`}>
+                        {fb.priority === 'high' 
+                          ? '🔴' 
+                          : fb.priority === 'medium' 
+                            ? '🟡' : '✅'}{' '}
+                        {fb.priority}
+                      </span>
+                      <span className="text-xs px-2
+                        py-1 rounded-full bg-[#1A1A1A]
+                        text-[#9CA3AF]">
+                        {fb.category}
+                      </span>
+                      {fb.same_issue_count > 1 && (
+                        <span className="text-xs px-2
+                          py-1 rounded-full
+                          bg-orange-900/30 
+                          text-orange-400">
+                          👥 {fb.same_issue_count} users
+                        </span>
+                      )}
+                      {fb.is_duplicate && (
+                        <span className="text-xs px-2
+                          py-1 rounded-full
+                          bg-[#2D2D2D] text-[#6B7280]">
+                          duplicate
+                        </span>
+                      )}
+                    </div>
+                    <span className="text-[#4B5563]
+                      text-xs flex-shrink-0">
+                      {new Date(fb.created_at)
+                        .toLocaleDateString('bn-BD')}
+                    </span>
+                  </div>
+
+                  {/* Description */}
+                  <p className="text-white text-sm
+                    mb-2 leading-relaxed">
+                    {fb.description}
+                  </p>
+
+                  {/* AI Summary */}
+                  {fb.ai_summary && (
+                    <div className="bg-[#7C3AED]/10
+                      border border-[#7C3AED]/20
+                      rounded-xl px-3 py-2 mb-3">
+                      <p className="text-[#A78BFA]
+                        text-xs">
+                        🤖 AI: {fb.ai_summary}
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Actions */}
+                  <div className="flex gap-2">
+                    {/* Status selector */}
+                    <select
+                      value={fb.status}
+                      onChange={e => updateStatus(
+                        fb.id, e.target.value)}
+                      className="flex-1 h-10 
+                        bg-[#1A1A1A] border
+                        border-[#2D2D2D] rounded-xl
+                        text-white text-xs px-3
+                        outline-none">
+                      <option value="open">
+                        🔵 Open
+                      </option>
+                      <option value="in_progress">
+                        🟣 In Progress
+                      </option>
+                      <option value="resolved">
+                        ✅ Resolved
+                      </option>
+                    </select>
+
+                    {/* Get fix prompt */}
+                    <button
+                      onClick={() => getFixPrompt(fb)}
+                      className="px-3 h-10
+                        bg-[#7C3AED]/20 border
+                        border-[#7C3AED]/30
+                        rounded-xl text-[#A78BFA]
+                        text-xs font-medium
+                        active:opacity-80
+                        whitespace-nowrap">
+                      🔧 Fix Prompt
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      ) : (
+        /* DAILY REPORTS VIEW */
+        <div className="space-y-4">
+          {reports.length === 0 ? (
+            <div className="text-center py-16">
+              <p className="text-[#4B5563] text-4xl
+                mb-3">📊</p>
+              <p className="text-[#9CA3AF] text-sm">
+                No reports yet. 
+                First report generates at midnight.
+              </p>
+              <button
+                onClick={async () => {
+                  await fetch(
+                    '/api/admin/daily-report', 
+                    { method: 'POST' })
+                  fetchReports()
+                }}
+                className="mt-4 px-5 py-2.5
+                  bg-[#7C3AED] rounded-xl
+                  text-white text-sm
+                  active:opacity-80">
+                Generate Report Now
+              </button>
+            </div>
+          ) : (
+            reports.map(report => (
+              <div key={report.id}
+                className="bg-[#0F0F0F] border
+                  border-[#1A1A1A] rounded-2xl p-5">
+
+                {/* Date header */}
+                <div className="flex items-center
+                  justify-between mb-4">
+                  <p className="text-white font-bold
+                    text-base">
+                    📊 {new Date(report.report_date)
+                      .toLocaleDateString('bn-BD', {
+                        day: 'numeric',
+                        month: 'long',
+                        year: 'numeric'
+                      })}
+                  </p>
+                  <span className="text-[#9CA3AF]
+                    text-xs">
+                    Total: {report.total_feedback}
+                  </span>
+                </div>
+
+                {/* Priority breakdown */}
+                <div className="grid grid-cols-3
+                  gap-2 mb-4">
+                  <div className="bg-red-900/20
+                    rounded-xl p-3 text-center">
+                    <p className="text-red-400 font-bold
+                      text-xl">
+                      {report.high_count}
+                    </p>
+                    <p className="text-red-400 text-xs">
+                      🔴 High
+                    </p>
+                  </div>
+                  <div className="bg-yellow-900/20
+                    rounded-xl p-3 text-center">
+                    <p className="text-yellow-400
+                      font-bold text-xl">
+                      {report.medium_count}
+                    </p>
+                    <p className="text-yellow-400 text-xs">
+                      🟡 Medium
+                    </p>
+                  </div>
+                  <div className="bg-green-900/20
+                    rounded-xl p-3 text-center">
+                    <p className="text-green-400
+                      font-bold text-xl">
+                      {report.low_count}
+                    </p>
+                    <p className="text-green-400 text-xs">
+                      ✅ Low
+                    </p>
+                  </div>
+                </div>
+
+                {/* Top issues */}
+                {(report.top_issues || []).length > 0 && (
+                  <div>
+                    <p className="text-[#9CA3AF] text-xs
+                      mb-2">Top Issues:</p>
+                    <div className="space-y-2">
+                      {report.top_issues.map(
+                        (issue, i) => (
+                        <div key={i}
+                          className="flex items-center
+                            gap-3 bg-[#1A1A1A]
+                            rounded-xl px-3 py-2">
+                          <span className="text-[#7C3AED]
+                            font-bold text-sm w-5">
+                            #{i + 1}
+                          </span>
+                          <div className="flex-1
+                            min-w-0">
+                            <span className="text-white
+                              text-xs font-medium">
+                              {issue.category}
+                            </span>
+                            {issue.sample && (
+                              <p className="text-[#9CA3AF]
+                                text-xs truncate">
+                                {issue.sample}
+                              </p>
+                            )}
+                          </div>
+                          <span className="text-[#9CA3AF]
+                            text-xs flex-shrink-0">
+                            {issue.count}x
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            ))
+          )}
+        </div>
+      )}
+
+      {/* Fix Prompt Modal */}
+      {showFixModal && (
+        <>
+          <div
+            className="fixed inset-0 z-[65]
+              bg-black/80"
+            onClick={() => {
+              setShowFixModal(false)
+              setFixPrompt('')
+            }}
+          />
+          <div className="fixed inset-x-4 top-[10%]
+            bottom-[10%] z-[66] bg-[#0F0F0F]
+            rounded-3xl border border-[#1A1A1A]
+            flex flex-col overflow-hidden">
+            
+            {/* Modal header */}
+            <div className="flex items-center
+              justify-between px-5 py-4
+              border-b border-[#1A1A1A]
+              flex-shrink-0">
+              <p className="text-white font-bold">
+                🔧 Fix Prompt
+              </p>
+              <div className="flex gap-2">
+                {fixPrompt && (
+                  <button
+                    onClick={() => {
+                      navigator.clipboard.writeText(
+                        fixPrompt)
+                    }}
+                    className="px-3 py-1.5
+                      bg-[#7C3AED]/20 rounded-lg
+                      text-[#A78BFA] text-xs
+                      active:opacity-80">
+                    📋 Copy
+                  </button>
+                )}
+                <button
+                  onClick={() => {
+                    setShowFixModal(false)
+                    setFixPrompt('')
+                  }}
+                  className="w-8 h-8 bg-[#1A1A1A]
+                    rounded-lg text-[#9CA3AF] flex
+                    items-center justify-center">
+                  ✕
+                </button>
+              </div>
+            </div>
+
+            {/* Modal content */}
+            <div className="flex-1 overflow-y-auto
+              p-5">
+              {loadingFix ? (
+                <div className="flex flex-col
+                  items-center justify-center h-full
+                  gap-4">
+                  <div className="w-10 h-10 border-2
+                    border-[#7C3AED]
+                    border-t-transparent
+                    rounded-full animate-spin"/>
+                  <p className="text-[#9CA3AF] text-sm">
+                    AI generating fix prompt...
+                  </p>
+                </div>
+              ) : (
+                <pre className="text-white text-xs
+                  whitespace-pre-wrap
+                  font-mono leading-relaxed">
+                  {fixPrompt}
+                </pre>
+              )}
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📊 PART C — DAILY REPORT API
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+File: src/app/api/admin/daily-report/route.ts
+
+import { NextRequest, NextResponse } 
+  from 'next/server'
+import { supabaseAdmin } from 
+  '@/lib/supabaseAdmin'
+import { GoogleGenerativeAI } 
+  from '@google/generative-ai'
+
+export async function POST(req: NextRequest) {
+  // Security check for CRON
+  const cronSecret = req.headers.get(
+    'x-cron-secret')
+  const envSecret = process.env.CRON_SECRET
+  
+  if (envSecret && cronSecret !== envSecret) {
+    // Allow manual trigger from admin
+    // (no secret needed from admin panel)
+    const referer = req.headers.get('referer')
+    if (!referer?.includes('/admin')) {
+      return NextResponse.json(
+        { error: 'Unauthorized' }, 
+        { status: 401 })
+    }
+  }
+
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  const yesterday = new Date(today)
+  yesterday.setDate(yesterday.getDate() - 1)
+
+  // Get all feedback from yesterday
+  const { data: feedbacks } = await supabaseAdmin
+    .from('user_feedback')
+    .select('*')
+    .gte('created_at', yesterday.toISOString())
+    .lt('created_at', today.toISOString())
+    .order('priority')
+
+  const all = feedbacks || []
+
+  if (all.length === 0) {
+    return NextResponse.json({
+      message: 'No feedback yesterday',
+      report_date: yesterday.toISOString()
+        .split('T')[0],
+    })
+  }
+
+  const high = all.filter(
+    f => f.priority === 'high')
+  const medium = all.filter(
+    f => f.priority === 'medium')
+  const low = all.filter(
+    f => f.priority === 'low')
+
+  // Group by category
+  const byCategory = all.reduce((acc, f) => {
+    acc[f.category] = (acc[f.category] || 0) + 1
+    return acc
+  }, {} as Record<string, number>)
+
+  const topIssues = Object.entries(byCategory)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([category, count]) => {
+      const sample = all.find(
+        f => f.category === category)
+      return {
+        category,
+        count,
+        sample: sample?.ai_summary || 
+          sample?.description?.slice(0, 60) || '',
+      }
+    })
+
+  // Generate AI summary of the day
+  let aiDailySummary = ''
+  try {
+    const { data: activeKey } = await supabaseAdmin
+      .from('gemini_keys')
+      .select('api_key')
+      .eq('is_active', true)
+      .single()
+
+    const apiKey = activeKey?.api_key || 
+      process.env.GEMINI_API_KEY
+
+    if (apiKey) {
+      const genAI = new GoogleGenerativeAI(apiKey)
+      const model = genAI.getGenerativeModel({
+        model: 'gemini-1.5-flash'
+      })
+
+      const result = await model.generateContent(`
+Play Nexa app এর আজকের user feedback summary:
+
+Total: ${all.length} reports
+High Priority: ${high.length}
+Medium Priority: ${medium.length}
+Low Priority: ${low.length}
+
+Top Issues: ${topIssues.map(
+  i => `${i.category}: ${i.count}x`
+).join(', ')}
+
+3-4 line এ বাংলায় summary দাও।
+কোন সমস্যা জরুরি সেটা highlight করো।
+`)
+      aiDailySummary = result.response.text()
+    }
+  } catch {}
+
+  // Save report
+  const { error } = await supabaseAdmin
+    .from('admin_reports')
+    .upsert([{
+      report_date: yesterday.toISOString()
+        .split('T')[0],
+      total_feedback: all.length,
+      high_count: high.length,
+      medium_count: medium.length,
+      low_count: low.length,
+      top_issues: topIssues,
+      full_report: {
+        ai_summary: aiDailySummary,
+        by_category: byCategory,
+        high_issues: high.map(f => ({
+          category: f.category,
+          description: f.description
+            .slice(0, 100),
+          ai_summary: f.ai_summary,
+        })),
+      },
+      generated_at: new Date().toISOString(),
+    }], { onConflict: 'report_date' })
+
+  if (error) {
+    return NextResponse.json(
+      { error: error.message }, 
+      { status: 500 })
+  }
+
+  return NextResponse.json({
+    success: true,
+    report_date: yesterday.toISOString()
+      .split('T')[0],
+    total: all.length,
+    high: high.length,
+    ai_summary: aiDailySummary,
+  })
+}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📋 PUSH 4 CHECKLIST
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+FEEDBACK WIDGET:
+□ Floating 📣 button (fixed, z-35)
+□ 6 category grid (emoji + label)
+□ Textarea with 300 char limit
+□ Min 10 char validation
+□ Submit → shows loading spinner
+□ Success animation with checkmark
+□ Auto-close after 2.5s
+□ Reset state on close
+
+FEEDBACK DASHBOARD:
+□ Spike alert banner (red, top)
+□ Live/Reports view toggle
+□ 4 stats cards (total/high/medium/resolved)
+□ 3 filter rows (priority/status/category)
+□ Feedback list with priority badges
+□ same_issue_count shown (👥 X users)
+□ Duplicate badge shown
+□ AI summary in purple card
+□ Status update dropdown works
+□ Fix Prompt modal with copy button
+□ Fix prompt generated by AI chatbot
+□ Loading spinner in modal
+
+DAILY REPORTS VIEW:
+□ Shows last 7 reports
+□ Date in Bengali format
+□ High/Medium/Low breakdown
+□ Top 5 issues list with count
+□ "Generate Report Now" button
+□ Empty state message
+
+DAILY REPORT API:
+□ CRON security check
+□ Manual trigger allowed from admin
+□ Fetches yesterday's feedback
+□ Groups by category
+□ Generates AI summary in Bengali
+□ Saves to admin_reports table
+□ Handles no-feedback gracefully
+
+□ .env.local untouched
+□ Zero placeholder code
+□ All touch targets min 44px

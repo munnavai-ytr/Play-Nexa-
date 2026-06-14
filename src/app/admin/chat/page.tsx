@@ -66,24 +66,24 @@ export default function AIChatPage() {
   ])
   const [input, setInput] = useState('')
   const [isLoading, setIsLoading] = useState(false)
-  const [chatApiKey, setChatApiKey] = useState('')
+  const [selectedKeyId, setSelectedKeyId] = useState<string>('')
   const [availableKeys, setAvailableKeys] = useState<GeminiKey[]>([])
   const [showKeySelector, setShowKeySelector] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const sessionId = useRef(Date.now().toString()).current
 
-  // ── Load keys ──
+  // ── Load keys (only metadata, NOT the actual API keys) ──
 
   useEffect(() => {
     const loadKeys = async () => {
       if (!supabase) return
       const { data } = await supabase
         .from('gemini_keys')
-        .select('*')
+        .select('id, key_name, is_active, status, sort_order')
         .order('sort_order')
       setAvailableKeys(data || [])
-      const active = data?.find((k: GeminiKey) => k.is_active)
-      if (active) setChatApiKey(active.api_key)
+      const active = data?.find((k: any) => k.is_active)
+      if (active) setSelectedKeyId(active.id)
     }
     loadKeys()
   }, [])
@@ -127,7 +127,7 @@ export default function AIChatPage() {
         body: JSON.stringify({
           message: userMsg.content,
           history: messages.slice(-10),
-          apiKey: chatApiKey || undefined,
+          keyId: selectedKeyId || undefined,
           sessionId,
         }),
       })
@@ -180,10 +180,8 @@ export default function AIChatPage() {
           className="flex items-center gap-2 px-3 py-1.5 bg-[#1A1A1A] rounded-full border border-[#2D2D2D] min-h-[36px] active:opacity-80 transition-opacity"
         >
           <div className="w-2 h-2 rounded-full bg-green-400" />
-          <span className="text-[#9CA3AF] text-xs max-w-[120px] truncate font-mono">
-            {chatApiKey
-              ? chatApiKey.slice(0, 8) + '...'
-              : 'No key set'}
+          <span className="text-[#9CA3AF] text-xs max-w-[120px] truncate">
+            {availableKeys.find(k => k.id === selectedKeyId)?.key_name || 'Default Key'}
           </span>
           <span className="text-[#9CA3AF] text-xs">▾</span>
         </button>
@@ -287,11 +285,11 @@ export default function AIChatPage() {
                 <button
                   key={key.id}
                   onClick={() => {
-                    setChatApiKey(key.api_key)
+                    setSelectedKeyId(key.id)
                     setShowKeySelector(false)
                   }}
                   className={`w-full flex items-center gap-3 px-4 min-h-[52px] rounded-xl mb-2 active:bg-[#1A1A1A] transition-colors border ${
-                    chatApiKey === key.api_key
+                    selectedKeyId === key.id
                       ? 'border-[#7C3AED] bg-[#7C3AED]/10'
                       : 'border-transparent'
                   }`}
@@ -304,8 +302,8 @@ export default function AIChatPage() {
                   <span className="text-white text-sm flex-1 text-left">
                     {key.key_name}
                   </span>
-                  <span className="text-[#9CA3AF] text-xs font-mono">
-                    {key.api_key.slice(0, 8)}...
+                  <span className="text-[#9CA3AF] text-xs">
+                    {key.status === 'active' ? 'Active' : key.status}
                   </span>
                 </button>
               ))
@@ -314,11 +312,11 @@ export default function AIChatPage() {
             {/* Use default key option */}
             <button
               onClick={() => {
-                setChatApiKey('')
+                setSelectedKeyId('')
                 setShowKeySelector(false)
               }}
               className={`w-full flex items-center gap-3 px-4 min-h-[52px] rounded-xl active:bg-[#1A1A1A] transition-colors border ${
-                chatApiKey === ''
+                selectedKeyId === ''
                   ? 'border-[#7C3AED] bg-[#7C3AED]/10'
                   : 'border-transparent'
               }`}

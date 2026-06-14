@@ -1,6 +1,7 @@
 // ── Play Nexa — Admin Movies API Route ────────────────────────
 // Insert/Delete movies in the database using service role (bypasses RLS)
-// Called from AdminBackdoor component's upload form and delete action
+// Called from admin movie manager page
+// Verifies pna_admin_token cookie for every request
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
@@ -15,8 +16,17 @@ function getAdminClient() {
   })
 }
 
+// ── Auth check ──
+function verifyAdmin(req: NextRequest): boolean {
+  const token = req.cookies.get('pna_admin_token')?.value
+  return !!token && token.length > 10
+}
+
 // ── POST: Insert a new movie ──
 export async function POST(req: NextRequest) {
+  if (!verifyAdmin(req)) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
   try {
     const body = await req.json()
     const { title, youtube_id, thumbnail, channel_name, duration, description } = body
@@ -62,6 +72,9 @@ export async function POST(req: NextRequest) {
 
 // ── DELETE: Delete a movie by ID ──
 export async function DELETE(req: NextRequest) {
+  if (!verifyAdmin(req)) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
   try {
     const { searchParams } = new URL(req.url)
     const movieId = searchParams.get('id')
@@ -90,6 +103,9 @@ export async function DELETE(req: NextRequest) {
 
 // ── GET: Fetch movies with count ──
 export async function GET(req: NextRequest) {
+  if (!verifyAdmin(req)) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
   try {
     const { searchParams } = new URL(req.url)
     const limit = parseInt(searchParams.get('limit') || '50')
