@@ -4,6 +4,7 @@ import "./globals.css";
 import BottomNav from "@/components/layout/BottomNav";
 import OfflineIndicator from "@/components/OfflineIndicator";
 import ServiceWorkerRegistrar from "@/components/ServiceWorkerRegistrar";
+import FeedbackWidget from "@/components/feedback/FeedbackWidget";
 
 
 const inter = Inter({
@@ -83,6 +84,7 @@ export default function RootLayout({
           {children}
         </main>
         <BottomNav />
+        <FeedbackWidget />
       </body>
     </html>
   );
