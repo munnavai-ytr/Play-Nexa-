@@ -1,0 +1,1097 @@
+     1→-- ╔══════════════════════════════════════════════════════════════════╗
+     2→-- ║  PLAY NEXA — Complete Database Schema (Fresh Install)           ║
+     3→-- ║  Run this in Supabase SQL Editor after deleting old tables      ║
+     4→-- ║  Version: 3.0 — All tables, RLS, RPCs, triggers, seed data     ║
+     5→-- ╚══════════════════════════════════════════════════════════════════╝
+     6→
+     7→-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+     8→-- STEP 0: CLEAN SLATE — Drop everything that might conflict
+     9→-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    10→
+    11→-- Drop views first (depend on tables)
+    12→DROP VIEW IF EXISTS channel_display_with_info CASCADE;
+    13→
+    14→-- Drop RPC functions
+    15→DROP FUNCTION IF EXISTS upsert_missing_request CASCADE;
+    16→DROP FUNCTION IF EXISTS fetch_user_game_data CASCADE;
+    17→DROP FUNCTION IF EXISTS fetch_game_score CASCADE;
+    18→DROP FUNCTION IF EXISTS upsert_game_score CASCADE;
+    19→DROP FUNCTION IF EXISTS fetch_user_coins CASCADE;
+    20→DROP FUNCTION IF EXISTS fetch_leaderboard CASCADE;
+    21→DROP FUNCTION IF EXISTS deduct_user_coins CASCADE;
+    22→DROP FUNCTION IF EXISTS register_push_token CASCADE;
+    23→DROP FUNCTION IF EXISTS unregister_push_token CASCADE;
+    24→DROP FUNCTION IF EXISTS notify_new_video CASCADE;
+    25→
+    26→-- Drop triggers and trigger functions
+    27→DROP TRIGGER IF EXISTS set_updated_at ON yt_channels CASCADE;
+    28→DROP TRIGGER IF EXISTS set_updated_at ON channel_display CASCADE;
+    29→DROP TRIGGER IF EXISTS set_updated_at ON app_features CASCADE;
+    30→DROP TRIGGER IF EXISTS set_updated_at ON app_settings CASCADE;
+    31→DROP TRIGGER IF EXISTS set_updated_at ON games CASCADE;
+    32→DROP TRIGGER IF EXISTS set_updated_at ON user_profiles CASCADE;
+    33→DROP TRIGGER IF EXISTS trigger_notify_new_video ON videos CASCADE;
+    34→DROP FUNCTION IF EXISTS update_updated_at_column CASCADE;
+    35→DROP FUNCTION IF EXISTS on_new_video CASCADE;
+    36→
+    37→-- Drop custom types
+    38→DROP TYPE IF EXISTS request_status CASCADE;
+    39→
+    40→-- Drop all tables (order matters — child tables first)
+    41→DROP TABLE IF EXISTS game_downloads CASCADE;
+    42→DROP TABLE IF EXISTS game_data CASCADE;
+    43→DROP TABLE IF EXISTS game_scores CASCADE;
+    44→DROP TABLE IF EXISTS push_subscriptions CASCADE;
+    45→DROP TABLE IF EXISTS missing_requests CASCADE;
+    46→DROP TABLE IF EXISTS notification_log CASCADE;
+    47→DROP TABLE IF EXISTS notifications_log CASCADE;
+    48→DROP TABLE IF EXISTS admin_activity_log CASCADE;
+    49→DROP TABLE IF EXISTS admin_users CASCADE;
+    50→DROP TABLE IF EXISTS music_saved CASCADE;
+    51→DROP TABLE IF EXISTS music_likes CASCADE;
+    52→DROP TABLE IF EXISTS user_history CASCADE;
+    53→DROP TABLE IF EXISTS user_watchlist CASCADE;
+    54→DROP TABLE IF EXISTS user_likes CASCADE;
+    55→DROP TABLE IF EXISTS sync_logs CASCADE;
+    56→DROP TABLE IF EXISTS ai_scan_jobs CASCADE;
+    57→DROP TABLE IF EXISTS channel_display CASCADE;
+    58→DROP TABLE IF EXISTS music_tracks CASCADE;
+    59→DROP TABLE IF EXISTS movies CASCADE;
+    60→DROP TABLE IF EXISTS videos CASCADE;
+    61→DROP TABLE IF EXISTS games CASCADE;
+    62→DROP TABLE IF EXISTS app_settings CASCADE;
+    63→DROP TABLE IF EXISTS app_features CASCADE;
+    64→DROP TABLE IF EXISTS user_profiles CASCADE;
+    65→DROP TABLE IF EXISTS yt_channels CASCADE;
+    66→
+    67→
+    68→-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    69→-- STEP 1: CUSTOM TYPES
+    70→-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    71→
+    72→CREATE TYPE request_status AS ENUM ('pending', 'processing', 'done', 'failed');
+    73→
+    74→
+    75→-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    76→-- STEP 2: SHARED TRIGGER FUNCTION
+    77→-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    78→
+    79→CREATE OR REPLACE FUNCTION update_updated_at_column()
+    80→RETURNS TRIGGER AS $$
+    81→BEGIN
+    82→  NEW.updated_at = now();
+    83→  RETURN NEW;
+    84→END;
+    85→$$ LANGUAGE plpgsql;
+    86→
+    87→
+    88→-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    89→-- STEP 3: CORE TABLES
+    90→-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    91→
+    92→-- ── 3.1 yt_channels ─────────────────────────────────────────────
+    93→CREATE TABLE yt_channels (
+    94→  id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    95→  channel_url          TEXT NOT NULL,
+    96→  channel_id           TEXT NOT NULL UNIQUE,
+    97→  channel_name         TEXT NOT NULL,
+    98→  channel_avatar       TEXT,
+    99→  channel_type         TEXT NOT NULL DEFAULT 'movies'
+   100→                       CHECK (channel_type IN ('movies', 'music', 'mixed')),
+   101→  filter_keywords     TEXT[] NOT NULL DEFAULT '{}',
+   102→  exclude_keywords    TEXT[] NOT NULL DEFAULT '{}',
+   103→  auto_sync           BOOLEAN NOT NULL DEFAULT true,
+   104→  sync_interval       INTEGER NOT NULL DEFAULT 6,
+   105→  last_synced_at      TIMESTAMPTZ,
+   106→  total_imported      INTEGER NOT NULL DEFAULT 0,
+   107→  is_active           BOOLEAN NOT NULL DEFAULT true,
+   108→  scan_status         TEXT NOT NULL DEFAULT 'idle'
+   109→                      CHECK (scan_status IN ('idle', 'scanning', 'paused', 'completed')),
+   110→  scan_batch          INTEGER NOT NULL DEFAULT 0,
+   111→  scanned_video_ids   JSONB NOT NULL DEFAULT '[]',
+   112→  videos_imported     INTEGER NOT NULL DEFAULT 0,
+   113→  total_videos_on_channel INTEGER NOT NULL DEFAULT 0,
+   114→  created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+   115→  updated_at          TIMESTAMPTZ NOT NULL DEFAULT now()
+   116→);
+   117→
+   118→CREATE TRIGGER set_updated_at
+   119→  BEFORE UPDATE ON yt_channels
+   120→  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+   121→
+   122→-- ── 3.2 movies ──────────────────────────────────────────────────
+   123→CREATE TABLE movies (
+   124→  id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+   125→  youtube_id           TEXT NOT NULL,
+   126→  title                TEXT NOT NULL,
+   127→  thumbnail            TEXT,
+   128→  channel_name         TEXT NOT NULL DEFAULT '',
+   129→  channel_id           TEXT NOT NULL DEFAULT '',
+   130→  published_at         TIMESTAMPTZ,
+   131→  view_count           BIGINT NOT NULL DEFAULT 0,
+   132→  description          TEXT NOT NULL DEFAULT '',
+   133→  duration             TEXT NOT NULL DEFAULT '',
+   134→  is_hidden            BOOLEAN NOT NULL DEFAULT false,
+   135→  source_channel_id    UUID REFERENCES yt_channels(id) ON DELETE SET NULL,
+   136→  language             TEXT NOT NULL DEFAULT '',
+   137→  created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+   138→  UNIQUE (youtube_id)
+   139→);
+   140→
+   141→-- ── 3.3 music_tracks ────────────────────────────────────────────
+   142→CREATE TABLE music_tracks (
+   143→  id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+   144→  youtube_id           TEXT NOT NULL UNIQUE,
+   145→  title                TEXT NOT NULL,
+   146→  thumbnail            TEXT NOT NULL,
+   147→  channel_name         TEXT NOT NULL,
+   148→  channel_id           TEXT NOT NULL,
+   149→  duration             TEXT,
+   150→  published_at         TIMESTAMPTZ,
+   151→  view_count           INTEGER NOT NULL DEFAULT 0,
+   152→  is_hidden            BOOLEAN NOT NULL DEFAULT false,
+   153→  source_channel_id    UUID REFERENCES yt_channels(id) ON DELETE SET NULL,
+   154→  description          TEXT NOT NULL DEFAULT '',
+   155→  language             TEXT NOT NULL DEFAULT '',
+   156→  created_at           TIMESTAMPTZ NOT NULL DEFAULT now()
+   157→);
+   158→
+   159→-- ── 3.4 channel_display ─────────────────────────────────────────
+   160→CREATE TABLE channel_display (
+   161→  id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+   162→  channel_id           TEXT NOT NULL UNIQUE,
+   163→  display_name         TEXT NOT NULL,
+   164→  logo_url             TEXT,
+   165→  badge_color          TEXT NOT NULL DEFAULT '#7C3AED',
+   166→  border_color         TEXT NOT NULL DEFAULT '#2D2D2D',
+   167→  is_visible           BOOLEAN NOT NULL DEFAULT true,
+   168→  sort_order           INTEGER NOT NULL DEFAULT 0,
+   169→  created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+   170→  updated_at           TIMESTAMPTZ NOT NULL DEFAULT now()
+   171→);
+   172→
+   173→CREATE TRIGGER set_updated_at
+   174→  BEFORE UPDATE ON channel_display
+   175→  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+   176→
+   177→-- ── 3.5 ai_scan_jobs ────────────────────────────────────────────
+   178→CREATE TABLE ai_scan_jobs (
+   179→  id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+   180→  channel_name         TEXT NOT NULL,
+   181→  status               TEXT NOT NULL DEFAULT 'scanning'
+   182→                       CHECK (status IN ('scanning', 'completed', 'failed')),
+   183→  total_videos         INTEGER NOT NULL DEFAULT 0,
+   184→  processed            INTEGER NOT NULL DEFAULT 0,
+   185→  movies_found         INTEGER NOT NULL DEFAULT 0,
+   186→  music_found          INTEGER NOT NULL DEFAULT 0,
+   187→  skipped              INTEGER NOT NULL DEFAULT 0,
+   188→  error_message        TEXT,
+   189→  started_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+   190→  completed_at         TIMESTAMPTZ
+   191→);
+   192→
+   193→-- ── 3.6 sync_logs ───────────────────────────────────────────────
+   194→CREATE TABLE sync_logs (
+   195→  id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+   196→  channel_id           UUID NOT NULL REFERENCES yt_channels(id) ON DELETE CASCADE,
+   197→  channel_name         TEXT,
+   198→  videos_found         INTEGER NOT NULL DEFAULT 0,
+   199→  videos_added         INTEGER NOT NULL DEFAULT 0,
+   200→  videos_skipped       INTEGER NOT NULL DEFAULT 0,
+   201→  status               TEXT NOT NULL DEFAULT 'success'
+   202→                       CHECK (status IN ('success', 'failed', 'partial')),
+   203→  error_message        TEXT,
+   204→  synced_at            TIMESTAMPTZ NOT NULL DEFAULT now()
+   205→);
+   206→
+   207→-- ── 3.7 user_profiles ───────────────────────────────────────────
+   208→CREATE TABLE user_profiles (
+   209→  id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+   210→  auth_user_id         UUID NOT NULL UNIQUE REFERENCES auth.users(id) ON DELETE CASCADE,
+   211→  display_name         TEXT NOT NULL DEFAULT '',
+   212→  email                TEXT,
+   213→  avatar_url           TEXT,
+   214→  auth_provider        TEXT NOT NULL DEFAULT 'email',
+   215→  coins                INTEGER NOT NULL DEFAULT 0,
+   216→  created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+   217→  updated_at           TIMESTAMPTZ NOT NULL DEFAULT now()
+   218→);
+   219→
+   220→CREATE TRIGGER set_updated_at
+   221→  BEFORE UPDATE ON user_profiles
+   222→  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+   223→
+   224→-- ── 3.8 user_likes ──────────────────────────────────────────────
+   225→CREATE TABLE user_likes (
+   226→  id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+   227→  user_id              UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+   228→  movie_id             UUID NOT NULL REFERENCES movies(id) ON DELETE CASCADE,
+   229→  youtube_id           TEXT,
+   230→  created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+   231→  UNIQUE (user_id, movie_id)
+   232→);
+   233→
+   234→-- ── 3.9 user_watchlist ──────────────────────────────────────────
+   235→CREATE TABLE user_watchlist (
+   236→  id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+   237→  user_id              UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+   238→  movie_id             UUID NOT NULL REFERENCES movies(id) ON DELETE CASCADE,
+   239→  youtube_id           TEXT,
+   240→  created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+   241→  UNIQUE (user_id, movie_id)
+   242→);
+   243→
+   244→-- ── 3.10 user_history ───────────────────────────────────────────
+   245→CREATE TABLE user_history (
+   246→  id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+   247→  user_id              UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+   248→  movie_id             UUID NOT NULL REFERENCES movies(id) ON DELETE CASCADE,
+   249→  youtube_id           TEXT,
+   250→  watched_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+   251→  watch_count          INTEGER NOT NULL DEFAULT 1,
+   252→  UNIQUE (user_id, movie_id)
+   253→);
+   254→
+   255→-- ── 3.11 music_likes ────────────────────────────────────────────
+   256→CREATE TABLE music_likes (
+   257→  id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+   258→  user_id              UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+   259→  track_id             UUID NOT NULL REFERENCES music_tracks(id) ON DELETE CASCADE,
+   260→  youtube_id           TEXT NOT NULL,
+   261→  created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+   262→  UNIQUE (user_id, track_id)
+   263→);
+   264→
+   265→-- ── 3.12 music_saved ────────────────────────────────────────────
+   266→CREATE TABLE music_saved (
+   267→  id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+   268→  user_id              UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+   269→  track_id             UUID NOT NULL REFERENCES music_tracks(id) ON DELETE CASCADE,
+   270→  youtube_id           TEXT NOT NULL,
+   271→  created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+   272→  UNIQUE (user_id, track_id)
+   273→);
+   274→
+   275→-- ── 3.13 admin_users ────────────────────────────────────────────
+   276→CREATE TABLE admin_users (
+   277→  id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+   278→  user_id              UUID NOT NULL UNIQUE REFERENCES auth.users(id) ON DELETE CASCADE,
+   279→  email                TEXT NOT NULL,
+   280→  role                 TEXT NOT NULL DEFAULT 'admin'
+   281→                       CHECK (role IN ('superadmin', 'admin')),
+   282→  created_at           TIMESTAMPTZ NOT NULL DEFAULT now()
+   283→);
+   284→
+   285→-- ── 3.14 admin_activity_log ─────────────────────────────────────
+   286→CREATE TABLE admin_activity_log (
+   287→  id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+   288→  admin_id             UUID,
+   289→  action               TEXT NOT NULL,
+   290→  target               TEXT NOT NULL,
+   291→  details              JSONB NOT NULL DEFAULT '{}',
+   292→  created_at           TIMESTAMPTZ NOT NULL DEFAULT now()
+   293→);
+   294→
+   295→-- ── 3.15 app_features ───────────────────────────────────────────
+   296→CREATE TABLE app_features (
+   297→  id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+   298→  feature_key          TEXT NOT NULL UNIQUE,
+   299→  name                 TEXT NOT NULL,
+   300→  label                TEXT NOT NULL DEFAULT '',
+   301→  icon                 TEXT NOT NULL DEFAULT '',
+   302→  status               TEXT NOT NULL DEFAULT 'live'
+   303→                       CHECK (status IN ('live', 'hidden', 'coming_soon', 'locked', 'maintenance')),
+   304→  description          TEXT NOT NULL DEFAULT '',
+   305→  coming_soon_message  TEXT NOT NULL DEFAULT '',
+   306→  lock_reason          TEXT NOT NULL DEFAULT '',
+   307→  sort_order           INTEGER NOT NULL DEFAULT 0,
+   308→  updated_at           TIMESTAMPTZ NOT NULL DEFAULT now()
+   309→);
+   310→
+   311→CREATE TRIGGER set_updated_at
+   312→  BEFORE UPDATE ON app_features
+   313→  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+   314→
+   315→-- ── 3.16 app_settings ───────────────────────────────────────────
+   316→CREATE TABLE app_settings (
+   317→  id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+   318→  key                  TEXT NOT NULL UNIQUE,
+   319→  value                TEXT NOT NULL DEFAULT '',
+   320→  updated_at           TIMESTAMPTZ NOT NULL DEFAULT now()
+   321→);
+   322→
+   323→CREATE TRIGGER set_updated_at
+   324→  BEFORE UPDATE ON app_settings
+   325→  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+   326→
+   327→-- ── 3.17 games ──────────────────────────────────────────────────
+   328→CREATE TABLE games (
+   329→  id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+   330→  name                 TEXT NOT NULL,
+   331→  description          TEXT,
+   332→  category             TEXT NOT NULL,
+   333→  game_type            TEXT NOT NULL DEFAULT 'offline'
+   334→                       CHECK (game_type IN ('offline', 'download', 'online', 'mini')),
+   335→  apk_url              TEXT,
+   336→  web_url              TEXT,
+   337→  cover_url            TEXT NOT NULL,
+   338→  size                 TEXT NOT NULL DEFAULT '0 MB',
+   339→  version              TEXT NOT NULL DEFAULT '1.0',
+   340→  min_android          TEXT NOT NULL DEFAULT '5.0',
+   341→  is_featured          BOOLEAN NOT NULL DEFAULT false,
+   342→  is_hidden            BOOLEAN NOT NULL DEFAULT false,
+   343→  is_free              BOOLEAN NOT NULL DEFAULT true,
+   344→  downloads            INTEGER NOT NULL DEFAULT 0,
+   345→  rating               REAL NOT NULL DEFAULT 0,
+   346→  created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+   347→  updated_at           TIMESTAMPTZ NOT NULL DEFAULT now()
+   348→);
+   349→
+   350→CREATE TRIGGER set_updated_at
+   351→  BEFORE UPDATE ON games
+   352→  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+   353→
+   354→-- ── 3.18 game_data ──────────────────────────────────────────────
+   355→CREATE TABLE game_data (
+   356→  id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+   357→  user_id              UUID NOT NULL REFERENCES user_profiles(id) ON DELETE CASCADE,
+   358→  game_slug            TEXT NOT NULL,
+   359→  high_score           INTEGER NOT NULL DEFAULT 0,
+   360→  coins                INTEGER NOT NULL DEFAULT 0,
+   361→  plays                INTEGER NOT NULL DEFAULT 0,
+   362→  last_played          TIMESTAMPTZ NOT NULL DEFAULT now(),
+   363→  created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+   364→  UNIQUE (user_id, game_slug)
+   365→);
+   366→
+   367→-- ── 3.19 game_scores ────────────────────────────────────────────
+   368→CREATE TABLE game_scores (
+   369→  id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+   370→  user_id              UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+   371→  game_slug            TEXT NOT NULL,
+   372→  high_score           INTEGER NOT NULL DEFAULT 0,
+   373→  coins                INTEGER NOT NULL DEFAULT 0,
+   374→  plays                INTEGER NOT NULL DEFAULT 0,
+   375→  last_played          TIMESTAMPTZ NOT NULL DEFAULT now(),
+   376→  UNIQUE (user_id, game_slug)
+   377→);
+   378→
+   379→-- ── 3.20 game_downloads ─────────────────────────────────────────
+   380→CREATE TABLE game_downloads (
+   381→  id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+   382→  user_id              UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+   383→  game_id              UUID NOT NULL REFERENCES games(id) ON DELETE CASCADE,
+   384→  downloaded_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+   385→  status               TEXT NOT NULL DEFAULT 'pending',
+   386→  progress             NUMERIC NOT NULL DEFAULT 0,
+   387→  file_path            TEXT NOT NULL DEFAULT '',
+   388→  UNIQUE (user_id, game_id)
+   389→);
+   390→
+   391→-- ── 3.21 notifications_log ──────────────────────────────────────
+   392→CREATE TABLE notifications_log (
+   393→  id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+   394→  title                TEXT NOT NULL,
+   395→  body                 TEXT NOT NULL,
+   396→  message              TEXT NOT NULL DEFAULT '',
+   397→  sent_to              TEXT NOT NULL DEFAULT 'all',
+   398→  target               TEXT NOT NULL DEFAULT 'all',
+   399→  icon                 TEXT NOT NULL DEFAULT '',
+   400→  action_url           TEXT NOT NULL DEFAULT '',
+   401→  sent_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
+   402→  sent_count           INTEGER NOT NULL DEFAULT 0
+   403→);
+   404→
+   405→-- ── 3.22 notification_log (gamification pipeline) ───────────────
+   406→CREATE TABLE notification_log (
+   407→  id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+   408→  title                TEXT NOT NULL,
+   409→  body                 TEXT NOT NULL,
+   410→  category             TEXT NOT NULL DEFAULT 'new_content',
+   411→  sent_count           INTEGER NOT NULL DEFAULT 0,
+   412→  created_at           TIMESTAMPTZ NOT NULL DEFAULT now()
+   413→);
+   414→
+   415→-- ── 3.23 videos (Edge Function / cron pipeline) ─────────────────
+   416→CREATE TABLE videos (
+   417→  id                   BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+   418→  yt_video_id          TEXT NOT NULL UNIQUE,
+   419→  title                TEXT NOT NULL,
+   420→  thumbnail_url        TEXT,
+   421→  category             TEXT NOT NULL DEFAULT 'movie'
+   422→                       CHECK (category IN ('movie', 'music', 'short')),
+   423→  genre                TEXT[] NOT NULL DEFAULT '{}',
+   424→  duration_sec         INTEGER NOT NULL DEFAULT 0,
+   425→  channel              TEXT NOT NULL DEFAULT '',
+   426→  language             TEXT NOT NULL DEFAULT 'English',
+   427→  region               TEXT NOT NULL DEFAULT 'international'
+   428→                       CHECK (region IN ('bangladesh', 'india', 'international')),
+   429→  dubbed_tags          TEXT[] NOT NULL DEFAULT '{}',
+   430→  views                BIGINT NOT NULL DEFAULT 0,
+   431→  source               TEXT NOT NULL DEFAULT 'manual',
+   432→  created_at           TIMESTAMPTZ NOT NULL DEFAULT now()
+   433→);
+   434→
+   435→-- ── 3.24 missing_requests ───────────────────────────────────────
+   436→CREATE TABLE missing_requests (
+   437→  id                   BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+   438→  search_query         TEXT NOT NULL,
+   439→  category             TEXT NOT NULL DEFAULT 'movie',
+   440→  status               request_status NOT NULL DEFAULT 'pending',
+   441→  request_count        INTEGER NOT NULL DEFAULT 1,
+   442→  created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+   443→  updated_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+   444→  UNIQUE (search_query, category)
+   445→);
+   446→
+   447→-- ── 3.25 push_subscriptions ─────────────────────────────────────
+   448→CREATE TABLE push_subscriptions (
+   449→  id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+   450→  user_id              UUID NOT NULL REFERENCES user_profiles(id) ON DELETE CASCADE,
+   451→  device_token         TEXT NOT NULL UNIQUE,
+   452→  platform             TEXT NOT NULL DEFAULT 'web',
+   453→  device_info          TEXT NOT NULL DEFAULT '',
+   454→  is_active            BOOLEAN NOT NULL DEFAULT true,
+   455→  created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+   456→  last_used            TIMESTAMPTZ NOT NULL DEFAULT now()
+   457→);
+   458→
+   459→
+   460→-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   461→-- STEP 4: INDEXES
+   462→-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   463→
+   464→-- Movies
+   465→CREATE INDEX idx_movies_youtube_id ON movies (youtube_id);
+   466→CREATE INDEX idx_movies_channel_name ON movies (channel_name);
+   467→CREATE INDEX idx_movies_is_hidden ON movies (is_hidden);
+   468→CREATE INDEX idx_movies_created_at ON movies (created_at DESC);
+   469→CREATE INDEX idx_movies_source_channel ON movies (source_channel_id);
+   470→
+   471→-- Music tracks
+   472→CREATE INDEX idx_music_youtube_id ON music_tracks (youtube_id);
+   473→CREATE INDEX idx_music_channel ON music_tracks (channel_name);
+   474→CREATE INDEX idx_music_is_hidden ON music_tracks (is_hidden);
+   475→CREATE INDEX idx_music_source_channel ON music_tracks (source_channel_id);
+   476→
+   477→-- Channels
+   478→CREATE INDEX idx_yt_channels_channel_id ON yt_channels (channel_id);
+   479→CREATE INDEX idx_yt_channels_is_active ON yt_channels (is_active);
+   480→CREATE INDEX idx_yt_channels_channel_type ON yt_channels (channel_type);
+   481→
+   482→-- User interactions
+   483→CREATE INDEX idx_user_likes_user ON user_likes (user_id);
+   484→CREATE INDEX idx_user_likes_movie ON user_likes (movie_id);
+   485→CREATE INDEX idx_user_watchlist_user ON user_watchlist (user_id);
+   486→CREATE INDEX idx_user_watchlist_movie ON user_watchlist (movie_id);
+   487→CREATE INDEX idx_user_history_user ON user_history (user_id);
+   488→CREATE INDEX idx_user_history_watched ON user_history (watched_at DESC);
+   489→CREATE INDEX idx_music_likes_user ON music_likes (user_id);
+   490→CREATE INDEX idx_music_saved_user ON music_saved (user_id);
+   491→
+   492→-- Games
+   493→CREATE INDEX idx_games_category ON games (category);
+   494→CREATE INDEX idx_games_game_type ON games (game_type);
+   495→CREATE INDEX idx_games_is_hidden ON games (is_hidden);
+   496→
+   497→-- Sync & scan
+   498→CREATE INDEX idx_sync_logs_channel ON sync_logs (channel_id);
+   499→CREATE INDEX idx_ai_scan_jobs_status ON ai_scan_jobs (status);
+   500→
+   501→-- App
+   502→CREATE INDEX idx_app_features_key ON app_features (feature_key);
+   503→CREATE INDEX idx_app_settings_key ON app_settings (key);
+   504→
+   505→-- Admin
+   506→CREATE INDEX idx_admin_users_user_id ON admin_users (user_id);
+   507→CREATE INDEX idx_admin_activity_created ON admin_activity_log (created_at DESC);
+   508→
+   509→-- Videos
+   510→CREATE INDEX idx_videos_yt_video_id ON videos (yt_video_id);
+   511→CREATE INDEX idx_videos_category ON videos (category);
+   512→CREATE INDEX idx_videos_region ON videos (region);
+   513→
+   514→-- Missing requests
+   515→CREATE INDEX idx_missing_requests_status ON missing_requests (status);
+   516→CREATE INDEX idx_missing_requests_query ON missing_requests (search_query);
+   517→
+   518→-- Push subscriptions
+   519→CREATE INDEX idx_push_subs_user ON push_subscriptions (user_id);
+   520→CREATE INDEX idx_push_subs_active ON push_subscriptions (is_active);
+   521→
+   522→
+   523→-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   524→-- STEP 5: ROW LEVEL SECURITY (RLS)
+   525→-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   526→
+   527→-- ── Enable RLS on all tables ────────────────────────────────────
+   528→ALTER TABLE movies ENABLE ROW LEVEL SECURITY;
+   529→ALTER TABLE music_tracks ENABLE ROW LEVEL SECURITY;
+   530→ALTER TABLE yt_channels ENABLE ROW LEVEL SECURITY;
+   531→ALTER TABLE channel_display ENABLE ROW LEVEL SECURITY;
+   532→ALTER TABLE ai_scan_jobs ENABLE ROW LEVEL SECURITY;
+   533→ALTER TABLE sync_logs ENABLE ROW LEVEL SECURITY;
+   534→ALTER TABLE user_profiles ENABLE ROW LEVEL SECURITY;
+   535→ALTER TABLE user_likes ENABLE ROW LEVEL SECURITY;
+   536→ALTER TABLE user_watchlist ENABLE ROW LEVEL SECURITY;
+   537→ALTER TABLE user_history ENABLE ROW LEVEL SECURITY;
+   538→ALTER TABLE music_likes ENABLE ROW LEVEL SECURITY;
+   539→ALTER TABLE music_saved ENABLE ROW LEVEL SECURITY;
+   540→ALTER TABLE admin_users ENABLE ROW LEVEL SECURITY;
+   541→ALTER TABLE admin_activity_log ENABLE ROW LEVEL SECURITY;
+   542→ALTER TABLE app_features ENABLE ROW LEVEL SECURITY;
+   543→ALTER TABLE app_settings ENABLE ROW LEVEL SECURITY;
+   544→ALTER TABLE games ENABLE ROW LEVEL SECURITY;
+   545→ALTER TABLE game_data ENABLE ROW LEVEL SECURITY;
+   546→ALTER TABLE game_scores ENABLE ROW LEVEL SECURITY;
+   547→ALTER TABLE game_downloads ENABLE ROW LEVEL SECURITY;
+   548→ALTER TABLE notifications_log ENABLE ROW LEVEL SECURITY;
+   549→ALTER TABLE notification_log ENABLE ROW LEVEL SECURITY;
+   550→ALTER TABLE videos ENABLE ROW LEVEL SECURITY;
+   551→ALTER TABLE missing_requests ENABLE ROW LEVEL SECURITY;
+   552→ALTER TABLE push_subscriptions ENABLE ROW LEVEL SECURITY;
+   553→
+   554→-- ── movies ──────────────────────────────────────────────────────
+   555→CREATE POLICY "movies_public_read" ON movies
+   556→  FOR SELECT TO anon, authenticated USING (true);
+   557→
+   558→CREATE POLICY "movies_auth_insert" ON movies
+   559→  FOR INSERT TO authenticated WITH CHECK (true);
+   560→
+   561→CREATE POLICY "movies_auth_update" ON movies
+   562→  FOR UPDATE TO authenticated USING (true) WITH CHECK (true);
+   563→
+   564→CREATE POLICY "movies_service_role_all" ON movies
+   565→  FOR ALL TO service_role USING (true) WITH CHECK (true);
+   566→
+   567→-- ── music_tracks ────────────────────────────────────────────────
+   568→CREATE POLICY "music_public_read" ON music_tracks
+   569→  FOR SELECT TO anon, authenticated USING (true);
+   570→
+   571→CREATE POLICY "music_auth_manage" ON music_tracks
+   572→  FOR ALL TO authenticated USING (true) WITH CHECK (true);
+   573→
+   574→CREATE POLICY "music_service_role_all" ON music_tracks
+   575→  FOR ALL TO service_role USING (true) WITH CHECK (true);
+   576→
+   577→-- ── yt_channels ─────────────────────────────────────────────────
+   578→CREATE POLICY "channels_public_read" ON yt_channels
+   579→  FOR SELECT TO anon, authenticated USING (true);
+   580→
+   581→CREATE POLICY "channels_auth_admin" ON yt_channels
+   582→  FOR ALL TO authenticated USING (true) WITH CHECK (true);
+   583→
+   584→CREATE POLICY "channels_service_role_all" ON yt_channels
+   585→  FOR ALL TO service_role USING (true) WITH CHECK (true);
+   586→
+   587→-- ── channel_display ─────────────────────────────────────────────
+   588→CREATE POLICY "channel_display_public_read" ON channel_display
+   589→  FOR SELECT TO anon, authenticated USING (true);
+   590→
+   591→CREATE POLICY "channel_display_auth_admin" ON channel_display
+   592→  FOR ALL TO authenticated USING (true) WITH CHECK (true);
+   593→
+   594→CREATE POLICY "channel_display_service_role_all" ON channel_display
+   595→  FOR ALL TO service_role USING (true) WITH CHECK (true);
+   596→
+   597→-- ── ai_scan_jobs ────────────────────────────────────────────────
+   598→CREATE POLICY "scan_jobs_public_read" ON ai_scan_jobs
+   599→  FOR SELECT TO anon, authenticated USING (true);
+   600→
+   601→CREATE POLICY "scan_jobs_auth_admin" ON ai_scan_jobs
+   602→  FOR ALL TO authenticated USING (true) WITH CHECK (true);
+   603→
+   604→CREATE POLICY "scan_jobs_service_role_all" ON ai_scan_jobs
+   605→  FOR ALL TO service_role USING (true) WITH CHECK (true);
+   606→
+   607→-- ── sync_logs ───────────────────────────────────────────────────
+   608→CREATE POLICY "sync_logs_public_read" ON sync_logs
+   609→  FOR SELECT TO anon, authenticated USING (true);
+   610→
+   611→CREATE POLICY "sync_logs_service_role_all" ON sync_logs
+   612→  FOR ALL TO service_role USING (true) WITH CHECK (true);
+   613→
+   614→-- ── user_profiles ───────────────────────────────────────────────
+   615→CREATE POLICY "profiles_read_own" ON user_profiles
+   616→  FOR SELECT USING (auth.uid() = auth_user_id);
+   617→
+   618→CREATE POLICY "profiles_insert_own" ON user_profiles
+   619→  FOR INSERT WITH CHECK (auth.uid() = auth_user_id);
+   620→
+   621→CREATE POLICY "profiles_update_own" ON user_profiles
+   622→  FOR UPDATE USING (auth.uid() = auth_user_id)
+   623→  WITH CHECK (auth.uid() = auth_user_id);
+   624→
+   625→CREATE POLICY "profiles_service_role_all" ON user_profiles
+   626→  FOR ALL TO service_role USING (true) WITH CHECK (true);
+   627→
+   628→-- ── user_likes ──────────────────────────────────────────────────
+   629→CREATE POLICY "user_likes_own" ON user_likes
+   630→  FOR ALL USING (auth.uid() = user_id)
+   631→  WITH CHECK (auth.uid() = user_id);
+   632→
+   633→CREATE POLICY "user_likes_service_role_all" ON user_likes
+   634→  FOR ALL TO service_role USING (true) WITH CHECK (true);
+   635→
+   636→-- ── user_watchlist ──────────────────────────────────────────────
+   637→CREATE POLICY "user_watchlist_own" ON user_watchlist
+   638→  FOR ALL USING (auth.uid() = user_id)
+   639→  WITH CHECK (auth.uid() = user_id);
+   640→
+   641→CREATE POLICY "user_watchlist_service_role_all" ON user_watchlist
+   642→  FOR ALL TO service_role USING (true) WITH CHECK (true);
+   643→
+   644→-- ── user_history ────────────────────────────────────────────────
+   645→CREATE POLICY "user_history_own" ON user_history
+   646→  FOR ALL USING (auth.uid() = user_id)
+   647→  WITH CHECK (auth.uid() = user_id);
+   648→
+   649→CREATE POLICY "user_history_service_role_all" ON user_history
+   650→  FOR ALL TO service_role USING (true) WITH CHECK (true);
+   651→
+   652→-- ── music_likes ─────────────────────────────────────────────────
+   653→CREATE POLICY "music_likes_own" ON music_likes
+   654→  FOR ALL USING (auth.uid() = user_id)
+   655→  WITH CHECK (auth.uid() = user_id);
+   656→
+   657→CREATE POLICY "music_likes_service_role_all" ON music_likes
+   658→  FOR ALL TO service_role USING (true) WITH CHECK (true);
+   659→
+   660→-- ── music_saved ─────────────────────────────────────────────────
+   661→CREATE POLICY "music_saved_own" ON music_saved
+   662→  FOR ALL USING (auth.uid() = user_id)
+   663→  WITH CHECK (auth.uid() = user_id);
+   664→
+   665→CREATE POLICY "music_saved_service_role_all" ON music_saved
+   666→  FOR ALL TO service_role USING (true) WITH CHECK (true);
+   667→
+   668→-- ── admin_users ─────────────────────────────────────────────────
+   669→CREATE POLICY "admin_users_service_role_read" ON admin_users
+   670→  FOR SELECT TO service_role USING (true);
+   671→
+   672→CREATE POLICY "admin_users_own_check" ON admin_users
+   673→  FOR SELECT USING (auth.uid() = user_id);
+   674→
+   675→-- ── admin_activity_log ──────────────────────────────────────────
+   676→CREATE POLICY "admin_activity_service_role_all" ON admin_activity_log
+   677→  FOR ALL TO service_role USING (true) WITH CHECK (true);
+   678→
+   679→CREATE POLICY "admin_activity_auth_read" ON admin_activity_log
+   680→  FOR SELECT TO authenticated USING (true);
+   681→
+   682→CREATE POLICY "admin_activity_auth_insert" ON admin_activity_log
+   683→  FOR INSERT TO authenticated WITH CHECK (true);
+   684→
+   685→-- ── app_features ────────────────────────────────────────────────
+   686→CREATE POLICY "features_public_read" ON app_features
+   687→  FOR SELECT TO anon, authenticated USING (true);
+   688→
+   689→CREATE POLICY "features_auth_manage" ON app_features
+   690→  FOR ALL TO authenticated USING (true) WITH CHECK (true);
+   691→
+   692→CREATE POLICY "features_service_role_all" ON app_features
+   693→  FOR ALL TO service_role USING (true) WITH CHECK (true);
+   694→
+   695→-- ── app_settings ────────────────────────────────────────────────
+   696→CREATE POLICY "settings_public_read" ON app_settings
+   697→  FOR SELECT TO anon, authenticated USING (true);
+   698→
+   699→CREATE POLICY "settings_auth_manage" ON app_settings
+   700→  FOR ALL TO authenticated USING (true) WITH CHECK (true);
+   701→
+   702→CREATE POLICY "settings_service_role_all" ON app_settings
+   703→  FOR ALL TO service_role USING (true) WITH CHECK (true);
+   704→
+   705→-- ── games ───────────────────────────────────────────────────────
+   706→CREATE POLICY "games_public_read" ON games
+   707→  FOR SELECT TO anon, authenticated USING (true);
+   708→
+   709→CREATE POLICY "games_auth_admin" ON games
+   710→  FOR ALL TO authenticated USING (true) WITH CHECK (true);
+   711→
+   712→CREATE POLICY "games_service_role_all" ON games
+   713→  FOR ALL TO service_role USING (true) WITH CHECK (true);
+   714→
+   715→-- ── game_data ───────────────────────────────────────────────────
+   716→CREATE POLICY "game_data_own" ON game_data
+   717→  FOR ALL USING (
+   718→    user_id IN (SELECT id FROM user_profiles WHERE auth_user_id = auth.uid())
+   719→  ) WITH CHECK (
+   720→    user_id IN (SELECT id FROM user_profiles WHERE auth_user_id = auth.uid())
+   721→  );
+   722→
+   723→CREATE POLICY "game_data_service_role_all" ON game_data
+   724→  FOR ALL TO service_role USING (true) WITH CHECK (true);
+   725→
+   726→-- ── game_scores ─────────────────────────────────────────────────
+   727→CREATE POLICY "game_scores_own" ON game_scores
+   728→  FOR ALL USING (auth.uid() = user_id)
+   729→  WITH CHECK (auth.uid() = user_id);
+   730→
+   731→CREATE POLICY "game_scores_service_role_all" ON game_scores
+   732→  FOR ALL TO service_role USING (true) WITH CHECK (true);
+   733→
+   734→-- ── game_downloads ──────────────────────────────────────────────
+   735→CREATE POLICY "game_downloads_user_own" ON game_downloads
+   736→  FOR ALL USING (auth.uid() = user_id)
+   737→  WITH CHECK (auth.uid() = user_id);
+   738→
+   739→CREATE POLICY "game_downloads_service_role_all" ON game_downloads
+   740→  FOR ALL TO service_role USING (true) WITH CHECK (true);
+   741→
+   742→-- ── notifications_log (admin) ───────────────────────────────────
+   743→CREATE POLICY "notifications_log_auth_manage" ON notifications_log
+   744→  FOR ALL TO authenticated USING (true) WITH CHECK (true);
+   745→
+   746→CREATE POLICY "notifications_log_service_role_all" ON notifications_log
+   747→  FOR ALL TO service_role USING (true) WITH CHECK (true);
+   748→
+   749→-- ── notification_log (gamification) ─────────────────────────────
+   750→CREATE POLICY "notification_log_read_all" ON notification_log
+   751→  FOR SELECT TO anon, authenticated USING (true);
+   752→
+   753→CREATE POLICY "notification_log_service_write" ON notification_log
+   754→  FOR ALL TO service_role USING (true) WITH CHECK (true);
+   755→
+   756→-- ── videos (Edge Function) ─────────────────────────────────────
+   757→CREATE POLICY "videos_public_read" ON videos
+   758→  FOR SELECT TO anon, authenticated USING (true);
+   759→
+   760→CREATE POLICY "videos_auth_insert" ON videos
+   761→  FOR INSERT TO authenticated WITH CHECK (true);
+   762→
+   763→CREATE POLICY "videos_auth_update" ON videos
+   764→  FOR UPDATE TO authenticated USING (true) WITH CHECK (true);
+   765→
+   766→CREATE POLICY "videos_service_role_all" ON videos
+   767→  FOR ALL TO service_role USING (true) WITH CHECK (true);
+   768→
+   769→-- ── missing_requests ────────────────────────────────────────────
+   770→CREATE POLICY "missing_requests_public_read" ON missing_requests
+   771→  FOR SELECT TO anon, authenticated USING (true);
+   772→
+   773→CREATE POLICY "missing_requests_auth_manage" ON missing_requests
+   774→  FOR ALL TO authenticated USING (true) WITH CHECK (true);
+   775→
+   776→CREATE POLICY "missing_requests_service_role_all" ON missing_requests
+   777→  FOR ALL TO service_role USING (true) WITH CHECK (true);
+   778→
+   779→-- ── push_subscriptions ──────────────────────────────────────────
+   780→CREATE POLICY "push_subs_own" ON push_subscriptions
+   781→  FOR ALL USING (
+   782→    user_id IN (SELECT id FROM user_profiles WHERE auth_user_id = auth.uid())
+   783→  ) WITH CHECK (
+   784→    user_id IN (SELECT id FROM user_profiles WHERE auth_user_id = auth.uid())
+   785→  );
+   786→
+   787→CREATE POLICY "push_subs_service_role_read" ON push_subscriptions
+   788→  FOR SELECT TO service_role USING (true);
+   789→
+   790→
+   791→-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   792→-- STEP 6: VIEWS
+   793→-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   794→
+   795→CREATE VIEW channel_display_with_info AS
+   796→SELECT
+   797→  cd.id,
+   798→  cd.channel_id,
+   799→  cd.display_name,
+   800→  cd.logo_url,
+   801→  cd.badge_color,
+   802→  cd.border_color,
+   803→  cd.is_visible,
+   804→  cd.sort_order,
+   805→  yc.channel_name,
+   806→  yc.channel_avatar,
+   807→  yc.channel_type,
+   808→  yc.total_imported,
+   809→  yc.is_active AS channel_active,
+   810→  yc.last_synced_at,
+   811→  cd.created_at,
+   812→  cd.updated_at
+   813→FROM channel_display cd
+   814→JOIN yt_channels yc ON yc.channel_id = cd.channel_id
+   815→WHERE cd.is_visible = true
+   816→ORDER BY cd.sort_order;
+   817→
+   818→
+   819→-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   820→-- STEP 7: RPC FUNCTIONS
+   821→-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   822→
+   823→-- ── upsert_missing_request ──────────────────────────────────────
+   824→CREATE OR REPLACE FUNCTION upsert_missing_request(
+   825→  p_search_query TEXT,
+   826→  p_category TEXT DEFAULT 'movie'
+   827→)
+   828→RETURNS void
+   829→LANGUAGE plpgsql
+   830→SECURITY DEFINER
+   831→AS $$
+   832→BEGIN
+   833→  INSERT INTO missing_requests (search_query, category, request_count, updated_at)
+   834→  VALUES (p_search_query, p_category, 1, now())
+   835→  ON CONFLICT (search_query, category)
+   836→  DO UPDATE SET
+   837→    request_count = missing_requests.request_count + 1,
+   838→    status = 'pending',
+   839→    updated_at = now();
+   840→END;
+   841→$$;
+   842→
+   843→-- ── fetch_user_game_data ────────────────────────────────────────
+   844→CREATE OR REPLACE FUNCTION fetch_user_game_data(p_auth_uid UUID)
+   845→RETURNS TABLE (
+   846→  game_slug TEXT,
+   847→  high_score INTEGER,
+   848→  coins INTEGER,
+   849→  plays INTEGER,
+   850→  last_played TIMESTAMPTZ
+   851→)
+   852→LANGUAGE plpgsql
+   853→SECURITY DEFINER
+   854→AS $$
+   855→BEGIN
+   856→  RETURN QUERY
+   857→  SELECT gd.game_slug, gd.high_score, gd.coins, gd.plays, gd.last_played
+   858→  FROM game_data gd
+   859→  JOIN user_profiles up ON up.id = gd.user_id
+   860→  WHERE up.auth_user_id = p_auth_uid
+   861→  ORDER BY gd.last_played DESC;
+   862→END;
+   863→$$;
+   864→
+   865→-- ── fetch_game_score ────────────────────────────────────────────
+   866→CREATE OR REPLACE FUNCTION fetch_game_score(
+   867→  p_auth_uid UUID,
+   868→  p_game_slug TEXT
+   869→)
+   870→RETURNS TABLE (
+   871→  high_score INTEGER,
+   872→  coins INTEGER,
+   873→  plays INTEGER,
+   874→  last_played TIMESTAMPTZ
+   875→)
+   876→LANGUAGE plpgsql
+   877→SECURITY DEFINER
+   878→AS $$
+   879→BEGIN
+   880→  RETURN QUERY
+   881→  SELECT gd.high_score, gd.coins, gd.plays, gd.last_played
+   882→  FROM game_data gd
+   883→  JOIN user_profiles up ON up.id = gd.user_id
+   884→  WHERE up.auth_user_id = p_auth_uid
+   885→    AND gd.game_slug = p_game_slug;
+   886→END;
+   887→$$;
+   888→
+   889→-- ── upsert_game_score ───────────────────────────────────────────
+   890→CREATE OR REPLACE FUNCTION upsert_game_score(
+   891→  p_auth_uid UUID,
+   892→  p_game_slug TEXT,
+   893→  p_high_score INTEGER DEFAULT 0,
+   894→  p_coins INTEGER DEFAULT 0,
+   895→  p_plays INTEGER DEFAULT 0
+   896→)
+   897→RETURNS void
+   898→LANGUAGE plpgsql
+   899→SECURITY DEFINER
+   900→AS $$
+   901→DECLARE
+   902→  v_profile_id UUID;
+   903→BEGIN
+   904→  SELECT id INTO v_profile_id FROM user_profiles WHERE auth_user_id = p_auth_uid;
+   905→  IF v_profile_id IS NULL THEN RETURN; END IF;
+   906→
+   907→  INSERT INTO game_data (user_id, game_slug, high_score, coins, plays, last_played)
+   908→  VALUES (v_profile_id, p_game_slug, p_high_score, p_coins, p_plays, now())
+   909→  ON CONFLICT (user_id, game_slug)
+   910→  DO UPDATE SET
+   911→    high_score = GREATEST(game_data.high_score, EXCLUDED.high_score),
+   912→    coins      = game_data.coins + EXCLUDED.coins,
+   913→    plays      = game_data.plays + EXCLUDED.plays,
+   914→    last_played = now();
+   915→END;
+   916→$$;
+   917→
+   918→-- ── fetch_user_coins ────────────────────────────────────────────
+   919→CREATE OR REPLACE FUNCTION fetch_user_coins(p_auth_uid UUID)
+   920→RETURNS INTEGER
+   921→LANGUAGE plpgsql
+   922→SECURITY DEFINER
+   923→AS $$
+   924→DECLARE
+   925→  total_coins INTEGER;
+   926→BEGIN
+   927→  SELECT COALESCE(SUM(gd.coins), 0) INTO total_coins
+   928→  FROM game_data gd
+   929→  JOIN user_profiles up ON up.id = gd.user_id
+   930→  WHERE up.auth_user_id = p_auth_uid;
+   931→
+   932→  RETURN total_coins;
+   933→END;
+   934→$$;
+   935→
+   936→-- ── fetch_leaderboard ───────────────────────────────────────────
+   937→CREATE OR REPLACE FUNCTION fetch_leaderboard(
+   938→  p_game_slug TEXT DEFAULT NULL,
+   939→  p_limit INTEGER DEFAULT 20
+   940→)
+   941→RETURNS TABLE (
+   942→  display_name TEXT,
+   943→  avatar_url TEXT,
+   944→  high_score INTEGER,
+   945→  coins INTEGER,
+   946→  plays INTEGER,
+   947→  last_played TIMESTAMPTZ
+   948→)
+   949→LANGUAGE plpgsql
+   950→SECURITY DEFINER
+   951→AS $$
+   952→BEGIN
+   953→  RETURN QUERY
+   954→  SELECT up.display_name, up.avatar_url, gd.high_score, gd.coins, gd.plays, gd.last_played
+   955→  FROM game_data gd
+   956→  JOIN user_profiles up ON up.id = gd.user_id
+   957→  WHERE (p_game_slug IS NULL OR gd.game_slug = p_game_slug)
+   958→  ORDER BY gd.high_score DESC
+   959→  LIMIT p_limit;
+   960→END;
+   961→$$;
+   962→
+   963→-- ── deduct_user_coins ──────────────────────────────────────────
+   964→CREATE OR REPLACE FUNCTION deduct_user_coins(
+   965→  p_auth_uid UUID,
+   966→  p_amount INTEGER
+   967→)
+   968→RETURNS BOOLEAN
+   969→LANGUAGE plpgsql
+   970→SECURITY DEFINER
+   971→AS $$
+   972→DECLARE
+   973→  v_profile_id UUID;
+   974→  v_current_coins INTEGER;
+   975→BEGIN
+   976→  SELECT id INTO v_profile_id FROM user_profiles WHERE auth_user_id = p_auth_uid;
+   977→  IF v_profile_id IS NULL THEN RETURN false; END IF;
+   978→
+   979→  SELECT coins INTO v_current_coins FROM user_profiles WHERE id = v_profile_id;
+   980→  IF v_current_coins < p_amount THEN RETURN false; END IF;
+   981→
+   982→  UPDATE user_profiles SET coins = coins - p_amount WHERE id = v_profile_id;
+   983→  RETURN true;
+   984→END;
+   985→$$;
+   986→
+   987→-- ── register_push_token ─────────────────────────────────────────
+   988→CREATE OR REPLACE FUNCTION register_push_token(
+   989→  p_auth_uid UUID,
+   990→  p_device_token TEXT,
+   991→  p_platform TEXT DEFAULT 'web',
+   992→  p_device_info TEXT DEFAULT ''
+   993→)
+   994→RETURNS void
+   995→LANGUAGE plpgsql
+   996→SECURITY DEFINER
+   997→AS $$
+   998→DECLARE
+   999→  v_profile_id UUID;
+  1000→BEGIN
+  1001→  SELECT id INTO v_profile_id FROM user_profiles WHERE auth_user_id = p_auth_uid;
+  1002→  IF v_profile_id IS NULL THEN RETURN; END IF;
+  1003→
+  1004→  INSERT INTO push_subscriptions (user_id, device_token, platform, device_info, is_active, last_used)
+  1005→  VALUES (v_profile_id, p_device_token, p_platform, p_device_info, true, now())
+  1006→  ON CONFLICT (device_token)
+  1007→  DO UPDATE SET
+  1008→    is_active = true,
+  1009→    last_used = now(),
+  1010→    platform = EXCLUDED.platform,
+  1011→    device_info = EXCLUDED.device_info;
+  1012→END;
+  1013→$$;
+  1014→
+  1015→-- ── unregister_push_token ───────────────────────────────────────
+  1016→CREATE OR REPLACE FUNCTION unregister_push_token(
+  1017→  p_device_token TEXT
+  1018→)
+  1019→RETURNS void
+  1020→LANGUAGE plpgsql
+  1021→SECURITY DEFINER
+  1022→AS $$
+  1023→BEGIN
+  1024→  UPDATE push_subscriptions
+  1025→  SET is_active = false
+  1026→  WHERE device_token = p_device_token;
+  1027→END;
+  1028→$$;
+  1029→
+  1030→
+  1031→-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  1032→-- STEP 8: EDGE FUNCTION TRIGGER (videos table)
+  1033→-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  1034→
+  1035→CREATE OR REPLACE FUNCTION on_new_video()
+  1036→RETURNS TRIGGER
+  1037→LANGUAGE plpgsql
+  1038→SECURITY DEFINER
+  1039→AS $$
+  1040→BEGIN
+  1041→  -- Placeholder: can be extended to send push notifications
+  1042→  -- or update materialized views when new video is inserted
+  1043→  RETURN NEW;
+  1044→END;
+  1045→$$;
+  1046→
+  1047→CREATE TRIGGER trigger_notify_new_video
+  1048→  AFTER INSERT ON videos
+  1049→  FOR EACH ROW EXECUTE FUNCTION on_new_video();
+  1050→
+  1051→
+  1052→-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  1053→-- STEP 9: SEED DATA (app_features + app_settings defaults)
+  1054→-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  1055→
+  1056→-- ── Default app features ────────────────────────────────────────
+  1057→INSERT INTO app_features (feature_key, name, label, icon, status, description, sort_order) VALUES
+  1058→  ('movie_hub',     'Movie Hub',     'Movie Hub',     '🎬', 'live',         'Browse and watch movies',       1),
+  1059→  ('game_hub',      'Game Hub',      'Game Hub',      '🎮', 'live',         'Play mini and offline games',    2),
+  1060→  ('ytmusic',       'YT Music',      'YT Music',      '🎵', 'live',         'Listen to music tracks',         3),
+  1061→  ('downloader',    'Downloader',    'Downloader',    '📥', 'coming_soon',  'Download videos & music',        4),
+  1062→  ('offline',       'Offline Mode',  'Offline Mode',  '📶', 'coming_soon',  'Watch content offline',          5),
+  1063→  ('shorts',        'Shorts',        'Shorts',        '⚡', 'coming_soon',  'Short-form video content',       6),
+  1064→  ('local_player',  'Local Player',  'Local Player',  '📂', 'live',         'Play local video files',         7)
+  1065→ON CONFLICT (feature_key) DO UPDATE SET
+  1066→  label       = EXCLUDED.label,
+  1067→  icon        = EXCLUDED.icon,
+  1068→  description = EXCLUDED.description,
+  1069→  sort_order  = EXCLUDED.sort_order;
+  1070→
+  1071→-- ── Default app settings ────────────────────────────────────────
+  1072→INSERT INTO app_settings (key, value) VALUES
+  1073→  ('app_name',             'Play Nexa'),
+  1074→  ('hero_title',           'Your Entertainment Hub'),
+  1075→  ('hero_subtitle',        'Movies, Music, Games & More'),
+  1076→  ('primary_color',        '#7C3AED'),
+  1077→  ('accent_color',         '#06B6D4'),
+  1078→  ('maintenance_enabled',  'false'),
+  1079→  ('maintenance_message',  '')
+  1080→ON CONFLICT (key) DO UPDATE SET
+  1081→  value = EXCLUDED.value;
+  1082→
+  1083→
+  1084→-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  1085→-- DONE! 🎉
+  1086→-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  1087→-- Total: 25 tables, 1 view, 9 RPC functions, 7 triggers,
+  1088→--         40+ RLS policies, 30+ indexes, seed data
+  1089→--
+  1090→-- After running this:
+  1091→-- 1. Go to Supabase > Authentication > Users
+  1092→-- 2. Create your admin user (sign up)
+  1093→-- 3. Then insert into admin_users:
+  1094→--    INSERT INTO admin_users (user_id, email, role)
+  1095→--    VALUES ('YOUR_USER_UUID', 'admin@playnexa.com', 'superadmin');
+  1096→-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  1097→
