@@ -1,0 +1,701 @@
+     1→// ── Play Nexa Admin — Movie Manager ────────────────────────────
+     2→// Full CRUD for movies table with Supabase
+     3→// AMOLED dark theme (#000000 base), no backdrop-blur, no styled-jsx
+     4→
+     5→'use client'
+     6→
+     7→import { useState, useEffect, useCallback } from 'react'
+     8→import { supabase } from '@/lib/supabaseAdmin'
+     9→import { useToast } from '@/components/admin/Toast'
+    10→import { logActivity } from '@/lib/adminAuth'
+    11→import ConfirmModal from '@/components/admin/ConfirmModal'
+    12→import type { Movie } from '@/lib/supabase'
+    13→
+    14→// ── Constants ──
+    15→
+    16→const PAGE_SIZE = 20
+    17→
+    18→const CHANNELS = ['All', 'G-Series', 'Eagle Movies', 'Chorki', 'BongoBD', 'SVF'] as const
+    19→
+    20→const CHANNEL_COLORS: Record<string, string> = {
+    21→  'G-Series': '#FF4444',
+    22→  'Eagle Movies': '#FF8C42',
+    23→  'Chorki': '#A78BFA',
+    24→  'BongoBD': '#22D3EE',
+    25→  'SVF': '#FCD34D',
+    26→}
+    27→
+    28→interface FormState {
+    29→  youtube_id: string
+    30→  title: string
+    31→  channel_name: string
+    32→  thumbnail: string
+    33→  description: string
+    34→  duration: string
+    35→  view_count: string
+    36→  published_at: string
+    37→}
+    38→
+    39→const EMPTY_FORM: FormState = {
+    40→  youtube_id: '',
+    41→  title: '',
+    42→  channel_name: '',
+    43→  thumbnail: '',
+    44→  description: '',
+    45→  duration: '',
+    46→  view_count: '',
+    47→  published_at: '',
+    48→}
+    49→
+    50→// ── Helpers ──
+    51→
+    52→function formatViews(n: number): string {
+    53→  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M'
+    54→  if (n >= 1_000) return (n / 1_000).toFixed(1) + 'K'
+    55→  return n.toString()
+    56→}
+    57→
+    58→function formatDate(iso: string): string {
+    59→  if (!iso) return '—'
+    60→  try {
+    61→    return new Date(iso).toLocaleDateString('en-US', {
+    62→      month: 'short',
+    63→      day: 'numeric',
+    64→      year: 'numeric',
+    65→    })
+    66→  } catch {
+    67→    return '—'
+    68→  }
+    69→}
+    70→
+    71→// ── Component ──
+    72→
+    73→export default function MovieManagerPage() {
+    74→  const { showToast } = useToast()
+    75→
+    76→  // Data state
+    77→  const [movies, setMovies] = useState<Movie[]>([])
+    78→  const [isLoading, setIsLoading] = useState(true)
+    79→  const [searchQuery, setSearchQuery] = useState('')
+    80→  const [channelFilter, setChannelFilter] = useState<string>('All')
+    81→  const [page, setPage] = useState(0)
+    82→  const [totalCount, setTotalCount] = useState(0)
+    83→
+    84→  // Modal state
+    85→  const [showAddModal, setShowAddModal] = useState(false)
+    86→  const [editMovie, setEditMovie] = useState<Movie | null>(null)
+    87→  const [deleteTarget, setDeleteTarget] = useState<Movie | null>(null)
+    88→  const [form, setForm] = useState<FormState>(EMPTY_FORM)
+    89→  const [isSaving, setIsSaving] = useState(false)
+    90→  const [previewLoading, setPreviewLoading] = useState(false)
+    91→
+    92→  // ── Fetch movies ──
+    93→
+    94→  const fetchMovies = useCallback(async () => {
+    95→    setIsLoading(true)
+    96→    try {
+    97→      const from = page * PAGE_SIZE
+    98→      const to = from + PAGE_SIZE - 1
+    99→
+   100→      if (!supabase) return
+   101→
+   102→      let query = supabase
+   103→        .from('movies')
+   104→        .select('*', { count: 'exact' })
+   105→        .order('created_at', { ascending: false })
+   106→        .range(from, to)
+   107→
+   108→      if (channelFilter !== 'All') {
+   109→        query = query.eq('channel_name', channelFilter)
+   110→      }
+   111→      if (searchQuery.trim()) {
+   112→        query = query.ilike('title', `%${searchQuery}%`)
+   113→      }
+   114→
+   115→      const { data, count } = await query
+   116→      setMovies(data || [])
+   117→      setTotalCount(count || 0)
+   118→    } catch {
+   119→      showToast('Failed to load movies', 'error')
+   120→      setMovies([])
+   121→      setTotalCount(0)
+   122→    } finally {
+   123→      setIsLoading(false)
+   124→    }
+   125→  }, [page, channelFilter, searchQuery, showToast])
+   126→
+   127→  useEffect(() => {
+   128→    if (!supabase) {
+   129→      showToast('Supabase admin client not configured', 'error')
+   130→      setIsLoading(false)
+   131→      return
+   132→    }
+   133→    fetchMovies()
+   134→  }, [fetchMovies, showToast])
+   135→
+   136→  // ── Reset page when filters change ──
+   137→
+   138→  useEffect(() => {
+   139→    setPage(0)
+   140→  }, [channelFilter, searchQuery])
+   141→
+   142→  // ── YouTube preview ──
+   143→
+   144→  const previewYouTube = async () => {
+   145→    if (!form.youtube_id.trim()) {
+   146→      showToast('Enter a YouTube ID first', 'error')
+   147→      return
+   148→    }
+   149→    setPreviewLoading(true)
+   150→    try {
+   151→      const res = await fetch(
+   152→        `https://noembed.com/embed?url=https://youtube.com/watch?v=${form.youtube_id}`
+   153→      )
+   154→      const data = await res.json()
+   155→      if (data.title) {
+   156→        setForm(f => ({
+   157→          ...f,
+   158→          title: data.title || f.title,
+   159→          thumbnail: data.thumbnail_url || f.thumbnail,
+   160→        }))
+   161→        showToast('Preview loaded', 'success')
+   162→      } else {
+   163→        showToast('Could not fetch video info', 'error')
+   164→      }
+   165→    } catch {
+   166→      showToast('Preview fetch failed', 'error')
+   167→    } finally {
+   168→      setPreviewLoading(false)
+   169→    }
+   170→  }
+   171→
+   172→  // ── Open add modal ──
+   173→
+   174→  const openAddModal = () => {
+   175→    setForm(EMPTY_FORM)
+   176→    setEditMovie(null)
+   177→    setShowAddModal(true)
+   178→  }
+   179→
+   180→  // ── Open edit modal ──
+   181→
+   182→  const openEditModal = (movie: Movie) => {
+   183→    setForm({
+   184→      youtube_id: movie.youtube_id,
+   185→      title: movie.title,
+   186→      channel_name: movie.channel_name,
+   187→      thumbnail: movie.thumbnail,
+   188→      description: movie.description || '',
+   189→      duration: movie.duration || '',
+   190→      view_count: movie.view_count?.toString() || '',
+   191→      published_at: movie.published_at
+   192→        ? new Date(movie.published_at).toISOString().split('T')[0]
+   193→        : '',
+   194→    })
+   195→    setEditMovie(movie)
+   196→    setShowAddModal(true)
+   197→  }
+   198→
+   199→  // ── Close modal ──
+   200→
+   201→  const closeModal = () => {
+   202→    setShowAddModal(false)
+   203→    setEditMovie(null)
+   204→    setForm(EMPTY_FORM)
+   205→  }
+   206→
+   207→  // ── Save movie ──
+   208→
+   209→  const saveMovie = async () => {
+   210→    if (!form.youtube_id.trim() || !form.title.trim() || !form.channel_name.trim()) {
+   211→      showToast('YouTube ID, Title, and Channel are required', 'error')
+   212→      return
+   213→    }
+   214→
+   215→    setIsSaving(true)
+   216→    try {
+   217→      const payload = {
+   218→        youtube_id: form.youtube_id.trim(),
+   219→        title: form.title.trim(),
+   220→        channel_name: form.channel_name.trim(),
+   221→        thumbnail: form.thumbnail.trim() || null,
+   222→        description: form.description.trim() || null,
+   223→        duration: form.duration.trim() || null,
+   224→        view_count: form.view_count ? parseInt(form.view_count, 10) : 0,
+   225→        published_at: form.published_at || null,
+   226→      }
+   227→
+   228→      if (editMovie) {
+   229→        if (!supabase) return
+   230→        const { error } = await supabase
+   231→          .from('movies')
+   232→          .update(payload)
+   233→          .eq('id', editMovie.id)
+   234→
+   235→        if (error) throw error
+   236→
+   237→        showToast('Movie updated successfully', 'success')
+   238→        logActivity('UPDATE_MOVIE', editMovie.title, { id: editMovie.id })
+   239→      } else {
+   240→        if (!supabase) return
+   241→        const { error } = await supabase
+   242→          .from('movies')
+   243→          .insert([payload])
+   244→
+   245→        if (error) throw error
+   246→
+   247→        showToast('Movie added successfully', 'success')
+   248→        logActivity('ADD_MOVIE', form.title.trim())
+   249→      }
+   250→
+   251→      closeModal()
+   252→      fetchMovies()
+   253→    } catch (err) {
+   254→      showToast('Failed to save movie', 'error')
+   255→    } finally {
+   256→      setIsSaving(false)
+   257→    }
+   258→  }
+   259→
+   260→  // ── Delete movie ──
+   261→
+   262→  const deleteMovie = async () => {
+   263→    if (!deleteTarget) return
+   264→
+   265→    try {
+   266→      if (!supabase) return
+   267→      const { error } = await supabase
+   268→        .from('movies')
+   269→        .delete()
+   270→        .eq('id', deleteTarget.id)
+   271→
+   272→      if (error) throw error
+   273→
+   274→      showToast('Movie deleted', 'success')
+   275→      logActivity('DELETE_MOVIE', deleteTarget.title)
+   276→      setDeleteTarget(null)
+   277→      fetchMovies()
+   278→    } catch {
+   279→      showToast('Failed to delete movie', 'error')
+   280→    }
+   281→  }
+   282→
+   283→  // ── Pagination calculations ──
+   284→
+   285→  const totalPages = Math.ceil(totalCount / PAGE_SIZE)
+   286→  const showingFrom = totalCount === 0 ? 0 : page * PAGE_SIZE + 1
+   287→  const showingTo = Math.min((page + 1) * PAGE_SIZE, totalCount)
+   288→
+   289→  // ── Render ──
+   290→
+   291→  return (
+   292→    <div className="space-y-5">
+   293→      {/* ── Header ── */}
+   294→      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+   295→        <div className="flex items-center gap-3">
+   296→          <h1 className="text-xl sm:text-2xl font-bold text-white">
+   297→            🎬 Movie Manager
+   298→          </h1>
+   299→          <span className="px-2.5 py-0.5 bg-[#7C3AED]/20 text-[#A78BFA] text-xs font-semibold rounded-full">
+   300→            {totalCount}
+   301→          </span>
+   302→        </div>
+   303→        <button
+   304→          onClick={openAddModal}
+   305→          className="h-11 px-5 bg-[#7C3AED] hover:bg-[#6D28D9] text-white text-sm font-semibold rounded-xl transition-colors duration-150 min-h-[44px]"
+   306→        >
+   307→          + Add Movie
+   308→        </button>
+   309→      </div>
+   310→
+   311→      {/* ── Filter Row ── */}
+   312→      <div className="flex flex-col sm:flex-row gap-3">
+   313→        {/* Search */}
+   314→        <div className="relative flex-1">
+   315→          <svg
+   316→            className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[#6B7280]"
+   317→            fill="none"
+   318→            stroke="currentColor"
+   319→            viewBox="0 0 24 24"
+   320→          >
+   321→            <path
+   322→              strokeLinecap="round"
+   323→              strokeLinejoin="round"
+   324→              strokeWidth={2}
+   325→              d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+   326→            />
+   327→          </svg>
+   328→          <input
+   329→            type="text"
+   330→            placeholder="Search movies by title..."
+   331→            value={searchQuery}
+   332→            onChange={e => setSearchQuery(e.target.value)}
+   333→            className="w-full h-11 bg-[#1A1A1A] border border-[#2D2D2D] rounded-xl pl-10 pr-4 text-white text-sm outline-none focus:border-[#7C3AED] transition-colors duration-150 placeholder:text-[#6B7280]"
+   334→          />
+   335→        </div>
+   336→
+   337→        {/* Channel Filter Buttons */}
+   338→        <div className="flex gap-2 flex-wrap">
+   339→          {CHANNELS.map(ch => (
+   340→            <button
+   341→              key={ch}
+   342→              onClick={() => setChannelFilter(ch)}
+   343→              className={`h-11 px-4 text-sm font-medium rounded-xl transition-colors duration-150 min-h-[44px] border ${
+   344→                channelFilter === ch
+   345→                  ? ch === 'All'
+   346→                    ? 'bg-[#7C3AED] border-[#7C3AED] text-white'
+   347→                    : 'text-white border-current'
+   348→                    : 'bg-[#1A1A1A] border-[#2D2D2D] text-[#9CA3AF] hover:text-white hover:border-[#4B5563]'
+   349→              }`}
+   350→              style={
+   351→                channelFilter === ch && ch !== 'All'
+   352→                  ? { backgroundColor: CHANNEL_COLORS[ch] + '22', borderColor: CHANNEL_COLORS[ch], color: CHANNEL_COLORS[ch] }
+   353→                  : undefined
+   354→              }
+   355→            >
+   356→              {ch}
+   357→            </button>
+   358→          ))}
+   359→        </div>
+   360→      </div>
+   361→
+   362→      {/* ── Stats Bar ── */}
+   363→      <p className="text-[#9CA3AF] text-sm">
+   364→        Showing {showingFrom}–{showingTo} of {totalCount} movies
+   365→      </p>
+   366→
+   367→      {/* ── Movie Table ── */}
+   368→      <div className="bg-[#0F0F0F] border border-[#242424] rounded-2xl overflow-hidden">
+   369→        <div className="overflow-x-auto">
+   370→          <table className="w-full text-sm">
+   371→            <thead>
+   372→              <tr className="border-b border-[#242424]">
+   373→                <th className="px-4 py-3 text-left text-[#9CA3AF] font-medium w-10">#</th>
+   374→                <th className="px-4 py-3 text-left text-[#9CA3AF] font-medium w-20">Thumb</th>
+   375→                <th className="px-4 py-3 text-left text-[#9CA3AF] font-medium">Title</th>
+   376→                <th className="px-4 py-3 text-left text-[#9CA3AF] font-medium">Channel</th>
+   377→                <th className="px-4 py-3 text-left text-[#9CA3AF] font-medium w-20">Duration</th>
+   378→                <th className="px-4 py-3 text-left text-[#9CA3AF] font-medium w-20">Views</th>
+   379→                <th className="px-4 py-3 text-left text-[#9CA3AF] font-medium w-28">Created</th>
+   380→                <th className="px-4 py-3 text-right text-[#9CA3AF] font-medium w-28">Actions</th>
+   381→              </tr>
+   382→            </thead>
+   383→            <tbody>
+   384→              {isLoading ? (
+   385→                <tr>
+   386→                  <td colSpan={8} className="px-4 py-16 text-center text-[#6B7280]">
+   387→                    <div className="flex items-center justify-center gap-3">
+   388→                      <div className="w-5 h-5 border-2 border-[#7C3AED] border-t-transparent rounded-full animate-spin" />
+   389→                      <span>Loading movies...</span>
+   390→                    </div>
+   391→                  </td>
+   392→                </tr>
+   393→              ) : movies.length === 0 ? (
+   394→                <tr>
+   395→                  <td colSpan={8} className="px-4 py-16 text-center text-[#6B7280]">
+   396→                    No movies found
+   397→                  </td>
+   398→                </tr>
+   399→              ) : (
+   400→                movies.map((movie, idx) => (
+   401→                  <tr
+   402→                    key={movie.id}
+   403→                    className="border-b border-[#1A1A1A] hover:bg-[#1A1A1A]/50 transition-colors duration-150"
+   404→                  >
+   405→                    <td className="px-4 py-3 text-[#6B7280]">
+   406→                      {page * PAGE_SIZE + idx + 1}
+   407→                    </td>
+   408→                    <td className="px-4 py-3">
+   409→                      {movie.thumbnail ? (
+   410→                        <img
+   411→                          src={movie.thumbnail}
+   412→                          alt={movie.title}
+   413→                          className="w-[60px] h-[34px] rounded object-cover bg-[#1A1A1A]"
+   414→                          loading="lazy"
+   415→                        />
+   416→                      ) : (
+   417→                        <div className="w-[60px] h-[34px] rounded bg-[#1A1A1A] flex items-center justify-center text-[#6B7280] text-xs">
+   418→                          —
+   419→                        </div>
+   420→                      )}
+   421→                    </td>
+   422→                    <td className="px-4 py-3">
+   423→                      <span
+   424→                        className="text-white max-w-[200px] lg:max-w-[300px] block truncate"
+   425→                        title={movie.title}
+   426→                      >
+   427→                        {movie.title || '—'}
+   428→                      </span>
+   429→                    </td>
+   430→                    <td className="px-4 py-3">
+   431→                      <span
+   432→                        className="inline-flex px-2.5 py-0.5 rounded-full text-xs font-semibold"
+   433→                        style={{
+   434→                          backgroundColor: (CHANNEL_COLORS[movie.channel_name] || '#6B7280') + '22',
+   435→                          color: CHANNEL_COLORS[movie.channel_name] || '#6B7280',
+   436→                        }}
+   437→                      >
+   438→                        {movie.channel_name || '—'}
+   439→                      </span>
+   440→                    </td>
+   441→                    <td className="px-4 py-3 text-[#9CA3AF]">
+   442→                      {movie.duration || '—'}
+   443→                    </td>
+   444→                    <td className="px-4 py-3 text-[#9CA3AF]">
+   445→                      {movie.view_count ? formatViews(movie.view_count) : '—'}
+   446→                    </td>
+   447→                    <td className="px-4 py-3 text-[#9CA3AF]">
+   448→                      {formatDate(movie.created_at)}
+   449→                    </td>
+   450→                    <td className="px-4 py-3">
+   451→                      <div className="flex items-center justify-end gap-1">
+   452→                        <button
+   453→                          onClick={() => openEditModal(movie)}
+   454→                          className="p-2 rounded-lg text-[#9CA3AF] hover:text-white hover:bg-[#2D2D2D] transition-colors duration-150"
+   455→                          title="Edit"
+   456→                        >
+   457→                          ✏️
+   458→                        </button>
+   459→                        <button
+   460→                          onClick={() => setDeleteTarget(movie)}
+   461→                          className="p-2 rounded-lg text-[#9CA3AF] hover:text-[#EF4444] hover:bg-[#EF4444]/10 transition-colors duration-150"
+   462→                          title="Delete"
+   463→                        >
+   464→                          🗑️
+   465→                        </button>
+   466→                      </div>
+   467→                    </td>
+   468→                  </tr>
+   469→                ))
+   470→              )}
+   471→            </tbody>
+   472→          </table>
+   473→        </div>
+   474→      </div>
+   475→
+   476→      {/* ── Pagination ── */}
+   477→      {totalPages > 1 && (
+   478→        <div className="flex items-center justify-center gap-4">
+   479→          <button
+   480→            onClick={() => setPage(p => Math.max(0, p - 1))}
+   481→            disabled={page === 0}
+   482→            className="h-11 px-5 bg-[#1A1A1A] border border-[#2D2D2D] text-white text-sm font-medium rounded-xl transition-colors duration-150 min-h-[44px] disabled:opacity-30 disabled:cursor-not-allowed hover:bg-[#2D2D2D]"
+   483→          >
+   484→            ← Prev
+   485→          </button>
+   486→          <span className="text-[#9CA3AF] text-sm">
+   487→            Page {page + 1} of {totalPages}
+   488→          </span>
+   489→          <button
+   490→            onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))}
+   491→            disabled={page >= totalPages - 1}
+   492→            className="h-11 px-5 bg-[#1A1A1A] border border-[#2D2D2D] text-white text-sm font-medium rounded-xl transition-colors duration-150 min-h-[44px] disabled:opacity-30 disabled:cursor-not-allowed hover:bg-[#2D2D2D]"
+   493→          >
+   494→            Next →
+   495→          </button>
+   496→        </div>
+   497→      )}
+   498→
+   499→      {/* ── Add / Edit Modal ── */}
+   500→      {showAddModal && (
+   501→        <div className="fixed inset-0 z-[80] flex items-center justify-center p-4">
+   502→          {/* Overlay */}
+   503→          <div className="absolute inset-0 bg-black/80" onClick={closeModal} />
+   504→
+   505→          {/* Modal */}
+   506→          <div className="relative w-full max-w-lg bg-[#0F0F0F] border border-[#242424] rounded-2xl p-6 max-h-[90vh] overflow-y-auto">
+   507→            <h2 className="text-white font-bold text-lg mb-5">
+   508→              {editMovie ? 'Edit Movie' : 'Add Movie'}
+   509→            </h2>
+   510→
+   511→            <div className="space-y-4">
+   512→              {/* YouTube ID + Preview */}
+   513→              <div>
+   514→                <label className="block text-[#9CA3AF] text-xs font-medium mb-1.5">
+   515→                  YouTube ID <span className="text-[#EF4444]">*</span>
+   516→                </label>
+   517→                <div className="flex gap-2">
+   518→                  <input
+   519→                    type="text"
+   520→                    value={form.youtube_id}
+   521→                    onChange={e =>
+   522→                      setForm(f => ({ ...f, youtube_id: e.target.value }))
+   523→                    }
+   524→                    placeholder="e.g. dQw4w9WgXcQ"
+   525→                    className="flex-1 h-11 bg-[#1A1A1A] border border-[#2D2D2D] rounded-xl px-4 text-white text-sm outline-none focus:border-[#7C3AED] transition-colors duration-150 placeholder:text-[#6B7280]"
+   526→                  />
+   527→                  <button
+   528→                    onClick={previewYouTube}
+   529→                    disabled={previewLoading}
+   530→                    className="h-11 px-4 bg-[#1A1A1A] border border-[#2D2D2D] text-[#A78BFA] text-sm font-medium rounded-xl transition-colors duration-150 min-h-[44px] hover:bg-[#2D2D2D] disabled:opacity-50"
+   531→                  >
+   532→                    {previewLoading ? '...' : 'Preview'}
+   533→                  </button>
+   534→                </div>
+   535→              </div>
+   536→
+   537→              {/* Thumbnail preview */}
+   538→              {form.thumbnail && (
+   539→                <div className="rounded-xl overflow-hidden border border-[#242424]">
+   540→                  <img
+   541→                    src={form.thumbnail}
+   542→                    alt="Thumbnail preview"
+   543→                    className="w-full h-auto max-h-40 object-cover"
+   544→                  />
+   545→                </div>
+   546→              )}
+   547→
+   548→              {/* Title */}
+   549→              <div>
+   550→                <label className="block text-[#9CA3AF] text-xs font-medium mb-1.5">
+   551→                  Title <span className="text-[#EF4444]">*</span>
+   552→                </label>
+   553→                <input
+   554→                  type="text"
+   555→                  value={form.title}
+   556→                  onChange={e =>
+   557→                    setForm(f => ({ ...f, title: e.target.value }))
+   558→                  }
+   559→                  placeholder="Movie title"
+   560→                  className="w-full h-11 bg-[#1A1A1A] border border-[#2D2D2D] rounded-xl px-4 text-white text-sm outline-none focus:border-[#7C3AED] transition-colors duration-150 placeholder:text-[#6B7280]"
+   561→                />
+   562→              </div>
+   563→
+   564→              {/* Channel */}
+   565→              <div>
+   566→                <label className="block text-[#9CA3AF] text-xs font-medium mb-1.5">
+   567→                  Channel <span className="text-[#EF4444]">*</span>
+   568→                </label>
+   569→                <select
+   570→                  value={form.channel_name}
+   571→                  onChange={e =>
+   572→                    setForm(f => ({ ...f, channel_name: e.target.value }))
+   573→                  }
+   574→                  className="w-full h-11 bg-[#1A1A1A] border border-[#2D2D2D] rounded-xl px-4 text-white text-sm outline-none focus:border-[#7C3AED] transition-colors duration-150 appearance-none cursor-pointer"
+   575→                >
+   576→                  <option value="" className="bg-[#1A1A1A]">
+   577→                    Select channel...
+   578→                  </option>
+   579→                  {CHANNELS.filter(c => c !== 'All').map(ch => (
+   580→                    <option key={ch} value={ch} className="bg-[#1A1A1A]">
+   581→                      {ch}
+   582→                    </option>
+   583→                  ))}
+   584→                </select>
+   585→              </div>
+   586→
+   587→              {/* Thumbnail URL */}
+   588→              <div>
+   589→                <label className="block text-[#9CA3AF] text-xs font-medium mb-1.5">
+   590→                  Thumbnail URL
+   591→                </label>
+   592→                <input
+   593→                  type="text"
+   594→                  value={form.thumbnail}
+   595→                  onChange={e =>
+   596→                    setForm(f => ({ ...f, thumbnail: e.target.value }))
+   597→                  }
+   598→                  placeholder="https://..."
+   599→                  className="w-full h-11 bg-[#1A1A1A] border border-[#2D2D2D] rounded-xl px-4 text-white text-sm outline-none focus:border-[#7C3AED] transition-colors duration-150 placeholder:text-[#6B7280]"
+   600→                />
+   601→              </div>
+   602→
+   603→              {/* Description */}
+   604→              <div>
+   605→                <label className="block text-[#9CA3AF] text-xs font-medium mb-1.5">
+   606→                  Description
+   607→                </label>
+   608→                <textarea
+   609→                  value={form.description}
+   610→                  onChange={e =>
+   611→                    setForm(f => ({ ...f, description: e.target.value }))
+   612→                  }
+   613→                  rows={3}
+   614→                  placeholder="Movie description..."
+   615→                  className="w-full bg-[#1A1A1A] border border-[#2D2D2D] rounded-xl px-4 py-3 text-white text-sm outline-none focus:border-[#7C3AED] transition-colors duration-150 placeholder:text-[#6B7280] resize-none"
+   616→                />
+   617→              </div>
+   618→
+   619→              {/* Duration + Views row */}
+   620→              <div className="grid grid-cols-2 gap-3">
+   621→                <div>
+   622→                  <label className="block text-[#9CA3AF] text-xs font-medium mb-1.5">
+   623→                    Duration
+   624→                  </label>
+   625→                  <input
+   626→                    type="text"
+   627→                    value={form.duration}
+   628→                    onChange={e =>
+   629→                      setForm(f => ({ ...f, duration: e.target.value }))
+   630→                    }
+   631→                    placeholder="e.g. 2:15:30"
+   632→                    className="w-full h-11 bg-[#1A1A1A] border border-[#2D2D2D] rounded-xl px-4 text-white text-sm outline-none focus:border-[#7C3AED] transition-colors duration-150 placeholder:text-[#6B7280]"
+   633→                  />
+   634→                </div>
+   635→                <div>
+   636→                  <label className="block text-[#9CA3AF] text-xs font-medium mb-1.5">
+   637→                    Views
+   638→                  </label>
+   639→                  <input
+   640→                    type="number"
+   641→                    value={form.view_count}
+   642→                    onChange={e =>
+   643→                      setForm(f => ({ ...f, view_count: e.target.value }))
+   644→                    }
+   645→                    placeholder="0"
+   646→                    className="w-full h-11 bg-[#1A1A1A] border border-[#2D2D2D] rounded-xl px-4 text-white text-sm outline-none focus:border-[#7C3AED] transition-colors duration-150 placeholder:text-[#6B7280]"
+   647→                  />
+   648→                </div>
+   649→              </div>
+   650→
+   651→              {/* Published At */}
+   652→              <div>
+   653→                <label className="block text-[#9CA3AF] text-xs font-medium mb-1.5">
+   654→                  Published At
+   655→                </label>
+   656→                <input
+   657→                  type="date"
+   658→                  value={form.published_at}
+   659→                  onChange={e =>
+   660→                    setForm(f => ({ ...f, published_at: e.target.value }))
+   661→                  }
+   662→                  className="w-full h-11 bg-[#1A1A1A] border border-[#2D2D2D] rounded-xl px-4 text-white text-sm outline-none focus:border-[#7C3AED] transition-colors duration-150"
+   663→                />
+   664→              </div>
+   665→            </div>
+   666→
+   667→            {/* Footer buttons */}
+   668→            <div className="flex gap-3 mt-6">
+   669→              <button
+   670→                onClick={closeModal}
+   671→                className="flex-1 h-12 rounded-xl border border-[#2D2D2D] text-[#9CA3AF] text-sm font-medium min-h-[44px] transition-colors duration-150 hover:bg-[#1A1A1A]"
+   672→              >
+   673→                Cancel
+   674→              </button>
+   675→              <button
+   676→                onClick={saveMovie}
+   677→                disabled={isSaving}
+   678→                className="flex-1 h-12 rounded-xl bg-[#7C3AED] hover:bg-[#6D28D9] text-white text-sm font-semibold min-h-[44px] transition-colors duration-150 disabled:opacity-50"
+   679→              >
+   680→                {isSaving ? 'Saving...' : 'Save Movie'}
+   681→              </button>
+   682→            </div>
+   683→          </div>
+   684→        </div>
+   685→      )}
+   686→
+   687→      {/* ── Delete Confirm Modal ── */}
+   688→      {deleteTarget && (
+   689→        <ConfirmModal
+   690→          title="Delete Movie"
+   691→          message={`Are you sure you want to delete "${deleteTarget.title}"? This action cannot be undone.`}
+   692→          confirmLabel="Delete"
+   693→          onConfirm={deleteMovie}
+   694→          onCancel={() => setDeleteTarget(null)}
+   695→          danger
+   696→        />
+   697→      )}
+   698→    </div>
+   699→  )
+   700→}
+   701→

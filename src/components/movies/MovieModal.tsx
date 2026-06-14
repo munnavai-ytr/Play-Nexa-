@@ -14,6 +14,7 @@ import { supabase } from '@/lib/supabase'
 import { lsGet, lsSet } from '@/lib/mediaUtils'
 import { type Movie, type ChannelDisplay } from './MovieCard'
 import { formatCount } from '@/lib/types'
+import PlayNexaPlayer from './PlayNexaPlayer'
 
 // ── Comment type (localStorage only) ──
 
@@ -295,8 +296,13 @@ export default function MovieModal({
         <p className="text-white text-sm font-medium flex-1 truncate">{movie.title}</p>
       </div>
 
-      {/* ── PLAYER (aspect-video) ── */}
-      <div className="w-full aspect-video flex-shrink-0 bg-black">
+      {/* ── PLAYER (aspect-video) — PLAYit-style with lock + gestures ── */}
+      <PlayNexaPlayer
+        title={movie.title}
+        onClose={onClose}
+        showBadge={false}
+        isYouTube={true}
+      >
         <iframe
           src={`https://www.youtube.com/embed/${movie.youtube_id}?autoplay=1&modestbranding=1&rel=0&controls=1&playsinline=1`}
           className="w-full h-full border-0"
@@ -304,7 +310,7 @@ export default function MovieModal({
           allowFullScreen
           title={movie.title}
         />
-      </div>
+      </PlayNexaPlayer>
 
       {/* ── SCROLLABLE BELOW ── */}
       <div className="flex-1 overflow-y-auto" style={{ contentVisibility: 'auto' } as React.CSSProperties}>

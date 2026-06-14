@@ -23,6 +23,7 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Key Vault', icon: '🏦', href: '/admin/vault' },
   { label: 'AI Chat', icon: '🤖', href: '/admin/chat' },
   { label: 'Feedback', icon: '📣', href: '/admin/feedback' },
+  { label: 'YT Importer', icon: '🚀', href: '/admin/yt-importer' },
   { label: 'Features', icon: '⚡', href: '/admin/features' },
   { label: 'Notifications', icon: '🔔', href: '/admin/notifications' },
   { label: 'Analytics', icon: '📈', href: '/admin/analytics' },

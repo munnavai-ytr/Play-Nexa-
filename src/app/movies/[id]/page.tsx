@@ -16,6 +16,7 @@ import type { Movie } from '@/lib/search'
 import type { YouTubeMovie } from '@/lib/types'
 import MovieCard from '@/components/movies/MovieCard'
 import StealthPlayer from '@/components/movies/StealthPlayer'
+import PlayNexaPlayer from '@/components/movies/PlayNexaPlayer'
 import SaveButton from '@/components/offline/SaveButton'
 import { detectMovieRegion, detectDubbedTags, type MovieRegion } from '@/lib/types'
 
@@ -110,7 +111,7 @@ export default function MovieDetailPage(
 
   return (
     <div className="min-h-screen bg-pn-bg pb-24">
-      {/* ── PLAYER SECTION ── */}
+      {/* ── PLAYER SECTION — PLAYit-style with lock + gestures ── */}
       <div className="relative bg-black w-full">
         {/* Back button */}
         <button
@@ -118,18 +119,26 @@ export default function MovieDetailPage(
           type="button"
           className="absolute top-3 left-3 z-30 bg-black/70 rounded-full p-2.5 active:scale-90 transition-transform duration-150 min-h-[44px] min-w-[44px] flex items-center justify-center"
           aria-label="Go back"
+          style={{ zIndex: 50 }}
         >
           <ChevronLeft size={20} className="text-white" />
         </button>
 
-        {/* Stealth Player — maximum YouTube branding removal */}
-        <StealthPlayer
-          videoId={movie.videoId}
+        {/* PlayNexaPlayer wrapping StealthPlayer for gestures + lock */}
+        <PlayNexaPlayer
           title={movie.title}
-          showClose={false}
           showBadge={true}
+          isYouTube={true}
           className="rounded-none"
-        />
+        >
+          <StealthPlayer
+            videoId={movie.videoId}
+            title={movie.title}
+            showClose={false}
+            showBadge={false}
+            className="rounded-none"
+          />
+        </PlayNexaPlayer>
       </div>
 
       {/* ── YOUTUBE-STYLE LAYOUT: Main Content + Related Sidebar ── */}
