@@ -1,0 +1,1132 @@
+     1→-- ╔══════════════════════════════════════════════════════════════════════════════╗
+     2→-- ║  PLAY NEXA — Complete Database Setup (All-in-One) v2                       ║
+     3→-- ║  একটা প্রম্পটে সব টেবিল তৈরি হবে — কপি করে Supabase SQL Editor এ পেস্ট করো  ║
+     4→-- ║  Error-proof: সব DROP IF EXISTS + CREATE IF NOT EXISTS                     ║
+     5→-- ╚══════════════════════════════════════════════════════════════════════════════╝
+     6→--
+     7→-- ব্যবহার:
+     8→--   1. Supabase Dashboard → SQL Editor → New Query
+     9→--   2. এই পুরো কোডটা কপি-পেস্ট করো
+    10→--   3. "Run" বাটনে ক্লিক করো
+    11→--   4. সব টেবিল, ইনডেক্স, RLS পলিসি, RPC, সিড ডাটা একসাথে তৈরি হয়ে যাবে
+    12→--
+    13→-- রান করার পর:
+    14→--   1. Authentication → Users → Add user → Create new user
+    15→--      Email: admin@playnexa.com  Password: PlayNexa@2024
+    16→--   2. User এর UUID কপি করো
+    17→--   3. নিচের SQL রান করো (UUID বসাও):
+    18→--      INSERT INTO admin_users (user_id, email, role)
+    19→--      VALUES ('PASTE_UUID_HERE', 'admin@playnexa.com', 'superadmin');
+    20→-- ══════════════════════════════════════════════════════════════════════════════
+    21→
+    22→
+    23→-- ╔══════════════════════════════════════════════════════════════════════════════╗
+    24→-- ║  STEP 0: আগের সব টেবিল, পলিসি, ট্রিগার, ভিউ, RPC ক্লিন করো                  ║
+    25→-- ╚══════════════════════════════════════════════════════════════════════════════╝
+    26→
+    27→-- পুরনো টেবিল ড্রপ (যদি থাকে)
+    28→DROP TABLE IF EXISTS game_downloads CASCADE;
+    29→DROP TABLE IF EXISTS game_data CASCADE;
+    30→DROP TABLE IF EXISTS game_scores CASCADE;
+    31→DROP TABLE IF EXISTS games CASCADE;
+    32→DROP TABLE IF EXISTS notification_log CASCADE;
+    33→DROP TABLE IF EXISTS push_subscriptions CASCADE;
+    34→DROP TABLE IF EXISTS music_saved CASCADE;
+    35→DROP TABLE IF EXISTS music_likes CASCADE;
+    36→DROP TABLE IF EXISTS user_history CASCADE;
+    37→DROP TABLE IF EXISTS user_watchlist CASCADE;
+    38→DROP TABLE IF EXISTS user_likes CASCADE;
+    39→DROP TABLE IF EXISTS music_tracks CASCADE;
+    40→DROP TABLE IF EXISTS movies CASCADE;
+    41→DROP TABLE IF EXISTS ai_scan_jobs CASCADE;
+    42→DROP TABLE IF EXISTS channel_display CASCADE;
+    43→DROP TABLE IF EXISTS sync_logs CASCADE;
+    44→DROP TABLE IF EXISTS yt_channels CASCADE;
+    45→DROP TABLE IF EXISTS missing_requests CASCADE;
+    46→DROP TABLE IF EXISTS videos CASCADE;
+    47→DROP TABLE IF EXISTS notifications_log CASCADE;
+    48→DROP TABLE IF EXISTS app_settings CASCADE;
+    49→DROP TABLE IF EXISTS app_features CASCADE;
+    50→DROP TABLE IF EXISTS admin_activity_log CASCADE;
+    51→DROP TABLE IF EXISTS admin_users CASCADE;
+    52→DROP TABLE IF EXISTS user_profiles CASCADE;
+    53→
+    54→-- পুরনো ভিউ ড্রপ
+    55→DROP VIEW IF EXISTS channel_display_with_info CASCADE;
+    56→
+    57→-- পুরনো ট্রিগার ড্রপ
+    58→DROP TRIGGER IF EXISTS trg_notify_new_video ON videos CASCADE;
+    59→DROP TRIGGER IF EXISTS trg_yt_channels_updated ON yt_channels CASCADE;
+    60→DROP TRIGGER IF EXISTS trg_channel_display_updated ON channel_display CASCADE;
+    61→DROP TRIGGER IF EXISTS trg_app_features_updated ON app_features CASCADE;
+    62→DROP TRIGGER IF EXISTS trg_app_settings_updated ON app_settings CASCADE;
+    63→DROP TRIGGER IF EXISTS trg_games_updated ON games CASCADE;
+    64→DROP TRIGGER IF EXISTS trg_user_profiles_updated ON user_profiles CASCADE;
+    65→
+    66→-- পুরনো RPC ফাংশন ড্রপ
+    67→DROP FUNCTION IF EXISTS upsert_missing_request CASCADE;
+    68→DROP FUNCTION IF EXISTS fetch_user_game_data CASCADE;
+    69→DROP FUNCTION IF EXISTS fetch_game_score CASCADE;
+    70→DROP FUNCTION IF EXISTS upsert_game_score CASCADE;
+    71→DROP FUNCTION IF EXISTS fetch_user_coins CASCADE;
+    72→DROP FUNCTION IF EXISTS fetch_leaderboard CASCADE;
+    73→DROP FUNCTION IF EXISTS deduct_user_coins CASCADE;
+    74→DROP FUNCTION IF EXISTS register_push_token CASCADE;
+    75→DROP FUNCTION IF EXISTS unregister_push_token CASCADE;
+    76→DROP FUNCTION IF EXISTS get_active_push_tokens CASCADE;
+    77→DROP FUNCTION IF EXISTS cleanup_stale_tokens CASCADE;
+    78→DROP FUNCTION IF EXISTS notify_new_video CASCADE;
+    79→DROP FUNCTION IF EXISTS update_updated_at CASCADE;
+    80→
+    81→-- পুরনো Enum ড্রপ
+    82→DROP TYPE IF EXISTS request_status CASCADE;
+    83→
+    84→
+    85→-- ╔══════════════════════════════════════════════════════════════════════════════╗
+    86→-- ║  SECTION 1: ENUM TYPES                                                      ║
+    87→-- ╚══════════════════════════════════════════════════════════════════════════════╝
+    88→
+    89→CREATE TYPE request_status AS ENUM ('pending', 'processing', 'done', 'failed');
+    90→
+    91→
+    92→-- ╔══════════════════════════════════════════════════════════════════════════════╗
+    93→-- ║  SECTION 2: CORE TABLES                                                    ║
+    94→-- ╚══════════════════════════════════════════════════════════════════════════════╝
+    95→
+    96→
+    97→-- ──────────────────────────────────────────────────────────────────────────────
+    98→-- TABLE: videos
+    99→-- ──────────────────────────────────────────────────────────────────────────────
+   100→
+   101→CREATE TABLE videos (
+   102→  id              BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+   103→  yt_video_id     TEXT    NOT NULL UNIQUE,
+   104→  title           TEXT    NOT NULL,
+   105→  thumbnail_url   TEXT,
+   106→  category        TEXT    DEFAULT 'movie' CHECK (category IN ('movie','music','short')),
+   107→  genre           TEXT[]  DEFAULT '{}',
+   108→  duration_sec    INTEGER DEFAULT 0 NOT NULL,
+   109→  channel         TEXT    DEFAULT '',
+   110→  language        TEXT    DEFAULT 'English',
+   111→  region          TEXT    DEFAULT 'international' CHECK (region IN ('bangladesh','india','international')),
+   112→  dubbed_tags     TEXT[]  DEFAULT '{}',
+   113→  views           BIGINT  DEFAULT 0,
+   114→  source          TEXT    DEFAULT 'manual',
+   115→  created_at      TIMESTAMPTZ DEFAULT now()
+   116→);
+   117→
+   118→CREATE INDEX idx_videos_category ON videos (category);
+   119→CREATE INDEX idx_videos_created  ON videos (created_at DESC);
+   120→
+   121→ALTER TABLE videos ENABLE ROW LEVEL SECURITY;
+   122→CREATE POLICY "Public read videos" ON videos FOR SELECT TO anon, authenticated USING (true);
+   123→CREATE POLICY "Authenticated can insert videos" ON videos FOR INSERT TO authenticated WITH CHECK (true);
+   124→CREATE POLICY "Authenticated can update videos" ON videos FOR UPDATE TO authenticated USING (true);
+   125→
+   126→
+   127→-- ──────────────────────────────────────────────────────────────────────────────
+   128→-- TABLE: missing_requests
+   129→-- ──────────────────────────────────────────────────────────────────────────────
+   130→
+   131→CREATE TABLE missing_requests (
+   132→  id              BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+   133→  search_query    TEXT    NOT NULL,
+   134→  category        TEXT    DEFAULT 'movie',
+   135→  status          request_status DEFAULT 'pending',
+   136→  request_count   INTEGER DEFAULT 1,
+   137→  created_at      TIMESTAMPTZ DEFAULT now(),
+   138→  updated_at      TIMESTAMPTZ DEFAULT now(),
+   139→  UNIQUE(search_query, category)
+   140→);
+   141→
+   142→CREATE INDEX idx_missing_status ON missing_requests (status);
+   143→
+   144→ALTER TABLE missing_requests ENABLE ROW LEVEL SECURITY;
+   145→CREATE POLICY "Public read missing_requests" ON missing_requests FOR SELECT TO anon, authenticated USING (true);
+   146→CREATE POLICY "Authenticated can manage missing_requests" ON missing_requests FOR ALL TO authenticated USING (true);
+   147→
+   148→
+   149→-- ──────────────────────────────────────────────────────────────────────────────
+   150→-- TABLE: yt_channels
+   151→-- ──────────────────────────────────────────────────────────────────────────────
+   152→
+   153→CREATE TABLE yt_channels (
+   154→  id                UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+   155→  channel_url       TEXT    NOT NULL,
+   156→  channel_id        TEXT    NOT NULL UNIQUE,
+   157→  channel_name      TEXT    NOT NULL,
+   158→  channel_avatar    TEXT,
+   159→  channel_type      TEXT    NOT NULL DEFAULT 'movies'
+   160→                    CHECK (channel_type IN ('movies','music','mixed')),
+   161→  filter_keywords   TEXT[]  DEFAULT ARRAY[
+   162→                        'full movie','official movie',
+   163→                        'bangla movie','bengali movie',
+   164→                        'full film','natok','telefilm',
+   165→                        'web series','short film'
+   166→                      ],
+   167→  exclude_keywords  TEXT[]  DEFAULT ARRAY[
+   168→                        'trailer','teaser','song',
+   169→                        'making','interview','behind',
+   170→                        'promo','preview'
+   171→                      ],
+   172→  auto_sync         BOOLEAN DEFAULT true,
+   173→  sync_interval     INTEGER DEFAULT 6,
+   174→  last_synced_at    TIMESTAMPTZ,
+   175→  total_imported    INTEGER DEFAULT 0,
+   176→  is_active         BOOLEAN DEFAULT true,
+   177→  created_at        TIMESTAMPTZ DEFAULT now(),
+   178→  updated_at        TIMESTAMPTZ DEFAULT now()
+   179→);
+   180→
+   181→CREATE INDEX idx_yt_channels_type    ON yt_channels (channel_type);
+   182→CREATE INDEX idx_yt_channels_active  ON yt_channels (is_active) WHERE is_active = true;
+   183→
+   184→ALTER TABLE yt_channels ENABLE ROW LEVEL SECURITY;
+   185→CREATE POLICY "yt_channels_public_read" ON yt_channels FOR SELECT USING (true);
+   186→CREATE POLICY "yt_channels_admin_manage" ON yt_channels FOR ALL TO authenticated USING (true);
+   187→
+   188→
+   189→-- ──────────────────────────────────────────────────────────────────────────────
+   190→-- TABLE: sync_logs
+   191→-- ──────────────────────────────────────────────────────────────────────────────
+   192→
+   193→CREATE TABLE sync_logs (
+   194→  id              UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+   195→  channel_id      UUID REFERENCES yt_channels(id) ON DELETE CASCADE,
+   196→  channel_name    TEXT,
+   197→  videos_found    INTEGER DEFAULT 0,
+   198→  videos_added    INTEGER DEFAULT 0,
+   199→  videos_skipped  INTEGER DEFAULT 0,
+   200→  status          TEXT DEFAULT 'success' CHECK (status IN ('success','failed','partial')),
+   201→  error_message   TEXT,
+   202→  synced_at       TIMESTAMPTZ DEFAULT now()
+   203→);
+   204→
+   205→CREATE INDEX idx_sync_logs_channel ON sync_logs (channel_id);
+   206→CREATE INDEX idx_sync_logs_time    ON sync_logs (synced_at DESC);
+   207→
+   208→ALTER TABLE sync_logs ENABLE ROW LEVEL SECURITY;
+   209→CREATE POLICY "sync_logs_public_read" ON sync_logs FOR SELECT USING (true);
+   210→
+   211→
+   212→-- ──────────────────────────────────────────────────────────────────────────────
+   213→-- TABLE: channel_display (চ্যানেল ফিল্টার চিপস + ব্যাজ কালার)
+   214→-- ──────────────────────────────────────────────────────────────────────────────
+   215→
+   216→CREATE TABLE channel_display (
+   217→  id            UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+   218→  channel_id    TEXT    NOT NULL UNIQUE,
+   219→  display_name  TEXT    NOT NULL,
+   220→  logo_url      TEXT,
+   221→  badge_color   TEXT    NOT NULL DEFAULT '#7C3AED',
+   222→  border_color  TEXT    NOT NULL DEFAULT '#2D2D2D',
+   223→  is_visible    BOOLEAN NOT NULL DEFAULT true,
+   224→  sort_order    INTEGER NOT NULL DEFAULT 0,
+   225→  created_at    TIMESTAMPTZ DEFAULT now(),
+   226→  updated_at    TIMESTAMPTZ DEFAULT now()
+   227→);
+   228→
+   229→CREATE INDEX idx_channel_display_visible  ON channel_display (is_visible) WHERE is_visible = true;
+   230→CREATE INDEX idx_channel_display_sort     ON channel_display (sort_order);
+   231→
+   232→ALTER TABLE channel_display ENABLE ROW LEVEL SECURITY;
+   233→CREATE POLICY "channel_display_public_read" ON channel_display FOR SELECT USING (true);
+   234→CREATE POLICY "channel_display_admin_manage" ON channel_display FOR ALL TO authenticated USING (true);
+   235→
+   236→
+   237→-- ──────────────────────────────────────────────────────────────────────────────
+   238→-- TABLE: ai_scan_jobs (Gemini AI স্ক্যান জব ট্র্যাকিং)
+   239→-- ──────────────────────────────────────────────────────────────────────────────
+   240→
+   241→CREATE TABLE ai_scan_jobs (
+   242→  id            UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+   243→  channel_name  TEXT    NOT NULL,
+   244→  status        TEXT    NOT NULL DEFAULT 'scanning'
+   245→                  CHECK (status IN ('scanning','completed','failed')),
+   246→  total_videos  INTEGER DEFAULT 0,
+   247→  processed     INTEGER DEFAULT 0,
+   248→  movies_found  INTEGER DEFAULT 0,
+   249→  music_found   INTEGER DEFAULT 0,
+   250→  skipped       INTEGER DEFAULT 0,
+   251→  error_message TEXT,
+   252→  started_at    TIMESTAMPTZ DEFAULT now(),
+   253→  completed_at  TIMESTAMPTZ
+   254→);
+   255→
+   256→CREATE INDEX idx_ai_scan_status ON ai_scan_jobs (status);
+   257→CREATE INDEX idx_ai_scan_time   ON ai_scan_jobs (started_at DESC);
+   258→
+   259→ALTER TABLE ai_scan_jobs ENABLE ROW LEVEL SECURITY;
+   260→CREATE POLICY "ai_scan_jobs_public_read" ON ai_scan_jobs FOR SELECT USING (true);
+   261→CREATE POLICY "ai_scan_jobs_admin_manage" ON ai_scan_jobs FOR ALL TO authenticated USING (true);
+   262→
+   263→
+   264→-- ──────────────────────────────────────────────────────────────────────────────
+   265→-- TABLE: movies (মুভি হাব)
+   266→-- ──────────────────────────────────────────────────────────────────────────────
+   267→
+   268→CREATE TABLE movies (
+   269→  id                UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+   270→  youtube_id        TEXT    NOT NULL,
+   271→  title             TEXT    NOT NULL,
+   272→  thumbnail         TEXT,
+   273→  channel_name      TEXT    DEFAULT '',
+   274→  channel_id        TEXT    DEFAULT '',
+   275→  published_at      TIMESTAMPTZ,
+   276→  view_count        BIGINT  DEFAULT 0,
+   277→  description       TEXT    DEFAULT '',
+   278→  duration          TEXT    DEFAULT '',
+   279→  is_hidden         BOOLEAN DEFAULT false,
+   280→  source_channel_id UUID    REFERENCES yt_channels(id) ON DELETE SET NULL,
+   281→  language          TEXT    DEFAULT '',
+   282→  created_at        TIMESTAMPTZ DEFAULT now()
+   283→);
+   284→
+   285→CREATE INDEX idx_movies_youtube_id  ON movies (youtube_id);
+   286→CREATE INDEX idx_movies_channel     ON movies (channel_name);
+   287→CREATE INDEX idx_movies_channel_id  ON movies (channel_id);
+   288→CREATE INDEX idx_movies_created     ON movies (created_at DESC);
+   289→CREATE INDEX idx_movies_hidden      ON movies (is_hidden) WHERE is_hidden = false;
+   290→
+   291→ALTER TABLE movies ENABLE ROW LEVEL SECURITY;
+   292→CREATE POLICY "Public read movies" ON movies FOR SELECT TO anon, authenticated USING (true);
+   293→CREATE POLICY "Authenticated can insert movies" ON movies FOR INSERT TO authenticated WITH CHECK (true);
+   294→CREATE POLICY "Authenticated can update movies" ON movies FOR UPDATE TO authenticated USING (true);
+   295→
+   296→
+   297→-- ──────────────────────────────────────────────────────────────────────────────
+   298→-- TABLE: music_tracks (YT মিউজিক)
+   299→-- ──────────────────────────────────────────────────────────────────────────────
+   300→
+   301→CREATE TABLE music_tracks (
+   302→  id                UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+   303→  youtube_id        TEXT    NOT NULL UNIQUE,
+   304→  title             TEXT    NOT NULL,
+   305→  thumbnail         TEXT    NOT NULL,
+   306→  channel_name      TEXT    NOT NULL,
+   307→  channel_id        TEXT    NOT NULL,
+   308→  duration          TEXT,
+   309→  published_at      TIMESTAMPTZ,
+   310→  view_count        INTEGER DEFAULT 0,
+   311→  is_hidden         BOOLEAN DEFAULT false,
+   312→  source_channel_id UUID    REFERENCES yt_channels(id) ON DELETE SET NULL,
+   313→  description       TEXT    DEFAULT '',
+   314→  language          TEXT    DEFAULT '',
+   315→  created_at        TIMESTAMPTZ DEFAULT now()
+   316→);
+   317→
+   318→CREATE INDEX idx_music_youtube_id  ON music_tracks (youtube_id);
+   319→CREATE INDEX idx_music_channel     ON music_tracks (channel_name);
+   320→CREATE INDEX idx_music_channel_id  ON music_tracks (channel_id);
+   321→CREATE INDEX idx_music_created     ON music_tracks (created_at DESC);
+   322→CREATE INDEX idx_music_hidden      ON music_tracks (is_hidden) WHERE is_hidden = false;
+   323→
+   324→ALTER TABLE music_tracks ENABLE ROW LEVEL SECURITY;
+   325→CREATE POLICY "music_tracks_public_read" ON music_tracks FOR SELECT USING (true);
+   326→CREATE POLICY "music_tracks_admin_manage" ON music_tracks FOR ALL TO authenticated USING (true);
+   327→
+   328→
+   329→-- ╔══════════════════════════════════════════════════════════════════════════════╗
+   330→-- ║  SECTION 3: USER ENGAGEMENT TABLES                                         ║
+   331→-- ╚══════════════════════════════════════════════════════════════════════════════╝
+   332→
+   333→
+   334→-- ──────────────────────────────────────────────────────────────────────────────
+   335→-- TABLE: user_likes
+   336→-- ──────────────────────────────────────────────────────────────────────────────
+   337→
+   338→CREATE TABLE user_likes (
+   339→  id          UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+   340→  user_id     UUID    NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+   341→  movie_id    UUID    NOT NULL REFERENCES movies(id) ON DELETE CASCADE,
+   342→  youtube_id  TEXT,
+   343→  created_at  TIMESTAMPTZ DEFAULT now(),
+   344→  UNIQUE(user_id, movie_id)
+   345→);
+   346→
+   347→CREATE INDEX idx_user_likes_user  ON user_likes (user_id);
+   348→CREATE INDEX idx_user_likes_movie ON user_likes (movie_id);
+   349→
+   350→ALTER TABLE user_likes ENABLE ROW LEVEL SECURITY;
+   351→CREATE POLICY "User owns likes" ON user_likes FOR ALL USING (auth.uid() = user_id);
+   352→
+   353→
+   354→-- ──────────────────────────────────────────────────────────────────────────────
+   355→-- TABLE: user_watchlist
+   356→-- ──────────────────────────────────────────────────────────────────────────────
+   357→
+   358→CREATE TABLE user_watchlist (
+   359→  id          UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+   360→  user_id     UUID    NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+   361→  movie_id    UUID    NOT NULL REFERENCES movies(id) ON DELETE CASCADE,
+   362→  youtube_id  TEXT,
+   363→  created_at  TIMESTAMPTZ DEFAULT now(),
+   364→  UNIQUE(user_id, movie_id)
+   365→);
+   366→
+   367→CREATE INDEX idx_user_watchlist_user  ON user_watchlist (user_id);
+   368→CREATE INDEX idx_user_watchlist_movie ON user_watchlist (movie_id);
+   369→
+   370→ALTER TABLE user_watchlist ENABLE ROW LEVEL SECURITY;
+   371→CREATE POLICY "User owns watchlist" ON user_watchlist FOR ALL USING (auth.uid() = user_id);
+   372→
+   373→
+   374→-- ──────────────────────────────────────────────────────────────────────────────
+   375→-- TABLE: user_history
+   376→-- ──────────────────────────────────────────────────────────────────────────────
+   377→
+   378→CREATE TABLE user_history (
+   379→  id          UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+   380→  user_id     UUID    NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+   381→  movie_id    UUID    NOT NULL REFERENCES movies(id) ON DELETE CASCADE,
+   382→  youtube_id  TEXT,
+   383→  watched_at  TIMESTAMPTZ DEFAULT now(),
+   384→  watch_count INTEGER DEFAULT 1,
+   385→  UNIQUE(user_id, movie_id)
+   386→);
+   387→
+   388→CREATE INDEX idx_user_history_user    ON user_history (user_id);
+   389→CREATE INDEX idx_user_history_watched ON user_history (watched_at DESC);
+   390→
+   391→ALTER TABLE user_history ENABLE ROW LEVEL SECURITY;
+   392→CREATE POLICY "User owns history" ON user_history FOR ALL USING (auth.uid() = user_id);
+   393→
+   394→
+   395→-- ──────────────────────────────────────────────────────────────────────────────
+   396→-- TABLE: music_likes
+   397→-- ──────────────────────────────────────────────────────────────────────────────
+   398→
+   399→CREATE TABLE music_likes (
+   400→  id          UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+   401→  user_id     UUID    NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+   402→  track_id    UUID    NOT NULL REFERENCES music_tracks(id) ON DELETE CASCADE,
+   403→  youtube_id  TEXT    NOT NULL,
+   404→  created_at  TIMESTAMPTZ DEFAULT now(),
+   405→  UNIQUE(user_id, track_id)
+   406→);
+   407→
+   408→CREATE INDEX idx_music_likes_user  ON music_likes (user_id);
+   409→CREATE INDEX idx_music_likes_track ON music_likes (track_id);
+   410→
+   411→ALTER TABLE music_likes ENABLE ROW LEVEL SECURITY;
+   412→CREATE POLICY "music_likes_own" ON music_likes FOR ALL USING (auth.uid() = user_id);
+   413→
+   414→
+   415→-- ──────────────────────────────────────────────────────────────────────────────
+   416→-- TABLE: music_saved
+   417→-- ──────────────────────────────────────────────────────────────────────────────
+   418→
+   419→CREATE TABLE music_saved (
+   420→  id          UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+   421→  user_id     UUID    NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+   422→  track_id    UUID    NOT NULL REFERENCES music_tracks(id) ON DELETE CASCADE,
+   423→  youtube_id  TEXT    NOT NULL,
+   424→  created_at  TIMESTAMPTZ DEFAULT now(),
+   425→  UNIQUE(user_id, track_id)
+   426→);
+   427→
+   428→CREATE INDEX idx_music_saved_user  ON music_saved (user_id);
+   429→CREATE INDEX idx_music_saved_track ON music_saved (track_id);
+   430→
+   431→ALTER TABLE music_saved ENABLE ROW LEVEL SECURITY;
+   432→CREATE POLICY "music_saved_own" ON music_saved FOR ALL USING (auth.uid() = user_id);
+   433→
+   434→
+   435→-- ╔══════════════════════════════════════════════════════════════════════════════╗
+   436→-- ║  SECTION 4: USER PROFILES & AUTH                                          ║
+   437→-- ╚══════════════════════════════════════════════════════════════════════════════╝
+   438→
+   439→
+   440→-- ──────────────────────────────────────────────────────────────────────────────
+   441→-- TABLE: user_profiles
+   442→-- ──────────────────────────────────────────────────────────────────────────────
+   443→
+   444→CREATE TABLE user_profiles (
+   445→  id            UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+   446→  auth_user_id  UUID    NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE UNIQUE,
+   447→  display_name  TEXT    DEFAULT '',
+   448→  email         TEXT,
+   449→  avatar_url    TEXT,
+   450→  auth_provider TEXT    DEFAULT 'email',
+   451→  coins         INTEGER DEFAULT 0,
+   452→  created_at    TIMESTAMPTZ DEFAULT now(),
+   453→  updated_at    TIMESTAMPTZ DEFAULT now()
+   454→);
+   455→
+   456→CREATE INDEX idx_user_profiles_auth ON user_profiles (auth_user_id);
+   457→
+   458→ALTER TABLE user_profiles ENABLE ROW LEVEL SECURITY;
+   459→CREATE POLICY "Users can read own profile" ON user_profiles FOR SELECT USING (auth.uid() = auth_user_id);
+   460→CREATE POLICY "Users can update own profile" ON user_profiles FOR UPDATE USING (auth.uid() = auth_user_id);
+   461→CREATE POLICY "Users can insert own profile" ON user_profiles FOR INSERT WITH CHECK (auth.uid() = auth_user_id);
+   462→
+   463→
+   464→-- ──────────────────────────────────────────────────────────────────────────────
+   465→-- TABLE: admin_users
+   466→-- ──────────────────────────────────────────────────────────────────────────────
+   467→
+   468→CREATE TABLE admin_users (
+   469→  id          UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+   470→  user_id     UUID    NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+   471→  email       TEXT    NOT NULL,
+   472→  role        TEXT    NOT NULL DEFAULT 'admin',
+   473→  created_at  TIMESTAMPTZ DEFAULT now(),
+   474→  UNIQUE(user_id)
+   475→);
+   476→
+   477→ALTER TABLE admin_users ENABLE ROW LEVEL SECURITY;
+   478→CREATE POLICY "Service role can read admin_users" ON admin_users FOR SELECT USING (auth.role() = 'service_role');
+   479→CREATE POLICY "Users can check own admin status" ON admin_users FOR SELECT USING (auth.uid() = user_id);
+   480→
+   481→
+   482→-- ──────────────────────────────────────────────────────────────────────────────
+   483→-- TABLE: admin_activity_log
+   484→-- ──────────────────────────────────────────────────────────────────────────────
+   485→
+   486→CREATE TABLE admin_activity_log (
+   487→  id          UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+   488→  admin_id    UUID,
+   489→  action      TEXT    NOT NULL,
+   490→  target      TEXT    NOT NULL,
+   491→  details     JSONB   DEFAULT '{}',
+   492→  created_at  TIMESTAMPTZ DEFAULT now()
+   493→);
+   494→
+   495→CREATE INDEX idx_admin_log_created ON admin_activity_log (created_at DESC);
+   496→CREATE INDEX idx_admin_log_admin  ON admin_activity_log (admin_id);
+   497→
+   498→ALTER TABLE admin_activity_log ENABLE ROW LEVEL SECURITY;
+   499→CREATE POLICY "Service role can manage activity log" ON admin_activity_log FOR ALL USING (auth.role() = 'service_role');
+   500→CREATE POLICY "Authenticated can read activity log" ON admin_activity_log FOR SELECT TO authenticated USING (true);
+   501→
+   502→
+   503→-- ╔══════════════════════════════════════════════════════════════════════════════╗
+   504→-- ║  SECTION 5: APP CONFIG TABLES                                             ║
+   505→-- ╚══════════════════════════════════════════════════════════════════════════════╝
+   506→
+   507→
+   508→-- ──────────────────────────────────────────────────────────────────────────────
+   509→-- TABLE: app_features
+   510→-- ──────────────────────────────────────────────────────────────────────────────
+   511→
+   512→CREATE TABLE app_features (
+   513→  id                 UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+   514→  feature_key        TEXT    NOT NULL UNIQUE,
+   515→  name               TEXT    NOT NULL,
+   516→  label              TEXT    DEFAULT '',
+   517→  icon               TEXT    DEFAULT '',
+   518→  status             TEXT    NOT NULL DEFAULT 'live',
+   519→  description        TEXT    DEFAULT '',
+   520→  coming_soon_message TEXT   DEFAULT '',
+   521→  lock_reason        TEXT    DEFAULT '',
+   522→  sort_order         INTEGER DEFAULT 0,
+   523→  updated_at         TIMESTAMPTZ DEFAULT now()
+   524→);
+   525→
+   526→INSERT INTO app_features (feature_key, name, label, icon, status, description, sort_order) VALUES
+   527→  ('movie_hub',  'Movie Hub',  'Movies',  '🎬', 'live',   'Browse and watch movies from top channels', 1),
+   528→  ('game_hub',   'Game Hub',   'Games',   '🎮', 'live',   'Play mini games and track scores',          2),
+   529→  ('ytmusic',    'YT Music',   'Music',   '🎵', 'live',   'YouTube Music integration',                 3),
+   530→  ('downloader', 'Downloader', 'Download','📥', 'live',   'Download videos from platforms',            4),
+   531→  ('offline',    'Offline Mode','Offline','💾', 'live',   'Save media for offline playback',           5),
+   532→  ('shorts',     'Shorts',     'Shorts',  '⚡', 'hidden', 'Short video clips',                         6),
+   533→  ('local_player','Local Player','Player','🎞️', 'live',   'Play local media files',                    7);
+   534→
+   535→ALTER TABLE app_features ENABLE ROW LEVEL SECURITY;
+   536→CREATE POLICY "Public read features" ON app_features FOR SELECT TO anon, authenticated USING (true);
+   537→CREATE POLICY "Authenticated can manage features" ON app_features FOR ALL TO authenticated USING (true);
+   538→
+   539→
+   540→-- ──────────────────────────────────────────────────────────────────────────────
+   541→-- TABLE: app_settings
+   542→-- ──────────────────────────────────────────────────────────────────────────────
+   543→
+   544→CREATE TABLE app_settings (
+   545→  id          UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+   546→  key         TEXT    NOT NULL UNIQUE,
+   547→  value       JSONB   NOT NULL DEFAULT '{}',
+   548→  updated_at  TIMESTAMPTZ DEFAULT now()
+   549→);
+   550→
+   551→INSERT INTO app_settings (key, value) VALUES
+   552→  ('branding',    '{"app_name": "Play Nexa", "tagline": "Your Entertainment Hub"}'),
+   553→  ('colors',      '{"primary": "#7C3AED", "accent": "#06B6D4"}'),
+   554→  ('maintenance', '{"enabled": false, "message": "Under maintenance"}');
+   555→
+   556→ALTER TABLE app_settings ENABLE ROW LEVEL SECURITY;
+   557→CREATE POLICY "Public read settings" ON app_settings FOR SELECT TO anon, authenticated USING (true);
+   558→CREATE POLICY "Authenticated can manage settings" ON app_settings FOR ALL TO authenticated USING (true);
+   559→
+   560→
+   561→-- ──────────────────────────────────────────────────────────────────────────────
+   562→-- TABLE: notifications_log
+   563→-- ──────────────────────────────────────────────────────────────────────────────
+   564→
+   565→CREATE TABLE notifications_log (
+   566→  id          UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+   567→  title       TEXT    NOT NULL,
+   568→  body        TEXT    NOT NULL,
+   569→  message     TEXT    DEFAULT '',
+   570→  sent_to     TEXT    DEFAULT 'all',
+   571→  target      TEXT    DEFAULT 'all',
+   572→  icon        TEXT    DEFAULT '',
+   573→  action_url  TEXT    DEFAULT '',
+   574→  sent_at     TIMESTAMPTZ DEFAULT now(),
+   575→  sent_count  INTEGER DEFAULT 0
+   576→);
+   577→
+   578→CREATE INDEX idx_notifications_sent ON notifications_log (sent_at DESC);
+   579→
+   580→ALTER TABLE notifications_log ENABLE ROW LEVEL SECURITY;
+   581→CREATE POLICY "Authenticated can manage notifications" ON notifications_log FOR ALL TO authenticated USING (true);
+   582→
+   583→
+   584→-- ╔══════════════════════════════════════════════════════════════════════════════╗
+   585→-- ║  SECTION 6: GAME HUB TABLES                                               ║
+   586→-- ╚══════════════════════════════════════════════════════════════════════════════╝
+   587→
+   588→
+   589→-- ──────────────────────────────────────────────────────────────────────────────
+   590→-- TABLE: games
+   591→-- ──────────────────────────────────────────────────────────────────────────────
+   592→
+   593→CREATE TABLE games (
+   594→  id           UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+   595→  name         TEXT    NOT NULL,
+   596→  description  TEXT,
+   597→  category     TEXT    NOT NULL,
+   598→  game_type    TEXT    NOT NULL DEFAULT 'offline'
+   599→               CHECK (game_type IN ('offline','download','online','mini')),
+   600→  apk_url      TEXT,
+   601→  web_url      TEXT,
+   602→  cover_url    TEXT    NOT NULL,
+   603→  size         TEXT    DEFAULT '0 MB',
+   604→  version      TEXT    DEFAULT '1.0',
+   605→  min_android  TEXT    DEFAULT '5.0',
+   606→  is_featured  BOOLEAN DEFAULT false,
+   607→  is_hidden    BOOLEAN DEFAULT false,
+   608→  is_free      BOOLEAN DEFAULT true,
+   609→  downloads    INTEGER DEFAULT 0,
+   610→  rating       REAL    DEFAULT 0,
+   611→  created_at   TIMESTAMPTZ DEFAULT now(),
+   612→  updated_at   TIMESTAMPTZ DEFAULT now()
+   613→);
+   614→
+   615→CREATE INDEX idx_games_category  ON games (category);
+   616→CREATE INDEX idx_games_type      ON games (game_type);
+   617→CREATE INDEX idx_games_featured  ON games (is_featured) WHERE is_featured = true;
+   618→CREATE INDEX idx_games_hidden    ON games (is_hidden) WHERE is_hidden = false;
+   619→
+   620→ALTER TABLE games ENABLE ROW LEVEL SECURITY;
+   621→CREATE POLICY "games_public_read" ON games FOR SELECT USING (true);
+   622→CREATE POLICY "games_admin_manage" ON games FOR ALL TO authenticated USING (true);
+   623→
+   624→
+   625→-- ──────────────────────────────────────────────────────────────────────────────
+   626→-- TABLE: game_scores
+   627→-- ──────────────────────────────────────────────────────────────────────────────
+   628→
+   629→CREATE TABLE game_scores (
+   630→  id          UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+   631→  user_id     UUID    REFERENCES auth.users(id) ON DELETE CASCADE,
+   632→  game_slug   TEXT    NOT NULL,
+   633→  high_score  INTEGER DEFAULT 0,
+   634→  coins       INTEGER DEFAULT 0,
+   635→  plays       INTEGER DEFAULT 0,
+   636→  last_played TIMESTAMPTZ DEFAULT now(),
+   637→  UNIQUE(user_id, game_slug)
+   638→);
+   639→
+   640→CREATE INDEX idx_game_scores_game   ON game_scores (game_slug);
+   641→CREATE INDEX idx_game_scores_high   ON game_scores (high_score DESC);
+   642→
+   643→ALTER TABLE game_scores ENABLE ROW LEVEL SECURITY;
+   644→CREATE POLICY "Users can read own scores" ON game_scores FOR SELECT USING (auth.uid() = user_id);
+   645→CREATE POLICY "Users can insert own scores" ON game_scores FOR INSERT WITH CHECK (auth.uid() = user_id);
+   646→CREATE POLICY "Users can update own scores" ON game_scores FOR UPDATE USING (auth.uid() = user_id);
+   647→
+   648→
+   649→-- ──────────────────────────────────────────────────────────────────────────────
+   650→-- TABLE: game_data (RPC ফাংশনের জন্য)
+   651→-- ──────────────────────────────────────────────────────────────────────────────
+   652→
+   653→CREATE TABLE game_data (
+   654→  id          UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+   655→  user_id     UUID    REFERENCES user_profiles(id) ON DELETE CASCADE,
+   656→  game_slug   TEXT    NOT NULL,
+   657→  high_score  INTEGER DEFAULT 0,
+   658→  coins       INTEGER DEFAULT 0,
+   659→  plays       INTEGER DEFAULT 0,
+   660→  last_played TIMESTAMPTZ DEFAULT now(),
+   661→  created_at  TIMESTAMPTZ DEFAULT now(),
+   662→  UNIQUE(user_id, game_slug)
+   663→);
+   664→
+   665→CREATE INDEX idx_game_data_slug  ON game_data (game_slug);
+   666→CREATE INDEX idx_game_data_high  ON game_data (high_score DESC);
+   667→
+   668→ALTER TABLE game_data ENABLE ROW LEVEL SECURITY;
+   669→CREATE POLICY "Users can read own game data" ON game_data FOR SELECT
+   670→  USING (user_id IN (SELECT id FROM user_profiles WHERE auth_user_id = auth.uid()));
+   671→CREATE POLICY "Users can insert own game data" ON game_data FOR INSERT
+   672→  WITH CHECK (user_id IN (SELECT id FROM user_profiles WHERE auth_user_id = auth.uid()));
+   673→CREATE POLICY "Users can update own game data" ON game_data FOR UPDATE
+   674→  USING (user_id IN (SELECT id FROM user_profiles WHERE auth_user_id = auth.uid()));
+   675→
+   676→
+   677→-- ──────────────────────────────────────────────────────────────────────────────
+   678→-- TABLE: game_downloads
+   679→-- ──────────────────────────────────────────────────────────────────────────────
+   680→
+   681→CREATE TABLE game_downloads (
+   682→  id            UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+   683→  user_id       UUID    REFERENCES auth.users(id) ON DELETE CASCADE,
+   684→  game_id       UUID    REFERENCES games(id) ON DELETE CASCADE,
+   685→  downloaded_at TIMESTAMPTZ DEFAULT now(),
+   686→  status        TEXT    DEFAULT 'pending',
+   687→  progress      NUMERIC DEFAULT 0,
+   688→  file_path     TEXT    DEFAULT '',
+   689→  UNIQUE(user_id, game_id)
+   690→);
+   691→
+   692→ALTER TABLE game_downloads ENABLE ROW LEVEL SECURITY;
+   693→CREATE POLICY "game_downloads_user_own" ON game_downloads FOR ALL USING (auth.uid() = user_id);
+   694→
+   695→
+   696→-- ╔══════════════════════════════════════════════════════════════════════════════╗
+   697→-- ║  SECTION 7: PUSH NOTIFICATIONS TABLES                                     ║
+   698→-- ╚══════════════════════════════════════════════════════════════════════════════╝
+   699→
+   700→
+   701→-- ──────────────────────────────────────────────────────────────────────────────
+   702→-- TABLE: push_subscriptions
+   703→-- ──────────────────────────────────────────────────────────────────────────────
+   704→
+   705→CREATE TABLE push_subscriptions (
+   706→  id           UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+   707→  user_id      UUID REFERENCES user_profiles(id) ON DELETE CASCADE,
+   708→  device_token TEXT NOT NULL,
+   709→  platform     TEXT DEFAULT 'web',
+   710→  device_info  TEXT DEFAULT '',
+   711→  is_active    BOOLEAN DEFAULT true,
+   712→  created_at   TIMESTAMPTZ DEFAULT now(),
+   713→  last_used    TIMESTAMPTZ DEFAULT now(),
+   714→  UNIQUE(device_token)
+   715→);
+   716→
+   717→CREATE INDEX idx_push_subs_user   ON push_subscriptions (user_id);
+   718→CREATE INDEX idx_push_subs_active ON push_subscriptions (is_active) WHERE is_active = true;
+   719→CREATE INDEX idx_push_subs_token  ON push_subscriptions (device_token);
+   720→
+   721→ALTER TABLE push_subscriptions ENABLE ROW LEVEL SECURITY;
+   722→CREATE POLICY "Users can read own push subscriptions" ON push_subscriptions FOR SELECT
+   723→  USING (user_id IN (SELECT id FROM user_profiles WHERE auth_user_id = auth.uid()) OR auth.role() = 'service_role');
+   724→CREATE POLICY "Users can insert own push subscriptions" ON push_subscriptions FOR INSERT
+   725→  WITH CHECK (user_id IN (SELECT id FROM user_profiles WHERE auth_user_id = auth.uid()));
+   726→CREATE POLICY "Users can update own push subscriptions" ON push_subscriptions FOR UPDATE
+   727→  USING (user_id IN (SELECT id FROM user_profiles WHERE auth_user_id = auth.uid()));
+   728→CREATE POLICY "Users can delete own push subscriptions" ON push_subscriptions FOR DELETE
+   729→  USING (user_id IN (SELECT id FROM user_profiles WHERE auth_user_id = auth.uid()));
+   730→
+   731→
+   732→-- ──────────────────────────────────────────────────────────────────────────────
+   733→-- TABLE: notification_log
+   734→-- ──────────────────────────────────────────────────────────────────────────────
+   735→
+   736→CREATE TABLE notification_log (
+   737→  id           UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+   738→  title        TEXT    NOT NULL,
+   739→  body         TEXT    NOT NULL,
+   740→  category     TEXT    DEFAULT 'new_content',
+   741→  sent_count   INTEGER DEFAULT 0,
+   742→  created_at   TIMESTAMPTZ DEFAULT now()
+   743→);
+   744→
+   745→CREATE INDEX idx_notif_log_created ON notification_log (created_at DESC);
+   746→
+   747→ALTER TABLE notification_log ENABLE ROW LEVEL SECURITY;
+   748→CREATE POLICY "Notification log readable by all" ON notification_log FOR SELECT USING (true);
+   749→CREATE POLICY "Notification log write by service_role" ON notification_log FOR INSERT WITH CHECK (auth.role() = 'service_role');
+   750→
+   751→
+   752→-- ╔══════════════════════════════════════════════════════════════════════════════╗
+   753→-- ║  SECTION 8: RPC FUNCTIONS                                                 ║
+   754→-- ╚══════════════════════════════════════════════════════════════════════════════╝
+   755→
+   756→
+   757→-- ──────────────────────────────────────────────────────────────────────────────
+   758→-- RPC: upsert_missing_request
+   759→-- ──────────────────────────────────────────────────────────────────────────────
+   760→
+   761→CREATE FUNCTION upsert_missing_request(
+   762→  p_search_query TEXT,
+   763→  p_category TEXT DEFAULT 'movie'
+   764→)
+   765→RETURNS TABLE (id BIGINT, search_query TEXT, category TEXT, status TEXT, request_count INTEGER) AS $$
+   766→DECLARE
+   767→  v_id BIGINT;
+   768→BEGIN
+   769→  INSERT INTO missing_requests (search_query, category, status, request_count)
+   770→  VALUES (p_search_query, p_category, 'pending', 1)
+   771→  ON CONFLICT (search_query, category)
+   772→  DO UPDATE SET
+   773→    request_count = missing_requests.request_count + 1,
+   774→    updated_at = now()
+   775→  RETURNING id INTO v_id;
+   776→
+   777→  RETURN QUERY
+   778→    SELECT mr.id, mr.search_query, mr.category, mr.status::TEXT, mr.request_count
+   779→    FROM missing_requests mr
+   780→    WHERE mr.id = v_id;
+   781→END;
+   782→$$ LANGUAGE plpgsql SECURITY DEFINER;
+   783→
+   784→
+   785→-- ──────────────────────────────────────────────────────────────────────────────
+   786→-- RPC: fetch_user_game_data
+   787→-- ──────────────────────────────────────────────────────────────────────────────
+   788→
+   789→CREATE FUNCTION fetch_user_game_data(
+   790→  p_auth_user_id UUID
+   791→)
+   792→RETURNS TABLE (
+   793→  id UUID, game_slug TEXT, high_score INTEGER,
+   794→  coins INTEGER, plays INTEGER, last_played TIMESTAMPTZ, created_at TIMESTAMPTZ
+   795→) AS $$
+   796→  SELECT gd.id, gd.game_slug, gd.high_score, gd.coins, gd.plays,
+   797→         gd.last_played, gd.created_at
+   798→  FROM game_data gd
+   799→  INNER JOIN user_profiles up ON up.id = gd.user_id
+   800→  WHERE up.auth_user_id = p_auth_user_id
+   801→  ORDER BY gd.last_played DESC;
+   802→$$ LANGUAGE sql STABLE SECURITY DEFINER;
+   803→
+   804→
+   805→-- ──────────────────────────────────────────────────────────────────────────────
+   806→-- RPC: fetch_game_score
+   807→-- ──────────────────────────────────────────────────────────────────────────────
+   808→
+   809→CREATE FUNCTION fetch_game_score(
+   810→  p_auth_user_id UUID,
+   811→  p_game_slug TEXT
+   812→)
+   813→RETURNS TABLE (high_score INTEGER, coins INTEGER, plays INTEGER) AS $$
+   814→  SELECT gd.high_score, gd.coins, gd.plays
+   815→  FROM game_data gd
+   816→  INNER JOIN user_profiles up ON up.id = gd.user_id
+   817→  WHERE up.auth_user_id = p_auth_user_id
+   818→    AND gd.game_slug = p_game_slug;
+   819→$$ LANGUAGE sql STABLE SECURITY DEFINER;
+   820→
+   821→
+   822→-- ──────────────────────────────────────────────────────────────────────────────
+   823→-- RPC: upsert_game_score
+   824→-- ──────────────────────────────────────────────────────────────────────────────
+   825→
+   826→CREATE FUNCTION upsert_game_score(
+   827→  p_auth_user_id UUID,
+   828→  p_game_slug TEXT,
+   829→  p_score INTEGER,
+   830→  p_coins_earned INTEGER DEFAULT 0
+   831→)
+   832→RETURNS TABLE (id UUID, game_slug TEXT, high_score INTEGER, coins INTEGER, plays INTEGER) AS $$
+   833→DECLARE
+   834→  v_profile_id UUID;
+   835→  v_current_high INTEGER;
+   836→  v_result_id UUID;
+   837→BEGIN
+   838→  SELECT id INTO v_profile_id FROM user_profiles WHERE auth_user_id = p_auth_user_id LIMIT 1;
+   839→  IF v_profile_id IS NULL THEN
+   840→    RAISE EXCEPTION 'User profile not found for auth_user_id %', p_auth_user_id;
+   841→  END IF;
+   842→
+   843→  SELECT high_score INTO v_current_high
+   844→  FROM game_data WHERE user_id = v_profile_id AND game_slug = p_game_slug;
+   845→
+   846→  IF v_current_high IS NOT NULL THEN
+   847→    UPDATE game_data
+   848→    SET high_score = GREATEST(high_score, p_score),
+   849→        coins = coins + p_coins_earned,
+   850→        plays = plays + 1,
+   851→        last_played = now()
+   852→    WHERE user_id = v_profile_id AND game_slug = p_game_slug
+   853→    RETURNING id INTO v_result_id;
+   854→  ELSE
+   855→    INSERT INTO game_data (user_id, game_slug, high_score, coins, plays)
+   856→    VALUES (v_profile_id, p_game_slug, p_score, p_coins_earned, 1)
+   857→    RETURNING id INTO v_result_id;
+   858→  END IF;
+   859→
+   860→  IF p_coins_earned > 0 THEN
+   861→    UPDATE user_profiles SET coins = coins + p_coins_earned WHERE id = v_profile_id;
+   862→  END IF;
+   863→
+   864→  RETURN QUERY
+   865→    SELECT gd.id, gd.game_slug, gd.high_score, gd.coins, gd.plays
+   866→    FROM game_data gd WHERE gd.id = v_result_id;
+   867→END;
+   868→$$ LANGUAGE plpgsql SECURITY DEFINER;
+   869→
+   870→
+   871→-- ──────────────────────────────────────────────────────────────────────────────
+   872→-- RPC: fetch_user_coins
+   873→-- ──────────────────────────────────────────────────────────────────────────────
+   874→
+   875→CREATE FUNCTION fetch_user_coins(
+   876→  p_auth_user_id UUID
+   877→)
+   878→RETURNS TABLE (total_coins INTEGER, game_coins INTEGER, games_played INTEGER) AS $$
+   879→DECLARE
+   880→  v_profile_coins INTEGER;
+   881→  v_game_coins INTEGER;
+   882→  v_games_count INTEGER;
+   883→BEGIN
+   884→  SELECT coins INTO v_profile_coins FROM user_profiles WHERE auth_user_id = p_auth_user_id;
+   885→  SELECT COALESCE(SUM(gd.coins), 0), COUNT(*)
+   886→  INTO v_game_coins, v_games_count
+   887→  FROM game_data gd
+   888→  INNER JOIN user_profiles up ON up.id = gd.user_id
+   889→  WHERE up.auth_user_id = p_auth_user_id;
+   890→  v_profile_coins := COALESCE(v_profile_coins, 0);
+   891→  RETURN QUERY SELECT v_profile_coins, v_game_coins, v_games_count;
+   892→END;
+   893→$$ LANGUAGE plpgsql STABLE SECURITY DEFINER;
+   894→
+   895→
+   896→-- ──────────────────────────────────────────────────────────────────────────────
+   897→-- RPC: fetch_leaderboard
+   898→-- ──────────────────────────────────────────────────────────────────────────────
+   899→
+   900→CREATE FUNCTION fetch_leaderboard(
+   901→  p_game_slug TEXT DEFAULT NULL,
+   902→  p_limit INTEGER DEFAULT 10
+   903→)
+   904→RETURNS TABLE (
+   905→  rank BIGINT, display_name TEXT, avatar_url TEXT,
+   906→  game_slug TEXT, high_score INTEGER, coins INTEGER, plays INTEGER
+   907→) AS $$
+   908→  SELECT
+   909→    ROW_NUMBER() OVER (
+   910→      PARTITION BY gd.game_slug
+   911→      ORDER BY gd.high_score DESC, gd.coins DESC
+   912→    ) AS rank,
+   913→    up.display_name, up.avatar_url, gd.game_slug,
+   914→    gd.high_score, gd.coins, gd.plays
+   915→  FROM game_data gd
+   916→  INNER JOIN user_profiles up ON up.id = gd.user_id
+   917→  WHERE p_game_slug IS NULL OR gd.game_slug = p_game_slug
+   918→  ORDER BY gd.high_score DESC, gd.coins DESC
+   919→  LIMIT p_limit;
+   920→$$ LANGUAGE sql STABLE SECURITY DEFINER;
+   921→
+   922→
+   923→-- ──────────────────────────────────────────────────────────────────────────────
+   924→-- RPC: deduct_user_coins
+   925→-- ──────────────────────────────────────────────────────────────────────────────
+   926→
+   927→CREATE FUNCTION deduct_user_coins(
+   928→  p_auth_user_id UUID,
+   929→  p_amount INTEGER
+   930→)
+   931→RETURNS TABLE (success BOOLEAN, remaining_coins INTEGER) AS $$
+   932→DECLARE
+   933→  v_profile_id UUID;
+   934→  v_current INTEGER;
+   935→BEGIN
+   936→  IF p_amount <= 0 THEN RETURN QUERY SELECT false, 0; RETURN; END IF;
+   937→  SELECT id, coins INTO v_profile_id, v_current
+   938→  FROM user_profiles WHERE auth_user_id = p_auth_user_id;
+   939→  IF v_profile_id IS NULL THEN RETURN QUERY SELECT false, 0; RETURN; END IF;
+   940→  IF v_current < p_amount THEN RETURN QUERY SELECT false, v_current; RETURN; END IF;
+   941→  UPDATE user_profiles SET coins = coins - p_amount WHERE id = v_profile_id;
+   942→  RETURN QUERY SELECT true, (v_current - p_amount);
+   943→END;
+   944→$$ LANGUAGE plpgsql SECURITY DEFINER;
+   945→
+   946→
+   947→-- ──────────────────────────────────────────────────────────────────────────────
+   948→-- RPC: register_push_token
+   949→-- ──────────────────────────────────────────────────────────────────────────────
+   950→
+   951→CREATE FUNCTION register_push_token(
+   952→  p_auth_user_id UUID,
+   953→  p_device_token TEXT,
+   954→  p_platform TEXT DEFAULT 'web',
+   955→  p_device_info TEXT DEFAULT ''
+   956→)
+   957→RETURNS UUID AS $$
+   958→DECLARE
+   959→  v_profile_id UUID;
+   960→  v_existing_id UUID;
+   961→BEGIN
+   962→  SELECT id INTO v_profile_id FROM user_profiles WHERE auth_user_id = p_auth_user_id;
+   963→  IF v_profile_id IS NULL THEN RAISE EXCEPTION 'User profile not found'; END IF;
+   964→  SELECT id INTO v_existing_id FROM push_subscriptions WHERE device_token = p_device_token;
+   965→  IF v_existing_id IS NOT NULL THEN
+   966→    UPDATE push_subscriptions
+   967→    SET user_id = v_profile_id, platform = p_platform,
+   968→        device_info = p_device_info, is_active = true, last_used = now()
+   969→    WHERE id = v_existing_id;
+   970→    RETURN v_existing_id;
+   971→  END IF;
+   972→  INSERT INTO push_subscriptions (user_id, device_token, platform, device_info)
+   973→  VALUES (v_profile_id, p_device_token, p_platform, p_device_info)
+   974→  RETURNING id INTO v_existing_id;
+   975→  RETURN v_existing_id;
+   976→END;
+   977→$$ LANGUAGE plpgsql SECURITY DEFINER;
+   978→
+   979→
+   980→-- ──────────────────────────────────────────────────────────────────────────────
+   981→-- RPC: unregister_push_token
+   982→-- ──────────────────────────────────────────────────────────────────────────────
+   983→
+   984→CREATE FUNCTION unregister_push_token(p_device_token TEXT)
+   985→RETURNS BOOLEAN AS $$
+   986→BEGIN
+   987→  UPDATE push_subscriptions SET is_active = false WHERE device_token = p_device_token;
+   988→  RETURN FOUND;
+   989→END;
+   990→$$ LANGUAGE plpgsql SECURITY DEFINER;
+   991→
+   992→
+   993→-- ──────────────────────────────────────────────────────────────────────────────
+   994→-- RPC: get_active_push_tokens
+   995→-- ──────────────────────────────────────────────────────────────────────────────
+   996→
+   997→CREATE FUNCTION get_active_push_tokens(p_limit INTEGER DEFAULT 500)
+   998→RETURNS TABLE (device_token TEXT, platform TEXT) AS $$
+   999→  SELECT device_token, platform
+  1000→  FROM push_subscriptions
+  1001→  WHERE is_active = true
+  1002→  ORDER BY last_used DESC
+  1003→  LIMIT p_limit;
+  1004→$$ LANGUAGE sql STABLE SECURITY DEFINER;
+  1005→
+  1006→
+  1007→-- ──────────────────────────────────────────────────────────────────────────────
+  1008→-- RPC: cleanup_stale_tokens
+  1009→-- ──────────────────────────────────────────────────────────────────────────────
+  1010→
+  1011→CREATE FUNCTION cleanup_stale_tokens()
+  1012→RETURNS void AS $$
+  1013→BEGIN
+  1014→  UPDATE push_subscriptions
+  1015→  SET is_active = false
+  1016→  WHERE last_used < now() - INTERVAL '30 days' AND is_active = true;
+  1017→END;
+  1018→$$ LANGUAGE plpgsql SECURITY DEFINER;
+  1019→
+  1020→
+  1021→-- ──────────────────────────────────────────────────────────────────────────────
+  1022→-- TRIGGER: notify_new_video
+  1023→-- ──────────────────────────────────────────────────────────────────────────────
+  1024→
+  1025→CREATE FUNCTION notify_new_video()
+  1026→RETURNS TRIGGER AS $$
+  1027→DECLARE
+  1028→  v_title TEXT;
+  1029→  v_category TEXT;
+  1030→  v_notification_body TEXT;
+  1031→BEGIN
+  1032→  IF TG_OP != 'INSERT' THEN RETURN NEW; END IF;
+  1033→  v_title := NEW.title;
+  1034→  v_category := NEW.category;
+  1035→  IF v_category = 'music' THEN
+  1036→    v_notification_body := 'New music added! Check it out.';
+  1037→  ELSE
+  1038→    v_notification_body := 'New movie added! Check it out.';
+  1039→  END IF;
+  1040→  PERFORM net.http_post(
+  1041→    url := 'https://gjapqxeksdsiqhvlfrnb.supabase.co/functions/v1/push-notify',
+  1042→    headers := jsonb_build_object(
+  1043→      'Content-Type', 'application/json',
+  1044→      'Authorization', 'Bearer ' || current_setting('app.cron_secret', true)
+  1045→    ),
+  1046→    body := jsonb_build_object(
+  1047→      'type', 'new_video', 'title', v_title,
+  1048→      'body', v_notification_body, 'category', v_category,
+  1049→      'video_id', NEW.yt_video_id,
+  1050→      'thumbnail', COALESCE(NEW.thumbnail_url, '')
+  1051→    ),
+  1052→    timeout_milliseconds := 5000
+  1053→  );
+  1054→  RETURN NEW;
+  1055→END;
+  1056→$$ LANGUAGE plpgsql SECURITY DEFINER;
+  1057→
+  1058→CREATE TRIGGER trg_notify_new_video
+  1059→  AFTER INSERT ON videos
+  1060→  FOR EACH ROW
+  1061→  WHEN (NEW.source = 'youtube')
+  1062→  EXECUTE FUNCTION notify_new_video();
+  1063→
+  1064→
+  1065→-- ──────────────────────────────────────────────────────────────────────────────
+  1066→-- TRIGGER: auto-update updated_at
+  1067→-- ──────────────────────────────────────────────────────────────────────────────
+  1068→
+  1069→CREATE FUNCTION update_updated_at()
+  1070→RETURNS TRIGGER AS $$
+  1071→BEGIN
+  1072→  NEW.updated_at = now();
+  1073→  RETURN NEW;
+  1074→END;
+  1075→$$ LANGUAGE plpgsql;
+  1076→
+  1077→CREATE TRIGGER trg_yt_channels_updated   BEFORE UPDATE ON yt_channels      FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+  1078→CREATE TRIGGER trg_channel_display_updated BEFORE UPDATE ON channel_display FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+  1079→CREATE TRIGGER trg_app_features_updated  BEFORE UPDATE ON app_features     FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+  1080→CREATE TRIGGER trg_app_settings_updated  BEFORE UPDATE ON app_settings     FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+  1081→CREATE TRIGGER trg_games_updated         BEFORE UPDATE ON games            FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+  1082→CREATE TRIGGER trg_user_profiles_updated BEFORE UPDATE ON user_profiles    FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+  1083→
+  1084→
+  1085→-- ╔══════════════════════════════════════════════════════════════════════════════╗
+  1086→-- ║  SECTION 9: VIEWS                                                         ║
+  1087→-- ╚══════════════════════════════════════════════════════════════════════════════╝
+  1088→
+  1089→CREATE VIEW channel_display_with_info AS
+  1090→SELECT
+  1091→  cd.id,
+  1092→  cd.channel_id,
+  1093→  cd.display_name,
+  1094→  cd.logo_url,
+  1095→  cd.badge_color,
+  1096→  cd.border_color,
+  1097→  cd.is_visible,
+  1098→  cd.sort_order,
+  1099→  yc.channel_name,
+  1100→  yc.channel_type,
+  1101→  yc.total_imported,
+  1102→  yc.channel_avatar
+  1103→FROM channel_display cd
+  1104→LEFT JOIN yt_channels yc ON yc.channel_id = cd.channel_id
+  1105→WHERE cd.is_visible = true
+  1106→ORDER BY cd.sort_order ASC;
+  1107→
+  1108→ALTER TABLE channel_display_with_info OWNER TO postgres;
+  1109→
+  1110→
+  1111→-- ╔══════════════════════════════════════════════════════════════════════════════╗
+  1112→-- ║  SECTION 10: GRANT PERMISSIONS                                            ║
+  1113→-- ╚══════════════════════════════════════════════════════════════════════════════╝
+  1114→
+  1115→GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
+  1116→GRANT USAGE, SELECT ON SEQUENCE public.videos_id_seq TO anon, authenticated, service_role;
+  1117→GRANT USAGE, SELECT ON SEQUENCE public.missing_requests_id_seq TO anon, authenticated, service_role;
+  1118→
+  1119→
+  1120→-- ╔══════════════════════════════════════════════════════════════════════════════╗
+  1121→-- ║  ✅ সব হয়ে গেছে! এখন অ্যাডমিন তৈরি করো:                                      ║
+  1122→-- ║                                                                            ║
+  1123→-- ║  1. Supabase Dashboard → Authentication → Users → Add user                ║
+  1124→-- ║     Email: admin@playnexa.com    Password: PlayNexa@2024                  ║
+  1125→-- ║                                                                            ║
+  1126→-- ║  2. ইউজারের UUID কপি করো                                                   ║
+  1127→-- ║                                                                            ║
+  1128→-- ║  3. SQL Editor এ রান করো:                                                  ║
+  1129→-- ║     INSERT INTO admin_users (user_id, email, role)                         ║
+  1130→-- ║     VALUES ('UUID_পেস্ট_করো', 'admin@playnexa.com', 'superadmin');            ║
+  1131→-- ╚══════════════════════════════════════════════════════════════════════════════╝
+  1132→
