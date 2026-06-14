@@ -162,21 +162,31 @@ export const upgradeGuestWithGoogle = async (): Promise<{
     provider.addScope('email')
     provider.addScope('profile')
 
-    const result = await linkWithCredential(
-      auth.currentUser,
-      GoogleAuthProvider.credentialFromResult(
-        await signInWithPopup(auth, provider)
-      )!
-    )
-    await syncUserToSupabase(result.user)
-    return { user: result.user, error: null }
+    // Step 1: Get Google credential via popup
+    const googleResult = await signInWithPopup(auth, provider)
+
+    // Step 2: Link the Google credential to the anonymous account
+    const credential = GoogleAuthProvider.credentialFromResult(googleResult)
+    if (credential) {
+      const linkResult = await linkWithCredential(auth.currentUser, credential)
+      await syncUserToSupabase(linkResult.user)
+      return { user: linkResult.user, error: null }
+    }
+
+    // If no credential extracted, the popup sign-in may have auto-linked
+    await syncUserToSupabase(googleResult.user)
+    return { user: googleResult.user, error: null }
   } catch (err: any) {
-    // If linking fails, try regular Google sign-in
+    // If credential already in use, just do regular Google sign-in
     if (err.code === 'auth/credential-already-in-use') {
-      const provider = new GoogleAuthProvider()
-      const result = await signInWithPopup(auth, provider)
-      await syncUserToSupabase(result.user)
-      return { user: result.user, error: null }
+      try {
+        const provider = new GoogleAuthProvider()
+        const result = await signInWithPopup(auth, provider)
+        await syncUserToSupabase(result.user)
+        return { user: result.user, error: null }
+      } catch (err2: any) {
+        return { user: null, error: getFirebaseError(err2.code) }
+      }
     }
     return { user: null, error: getFirebaseError(err.code) }
   }
