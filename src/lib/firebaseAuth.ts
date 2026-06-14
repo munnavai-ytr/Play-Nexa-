@@ -1,5 +1,5 @@
 // ── Play Nexa — Firebase Auth Functions ──────────────────────────
-// Email/password login, signup, Google login, Apple login, Guest (anonymous) login
+// Email/password login, signup, Google login, Guest (anonymous) login
 // Auto-syncs Firebase users to Supabase user_profiles table
 // All error messages in Bengali
 // Gracefully handles missing Firebase config
@@ -9,7 +9,6 @@ import {
   createUserWithEmailAndPassword,
   signInWithPopup,
   GoogleAuthProvider,
-  OAuthProvider,
   signInAnonymously,
   signOut,
   onAuthStateChanged,
@@ -90,28 +89,6 @@ export const loginWithGoogle = async (): Promise<{
     const result = await signInWithPopup(auth, provider)
 
     // If user was anonymous, they're now upgraded automatically by Firebase
-    await syncUserToSupabase(result.user)
-    return { user: result.user, error: null }
-  } catch (err: any) {
-    return { user: null, error: getFirebaseError(err.code) }
-  }
-}
-
-// ── APPLE LOGIN ──
-
-export const loginWithApple = async (): Promise<{
-  user: User | null
-  error: string | null
-}> => {
-  const check = requireAuth()
-  if (!check.ready) return { user: null, error: check.error }
-
-  try {
-    const provider = new OAuthProvider('apple.com')
-    provider.addScope('email')
-    provider.addScope('name')
-
-    const result = await signInWithPopup(auth, provider)
     await syncUserToSupabase(result.user)
     return { user: result.user, error: null }
   } catch (err: any) {
@@ -201,32 +178,6 @@ export const upgradeGuestWithGoogle = async (): Promise<{
       await syncUserToSupabase(result.user)
       return { user: result.user, error: null }
     }
-    return { user: null, error: getFirebaseError(err.code) }
-  }
-}
-
-// ── UPGRADE GUEST WITH APPLE ──
-
-export const upgradeGuestWithApple = async (): Promise<{
-  user: User | null
-  error: string | null
-}> => {
-  const check = requireAuth()
-  if (!check.ready) return { user: null, error: check.error }
-
-  try {
-    if (!auth.currentUser || !auth.currentUser.isAnonymous) {
-      return { user: null, error: 'এটা guest account নয়' }
-    }
-
-    const provider = new OAuthProvider('apple.com')
-    provider.addScope('email')
-    provider.addScope('name')
-
-    const result = await signInWithPopup(auth, provider)
-    await syncUserToSupabase(result.user)
-    return { user: result.user, error: null }
-  } catch (err: any) {
     return { user: null, error: getFirebaseError(err.code) }
   }
 }
