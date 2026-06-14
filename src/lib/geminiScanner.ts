@@ -4,27 +4,76 @@
 // Netflix-aware: defaults Netflix channel content to skip (trailers/clips)
 // Only promotes Netflix content as movie if strong full-content signals
 // Merges fallback + Gemini results using confidence comparison
+// Uses /api/admin/gemini-rotate for smart key rotation
 
 import { GoogleGenerativeAI } from '@google/generative-ai'
 
 const GEMINI_KEY = process.env.GEMINI_API_KEY || ''
-
-let genAI: GoogleGenerativeAI | null = null
-
-function getGenAI(): GoogleGenerativeAI | null {
-  if (!GEMINI_KEY || GEMINI_KEY === 'your_gemini_api_key_here') {
-    return null
-  }
-  if (!genAI) {
-    genAI = new GoogleGenerativeAI(GEMINI_KEY)
-  }
-  return genAI
-}
+const APP_URL = process.env.NEXT_PUBLIC_SUPABASE_URL
+  ? process.env.NEXT_PUBLIC_SUPABASE_URL.replace('/supabase.co', '').replace('https://', '')
+  : ''
 
 export interface ScanResult {
   type: 'movie' | 'music' | 'skip'
   confidence: number
   reason: string
+}
+
+// ── Smart key fetcher with auto-rotate support ──
+
+async function getActiveGeminiKey(): Promise<{
+  key: string
+  keyId: string | null
+}> {
+  try {
+    // Try the rotate API first (supports DB keys + auto-rotate)
+    const baseUrl = process.env.NEXT_PUBLIC_APP_URL ||
+      (typeof window !== 'undefined' ? window.location.origin : '')
+
+    if (baseUrl) {
+      const res = await fetch(`${baseUrl}/api/admin/gemini-rotate`, {
+        next: { revalidate: 0 },
+      })
+      if (res.ok) {
+        const data = await res.json()
+        if (data.key) {
+          return {
+            key: data.key,
+            keyId: data.keyId || null,
+          }
+        }
+      }
+    }
+  } catch {
+    // Rotate API not available — fall through to env key
+  }
+
+  // Fallback to env key
+  return {
+    key: GEMINI_KEY,
+    keyId: null,
+  }
+}
+
+// ── Update key usage after API call ──
+
+async function updateKeyUsage(keyId: string | null, increment: number = 2) {
+  if (!keyId) return
+
+  try {
+    const baseUrl = process.env.NEXT_PUBLIC_APP_URL ||
+      (typeof window !== 'undefined' ? window.location.origin : '')
+
+    if (baseUrl) {
+      fetch(`${baseUrl}/api/admin/gemini-rotate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ keyId, usageIncrement: increment }),
+      }).catch(() => {})
+    }
+  } catch {
+    // Non-blocking — usage update failure should not break scanning
+  }
 }
 
 /**
@@ -54,19 +103,16 @@ export async function classifyVideo(
   }
 
   // Use Gemini for uncertain cases
-  if (!GEMINI_KEY || GEMINI_KEY === 'your_gemini_api_key_here') {
-    console.log('[Scanner] No GEMINI_API_KEY, using fallback')
-    return fallback
-  }
-
-  const ai = getGenAI()
-  if (!ai) {
-    console.log('[Scanner] Gemini client init failed, using fallback')
-    return fallback
-  }
-
   try {
-    const model = ai.getGenerativeModel({
+    const { key, keyId } = await getActiveGeminiKey()
+
+    if (!key || key === 'your_gemini_api_key_here') {
+      console.log('[Scanner] No Gemini key available, using fallback')
+      return fallback
+    }
+
+    const genAI = new GoogleGenerativeAI(key)
+    const model = genAI.getGenerativeModel({
       model: 'gemini-1.5-flash',
     })
 
@@ -97,6 +143,9 @@ Respond ONLY valid JSON, nothing else:
 
     const result = await model.generateContent(prompt)
     const text = result.response.text().trim()
+
+    // Update key usage (non-blocking)
+    updateKeyUsage(keyId, 2)
 
     // Extract JSON safely — Gemini sometimes wraps in markdown code blocks
     const jsonMatch = text.match(/\{[\s\S]*?\}/)
@@ -255,8 +304,6 @@ function fallbackClassify(
   }
 
   // ── Netflix-specific logic ──
-  // Netflix channels mostly post trailers and clips, NOT full movies.
-  // Only classify as movie if very clear full-content signals exist.
   if (channelName.toLowerCase().includes('netflix')) {
     if (
       titleLower.includes('full') ||
@@ -269,7 +316,6 @@ function fallbackClassify(
         reason: 'Netflix full content signal',
       }
     }
-    // Default Netflix content to skip (mostly trailers/clips)
     return {
       type: 'skip',
       confidence: 0.8,
