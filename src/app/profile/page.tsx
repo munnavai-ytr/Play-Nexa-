@@ -5,11 +5,12 @@ import {
   Settings, ChevronRight, Download,
   Heart, ListMusic, Gamepad2,
   Moon, Bell, HelpCircle,
-  Star, Share2, Clock
+  Star, Share2, Clock, LogIn,
+  Shield, Zap
 } from 'lucide-react'
 import { useProfile } from '@/hooks/useProfile'
 import { useAuth } from '@/hooks/useAuth'
-import { logout } from '@/lib/firebaseAuth'
+import { logout, upgradeGuestWithGoogle, upgradeGuestWithApple, upgradeGuestWithEmail } from '@/lib/firebaseAuth'
 import { getSettings, saveSettings } from '@/lib/settings'
 import { applyTheme } from '@/lib/theme'
 
@@ -21,7 +22,7 @@ const AVATAR_COLORS = [
 export default function ProfilePage() {
   const router = useRouter()
   const { profile, loading, updateProfile } = useProfile()
-  const { user, supabaseProfile, isLoading: authLoading, isLoggedIn } = useAuth()
+  const { user, supabaseProfile, isLoading: authLoading, isLoggedIn, isGuest } = useAuth()
   const [showEdit, setShowEdit]   = useState(false)
   const [editName, setEditName]   = useState('')
   const [editHandle, setEditHandle] = useState('')
@@ -31,6 +32,12 @@ export default function ProfilePage() {
   const [ratingDone, setRatingDone] = useState(false)
   const [shareToast, setShareToast] = useState(false)
   const [signingOut, setSigningOut] = useState(false)
+  const [showUpgrade, setShowUpgrade] = useState(false)
+  const [upgradeEmail, setUpgradeEmail] = useState('')
+  const [upgradePassword, setUpgradePassword] = useState('')
+  const [upgradeName, setUpgradeName] = useState('')
+  const [upgradeLoading, setUpgradeLoading] = useState(false)
+  const [upgradeError, setUpgradeError] = useState('')
 
   useEffect(() => {
     const s = getSettings()
@@ -42,45 +49,16 @@ export default function ProfilePage() {
     }
   }, [])
 
-  // ── Not logged in → show login prompt ──
-
-  if (!authLoading && !isLoggedIn) {
-    return (
-      <div className="min-h-screen bg-[#0D0D0D] flex flex-col items-center justify-center pb-20 px-6">
-        <div className="w-20 h-20 rounded-full bg-[#1A1A2E] flex items-center justify-center mb-4">
-          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#4B5563" strokeWidth="1.5">
-            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
-            <circle cx="12" cy="7" r="4"/>
-          </svg>
-        </div>
-        <h2 className="text-white font-bold text-xl mb-2">Sign in to continue</h2>
-        <p className="text-[#9CA3AF] text-sm text-center mb-8">
-          তোমার watchlist, history আর liked movies দেখতে sign in করো
-        </p>
-        <button
-          onClick={() => router.push('/auth/login')}
-          className="w-full max-w-xs h-12 bg-[#7C3AED] rounded-xl text-white font-semibold active:opacity-80 transition-opacity"
-        >
-          Sign In
-        </button>
-        <button
-          onClick={() => router.push('/auth/signup')}
-          className="w-full max-w-xs h-12 bg-[#1A1A2E] border border-[#2D2D2D] rounded-xl text-white mt-3 active:opacity-80 transition-opacity"
-        >
-          Create Account
-        </button>
-      </div>
-    )
-  }
-
   // ── Loading state ──
-
   if (loading || authLoading) return <ProfileSkeleton />
 
   // ── Determine display info ──
-
-  const displayName = user?.displayName || supabaseProfile?.display_name || profile.username
-  const displayEmail = user?.email || supabaseProfile?.email || ''
+  const displayName = isGuest
+    ? 'Guest User'
+    : (user?.displayName || supabaseProfile?.display_name || profile.username)
+  const displayEmail = isGuest
+    ? ''
+    : (user?.email || supabaseProfile?.email || '')
   const displayCoins = supabaseProfile?.coins || 0
   const avatarInitial = (displayName || 'U')[0].toUpperCase()
 
@@ -163,6 +141,67 @@ export default function ProfilePage() {
     }
   }
 
+  // ── Guest upgrade handlers ──
+  const handleUpgradeGoogle = async () => {
+    setUpgradeLoading(true)
+    setUpgradeError('')
+    const { user, error } = await upgradeGuestWithGoogle()
+    if (error) {
+      setUpgradeError(error)
+      setUpgradeLoading(false)
+      return
+    }
+    if (user) {
+      setShowUpgrade(false)
+      localStorage.removeItem('pn_guest_mode')
+    }
+    setUpgradeLoading(false)
+  }
+
+  const handleUpgradeApple = async () => {
+    setUpgradeLoading(true)
+    setUpgradeError('')
+    const { user, error } = await upgradeGuestWithApple()
+    if (error) {
+      setUpgradeError(error)
+      setUpgradeLoading(false)
+      return
+    }
+    if (user) {
+      setShowUpgrade(false)
+      localStorage.removeItem('pn_guest_mode')
+    }
+    setUpgradeLoading(false)
+  }
+
+  const handleUpgradeEmail = async () => {
+    if (!upgradeEmail.trim() || !upgradePassword.trim() || !upgradeName.trim()) {
+      setUpgradeError('সব তথ্য দাও')
+      return
+    }
+    if (upgradePassword.length < 6) {
+      setUpgradeError('Password কমপক্ষে 6 character হতে হবে')
+      return
+    }
+    setUpgradeLoading(true)
+    setUpgradeError('')
+    const { user, error } = await upgradeGuestWithEmail(
+      upgradeEmail,
+      upgradePassword,
+      upgradeName.trim()
+    )
+    if (error) {
+      setUpgradeError(error)
+      setUpgradeLoading(false)
+      return
+    }
+    if (user) {
+      setShowUpgrade(false)
+      localStorage.removeItem('pn_guest_mode')
+    }
+    setUpgradeLoading(false)
+  }
+
   const ACTIVITY_ITEMS = [
     {
       icon: <Download size={18} className="text-blue-400" />,
@@ -207,10 +246,62 @@ export default function ProfilePage() {
 
       <div className="px-4 pt-4 space-y-4">
 
+        {/* ── NOT LOGGED IN → Login prompt (but app is still usable) ── */}
+        {!isLoggedIn && (
+          <div className="bg-[#1A1A2E] border border-[#1E293B] rounded-2xl p-5 text-center">
+            <div className="w-20 h-20 rounded-full bg-[#0F0F0F] flex items-center justify-center mx-auto mb-4">
+              <LogIn size={32} className="text-[#4B5563]" />
+            </div>
+            <h2 className="text-white font-bold text-xl mb-2">
+              Sign In to Unlock More
+            </h2>
+            <p className="text-[#9CA3AF] text-sm text-center mb-6">
+              তোমার watchlist, history আর liked movies save করতে sign in করো
+            </p>
+            <button
+              onClick={() => router.push('/auth/login')}
+              className="w-full max-w-xs h-12 bg-[#7C3AED] rounded-xl text-white font-semibold active:opacity-80 transition-opacity mx-auto block"
+            >
+              Sign In
+            </button>
+            <button
+              onClick={() => router.push('/auth/signup')}
+              className="w-full max-w-xs h-12 bg-[#1A1A2E] border border-[#2D2D2D] rounded-xl text-white mt-3 active:opacity-80 transition-opacity mx-auto block"
+            >
+              Create Account
+            </button>
+          </div>
+        )}
+
+        {/* ── GUEST USER → Upgrade prompt ── */}
+        {isLoggedIn && isGuest && (
+          <div className="bg-gradient-to-br from-[#7C3AED]/20 to-[#4F46E5]/10 border border-[#7C3AED]/30 rounded-2xl p-5">
+            <div className="flex items-start gap-4">
+              <div className="w-12 h-12 rounded-xl bg-[#7C3AED]/20 flex items-center justify-center flex-shrink-0">
+                <Zap size={22} className="text-[#7C3AED]" />
+              </div>
+              <div className="flex-1">
+                <h3 className="text-white font-bold text-sm mb-1">
+                  Guest Mode এ আছো
+                </h3>
+                <p className="text-[#9CA3AF] text-xs mb-3">
+                  তোমার data সুরক্ষিত রাখতে আর ডিভাইস চেঞ্জ করলেও পাওয়ার জন্য account তৈরি করো
+                </p>
+                <button
+                  onClick={() => setShowUpgrade(true)}
+                  className="h-9 px-5 bg-[#7C3AED] rounded-lg text-white text-xs font-semibold active:opacity-80 transition-opacity"
+                >
+                  Upgrade Account
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Avatar + Info Card */}
         <div className="bg-[#1A1A2E] border border-[#1E293B] rounded-2xl p-5 text-center">
           {/* Avatar */}
-          {user?.photoURL ? (
+          {user?.photoURL && !isGuest ? (
             <img
               src={user.photoURL}
               className="w-20 h-20 rounded-full mx-auto mb-3 object-cover"
@@ -218,15 +309,20 @@ export default function ProfilePage() {
             />
           ) : (
             <div
-              className="w-20 h-20 rounded-full mx-auto mb-3 flex items-center justify-center text-white text-3xl font-bold"
-              style={{ background: `linear-gradient(135deg, ${profile.avatarColor}, #06B6D4)` }}
+              className="w-20 h-20 rounded-full mx-auto mb-3 flex items-center justify-center text-white text-3xl font-bold relative"
+              style={{ background: `linear-gradient(135deg, ${isGuest ? '#4B5563' : profile.avatarColor}, ${isGuest ? '#6B7280' : '#06B6D4'})` }}
             >
               {avatarInitial}
+              {isGuest && (
+                <div className="absolute -bottom-1 -right-1 w-7 h-7 rounded-full bg-[#0F0F0F] border-2 border-[#1A1A2E] flex items-center justify-center">
+                  <Shield size={12} className="text-[#9CA3AF]" />
+                </div>
+              )}
             </div>
           )}
 
-          {/* Color picker (only when no Google photo) */}
-          {!user?.photoURL && (
+          {/* Color picker (only when no Google photo and not guest) */}
+          {!user?.photoURL && !isGuest && (
             <div className="flex justify-center gap-2 mb-3">
               {AVATAR_COLORS.map(color => (
                 <button
@@ -242,22 +338,32 @@ export default function ProfilePage() {
           <h2 className="text-white font-bold text-xl mb-1">
             {displayName}
           </h2>
-          <p className="text-[#9CA3AF] text-sm mb-1">
-            {displayEmail}
-          </p>
-          <div className="flex items-center justify-center gap-1 mb-4">
-            <span className="text-[#FFD700] text-xs">🪙</span>
-            <span className="text-[#9CA3AF] text-xs">
-              {displayCoins} coins
-            </span>
-          </div>
+          {displayEmail ? (
+            <p className="text-[#9CA3AF] text-sm mb-1">
+              {displayEmail}
+            </p>
+          ) : isGuest ? (
+            <p className="text-[#6B7280] text-xs mb-1">
+              Guest Account
+            </p>
+          ) : null}
+          {!isGuest && (
+            <div className="flex items-center justify-center gap-1 mb-4">
+              <span className="text-[#FFD700] text-xs">🪙</span>
+              <span className="text-[#9CA3AF] text-xs">
+                {displayCoins} coins
+              </span>
+            </div>
+          )}
 
-          <button
-            onClick={openEdit}
-            className="px-8 py-2.5 rounded-xl border border-[#7C3AED] text-[#7C3AED] text-sm font-semibold active:scale-95 active:bg-[#7C3AED]/10 transition-all duration-150"
-          >
-            Edit Profile
-          </button>
+          {!isGuest && (
+            <button
+              onClick={openEdit}
+              className="px-8 py-2.5 rounded-xl border border-[#7C3AED] text-[#7C3AED] text-sm font-semibold active:scale-95 active:bg-[#7C3AED]/10 transition-all duration-150"
+            >
+              Edit Profile
+            </button>
+          )}
         </div>
 
         {/* Real Stats */}
@@ -356,20 +462,22 @@ export default function ProfilePage() {
           </button>
         </div>
 
-        {/* Sign Out */}
-        <div className="pb-4">
-          <button
-            onClick={handleSignOut}
-            disabled={signingOut}
-            className="w-full h-12 bg-red-900/30 border border-red-700/50 rounded-xl text-red-400 font-semibold text-sm disabled:opacity-50 active:opacity-80 flex items-center justify-center gap-2 transition-opacity"
-          >
-            {signingOut ? (
-              <div className="w-5 h-5 border-2 border-red-400 border-t-transparent rounded-full animate-spin" />
-            ) : (
-              'Sign Out'
-            )}
-          </button>
-        </div>
+        {/* Sign Out — only when logged in */}
+        {isLoggedIn && (
+          <div className="pb-4">
+            <button
+              onClick={handleSignOut}
+              disabled={signingOut}
+              className="w-full h-12 bg-red-900/30 border border-red-700/50 rounded-xl text-red-400 font-semibold text-sm disabled:opacity-50 active:opacity-80 flex items-center justify-center gap-2 transition-opacity"
+            >
+              {signingOut ? (
+                <div className="w-5 h-5 border-2 border-red-400 border-t-transparent rounded-full animate-spin" />
+              ) : (
+                'Sign Out'
+              )}
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Share Toast */}
@@ -456,6 +564,117 @@ export default function ProfilePage() {
               <button onClick={() => setShowEdit(false)} className="flex-1 h-12 rounded-xl border border-[#1E293B] text-[#9CA3AF] text-sm font-medium">Cancel</button>
               <button onClick={saveEdit} className="flex-1 h-12 rounded-xl bg-[#7C3AED] text-white text-sm font-semibold active:scale-95 transition-transform duration-150">Save</button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Guest Upgrade Modal */}
+      {showUpgrade && (
+        <div className="fixed inset-0 z-50 flex items-end">
+          <div className="absolute inset-0 bg-black/80" onClick={() => { setShowUpgrade(false); setUpgradeError('') }} />
+          <div className="relative w-full bg-[#1A1A2E] border-t border-[#1E293B] rounded-t-3xl p-5 z-10 max-h-[90vh] overflow-y-auto">
+            <div className="w-10 h-1 bg-[#1E293B] rounded-full mx-auto mb-5" />
+            <div className="text-center mb-5">
+              <div className="w-14 h-14 rounded-2xl mx-auto mb-3 flex items-center justify-center"
+                style={{ background: 'linear-gradient(135deg, #7C3AED, #4F46E5)' }}
+              >
+                <Zap size={24} className="text-white" />
+              </div>
+              <h3 className="text-white font-bold text-lg">Upgrade Account</h3>
+              <p className="text-[#9CA3AF] text-xs mt-1">
+                তোমার data সুরক্ষিত রাখতে account যুক্ত করো
+              </p>
+            </div>
+
+            {upgradeError && (
+              <div className="bg-red-900/30 border border-red-700/50 rounded-xl px-4 py-3 mb-4">
+                <p className="text-red-400 text-sm text-center">{upgradeError}</p>
+              </div>
+            )}
+
+            {/* Google upgrade */}
+            <button
+              onClick={handleUpgradeGoogle}
+              disabled={upgradeLoading}
+              className="w-full h-12 bg-white rounded-xl text-black text-sm font-semibold flex items-center justify-center gap-3 disabled:opacity-50 active:scale-[0.97] transition-transform mb-3"
+            >
+              {upgradeLoading ? (
+                <div className="w-5 h-5 border-2 border-black border-t-transparent rounded-full animate-spin" />
+              ) : (
+                <>
+                  <svg width="18" height="18" viewBox="0 0 24 24">
+                    <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+                    <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+                    <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
+                    <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+                  </svg>
+                  Google দিয়ে Upgrade
+                </>
+              )}
+            </button>
+
+            {/* Apple upgrade */}
+            <button
+              onClick={handleUpgradeApple}
+              disabled={upgradeLoading}
+              className="w-full h-12 bg-[#0F0F0F] border border-[#2D2D2D] rounded-xl text-white text-sm font-medium flex items-center justify-center gap-3 disabled:opacity-50 active:scale-[0.97] transition-transform mb-3"
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="white">
+                <path d="M17.05 20.28c-.98.95-2.05.88-3.08.4-1.09-.5-2.08-.48-3.24 0-1.44.62-2.2.44-3.06-.4C2.79 15.25 3.51 7.59 9.05 7.31c1.35.07 2.29.74 3.08.8 1.18-.24 2.31-.93 3.57-.84 1.51.12 2.65.72 3.4 1.8-3.12 1.87-2.38 5.98.48 7.13-.57 1.5-1.31 2.99-2.54 4.09zM12.03 7.25c-.15-2.23 1.66-4.07 3.74-4.25.29 2.58-2.34 4.5-3.74 4.25z"/>
+              </svg>
+              Apple দিয়ে Upgrade
+            </button>
+
+            {/* Divider */}
+            <div className="flex items-center gap-3 my-4">
+              <div className="flex-1 h-px bg-[#1E293B]" />
+              <span className="text-[#4B5563] text-xs">অথবা</span>
+              <div className="flex-1 h-px bg-[#1E293B]" />
+            </div>
+
+            {/* Email upgrade form */}
+            <div className="space-y-3">
+              <input
+                type="text"
+                value={upgradeName}
+                onChange={e => setUpgradeName(e.target.value)}
+                placeholder="তোমার নাম"
+                className="w-full h-11 bg-[#0F0F0F] border border-[#2D2D2D] rounded-xl px-4 text-white text-sm outline-none focus:border-[#7C3AED] placeholder-[#4B5563] transition-colors"
+              />
+              <input
+                type="email"
+                value={upgradeEmail}
+                onChange={e => setUpgradeEmail(e.target.value)}
+                placeholder="your@email.com"
+                className="w-full h-11 bg-[#0F0F0F] border border-[#2D2D2D] rounded-xl px-4 text-white text-sm outline-none focus:border-[#7C3AED] placeholder-[#4B5563] transition-colors"
+              />
+              <input
+                type="password"
+                value={upgradePassword}
+                onChange={e => setUpgradePassword(e.target.value)}
+                placeholder="Password (কমপক্ষে ৬ character)"
+                className="w-full h-11 bg-[#0F0F0F] border border-[#2D2D2D] rounded-xl px-4 text-white text-sm outline-none focus:border-[#7C3AED] placeholder-[#4B5563] transition-colors"
+              />
+              <button
+                onClick={handleUpgradeEmail}
+                disabled={upgradeLoading}
+                className="w-full h-12 bg-[#7C3AED] rounded-xl text-white font-semibold text-sm disabled:opacity-50 active:opacity-80 flex items-center justify-center gap-2 transition-opacity"
+              >
+                {upgradeLoading ? (
+                  <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                ) : (
+                  'Email দিয়ে Upgrade'
+                )}
+              </button>
+            </div>
+
+            {/* Cancel */}
+            <button
+              onClick={() => { setShowUpgrade(false); setUpgradeError('') }}
+              className="w-full h-11 mt-3 rounded-xl text-[#9CA3AF] text-sm font-medium"
+            >
+              পরে করবো
+            </button>
           </div>
         </div>
       )}

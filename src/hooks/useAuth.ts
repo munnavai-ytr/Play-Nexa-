@@ -1,6 +1,6 @@
 // ── Play Nexa — useAuth Hook ─────────────────────────────────────
 // Global auth state (module-level singleton — no duplicate listeners)
-// Returns Firebase user + Supabase profile
+// Returns Firebase user + Supabase profile + guest detection
 // Client-side only
 
 'use client'
@@ -26,6 +26,7 @@ interface AuthState {
   supabaseProfile: SupabaseProfile | null
   isLoading: boolean
   isLoggedIn: boolean
+  isGuest: boolean
 }
 
 // ── Global auth state (module level — shared across components) ──
@@ -59,9 +60,9 @@ export const useAuth = (): AuthState => {
     }
   }, [])
 
-  // Fetch Supabase profile when user changes
+  // Fetch Supabase profile when user changes (skip for anonymous/guest users)
   useEffect(() => {
-    if (globalUser?.email && supabase) {
+    if (globalUser?.email && supabase && !globalUser.isAnonymous) {
       supabase
         .from('user_profiles')
         .select('*')
@@ -75,10 +76,13 @@ export const useAuth = (): AuthState => {
     }
   }, [globalUser])
 
+  const isGuest = globalUser?.isAnonymous ?? false
+
   return {
     user: globalUser,
     supabaseProfile,
     isLoading: globalLoading,
     isLoggedIn: !!globalUser,
+    isGuest,
   }
 }

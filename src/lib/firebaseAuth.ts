@@ -1,5 +1,5 @@
 // ── Play Nexa — Firebase Auth Functions ──────────────────────────
-// Email/password login, signup, Google login, logout, password reset
+// Email/password login, signup, Google login, Apple login, Guest (anonymous) login
 // Auto-syncs Firebase users to Supabase user_profiles table
 // All error messages in Bengali
 // Gracefully handles missing Firebase config
@@ -9,10 +9,14 @@ import {
   createUserWithEmailAndPassword,
   signInWithPopup,
   GoogleAuthProvider,
+  OAuthProvider,
+  signInAnonymously,
   signOut,
   onAuthStateChanged,
   updateProfile,
   sendPasswordResetEmail,
+  linkWithCredential,
+  EmailAuthProvider,
   User,
 } from 'firebase/auth'
 import { auth, isFirebaseReady } from './firebase'
@@ -84,11 +88,153 @@ export const loginWithGoogle = async (): Promise<{
     provider.addScope('profile')
 
     const result = await signInWithPopup(auth, provider)
+
+    // If user was anonymous, they're now upgraded automatically by Firebase
     await syncUserToSupabase(result.user)
     return { user: result.user, error: null }
   } catch (err: any) {
     return { user: null, error: getFirebaseError(err.code) }
   }
+}
+
+// ── APPLE LOGIN ──
+
+export const loginWithApple = async (): Promise<{
+  user: User | null
+  error: string | null
+}> => {
+  const check = requireAuth()
+  if (!check.ready) return { user: null, error: check.error }
+
+  try {
+    const provider = new OAuthProvider('apple.com')
+    provider.addScope('email')
+    provider.addScope('name')
+
+    const result = await signInWithPopup(auth, provider)
+    await syncUserToSupabase(result.user)
+    return { user: result.user, error: null }
+  } catch (err: any) {
+    return { user: null, error: getFirebaseError(err.code) }
+  }
+}
+
+// ── GUEST (ANONYMOUS) LOGIN ──
+// Creates an anonymous Firebase account — no email/password needed
+// User can use the app fully, and later upgrade to a permanent account
+
+export const loginAsGuest = async (): Promise<{
+  user: User | null
+  error: string | null
+}> => {
+  const check = requireAuth()
+  if (!check.ready) return { user: null, error: check.error }
+
+  try {
+    const result = await signInAnonymously(auth)
+    await updateProfile(result.user, {
+      displayName: 'Guest User',
+    })
+    return { user: result.user, error: null }
+  } catch (err: any) {
+    return { user: null, error: getFirebaseError(err.code) }
+  }
+}
+
+// ── UPGRADE GUEST TO PERMANENT ──
+// Links an anonymous account with email/password credentials
+
+export const upgradeGuestWithEmail = async (
+  email: string,
+  password: string,
+  displayName: string
+): Promise<{ user: User | null; error: string | null }> => {
+  const check = requireAuth()
+  if (!check.ready) return { user: null, error: check.error }
+
+  try {
+    if (!auth.currentUser || !auth.currentUser.isAnonymous) {
+      return { user: null, error: 'এটা guest account নয়' }
+    }
+
+    const credential = EmailAuthProvider.credential(email, password)
+    const result = await linkWithCredential(auth.currentUser, credential)
+    await updateProfile(result.user, { displayName })
+    await syncUserToSupabase(result.user, displayName)
+    return { user: result.user, error: null }
+  } catch (err: any) {
+    return { user: null, error: getFirebaseError(err.code) }
+  }
+}
+
+// ── UPGRADE GUEST WITH GOOGLE ──
+
+export const upgradeGuestWithGoogle = async (): Promise<{
+  user: User | null
+  error: string | null
+}> => {
+  const check = requireAuth()
+  if (!check.ready) return { user: null, error: check.error }
+
+  try {
+    if (!auth.currentUser || !auth.currentUser.isAnonymous) {
+      return { user: null, error: 'এটা guest account নয়' }
+    }
+
+    const provider = new GoogleAuthProvider()
+    provider.addScope('email')
+    provider.addScope('profile')
+
+    const result = await linkWithCredential(
+      auth.currentUser,
+      GoogleAuthProvider.credentialFromResult(
+        await signInWithPopup(auth, provider)
+      )!
+    )
+    await syncUserToSupabase(result.user)
+    return { user: result.user, error: null }
+  } catch (err: any) {
+    // If linking fails, try regular Google sign-in
+    if (err.code === 'auth/credential-already-in-use') {
+      const provider = new GoogleAuthProvider()
+      const result = await signInWithPopup(auth, provider)
+      await syncUserToSupabase(result.user)
+      return { user: result.user, error: null }
+    }
+    return { user: null, error: getFirebaseError(err.code) }
+  }
+}
+
+// ── UPGRADE GUEST WITH APPLE ──
+
+export const upgradeGuestWithApple = async (): Promise<{
+  user: User | null
+  error: string | null
+}> => {
+  const check = requireAuth()
+  if (!check.ready) return { user: null, error: check.error }
+
+  try {
+    if (!auth.currentUser || !auth.currentUser.isAnonymous) {
+      return { user: null, error: 'এটা guest account নয়' }
+    }
+
+    const provider = new OAuthProvider('apple.com')
+    provider.addScope('email')
+    provider.addScope('name')
+
+    const result = await signInWithPopup(auth, provider)
+    await syncUserToSupabase(result.user)
+    return { user: result.user, error: null }
+  } catch (err: any) {
+    return { user: null, error: getFirebaseError(err.code) }
+  }
+}
+
+// ── CHECK IF USER IS GUEST ──
+
+export const isGuestUser = (user: User | null): boolean => {
+  return user?.isAnonymous ?? false
 }
 
 // ── LOGOUT ──
@@ -101,6 +247,10 @@ export const logout = async (): Promise<void> => {
     await supabase?.auth.signOut()
   } catch {
     // Supabase signOut may fail if not configured — ignore
+  }
+  // Clear guest flag
+  if (typeof window !== 'undefined') {
+    localStorage.removeItem('pn_guest_mode')
   }
 }
 
@@ -126,7 +276,11 @@ export const syncUserToSupabase = async (
   firebaseUser: User,
   displayName?: string
 ): Promise<void> => {
-  if (!supabase || !firebaseUser.email) return
+  if (!supabase) return
+
+  // Anonymous/guest users don't sync to Supabase (no email)
+  if (firebaseUser.isAnonymous) return
+  if (!firebaseUser.email) return
 
   try {
     const { data: existing } = await supabase
@@ -186,6 +340,8 @@ const getFirebaseError = (code: string): string => {
     'auth/account-exists-with-different-credential':
       'এই email অন্য method দিয়ে খোলা আছে',
     'auth/invalid-api-key': 'Firebase API key সঠিক নয়। .env.local চেক করো',
+    'auth/provider-already-linked': 'এই login method ইতিমধ্যে linked আছে',
+    'auth/anonymous-upgrade-failed': 'Guest account upgrade করতে সমস্যা হয়েছে',
   }
   return errors[code] || 'কিছু একটা ভুল হয়েছে। আবার চেষ্টা করো'
 }
