@@ -153,7 +153,7 @@ export default function AnalyticsPage() {
         moviesRes,
         activityRes,
       ] = await Promise.all([
-        // Top watched movies
+        // Top watched movies (join may fail if no FK — handled below)
         supabase
           .from('user_history')
           .select('movie_id, watch_count, movies(title)')
@@ -165,7 +165,7 @@ export default function AnalyticsPage() {
           .select('watched_at')
           .gte('watched_at', new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString())
           .order('watched_at', { ascending: false }),
-        // Likes per channel
+        // Likes per channel (join may fail if no FK — handled below)
         supabase
           .from('user_likes')
           .select('movie_id, movies(channel_name)'),
@@ -181,34 +181,100 @@ export default function AnalyticsPage() {
           .limit(50),
       ])
 
-      // Top watched
-      const watched = (historyRes.data || []) as any[]
-      const watchedMapped: TopWatched[] = watched.map((r: any) => ({
-        name: r.movies?.title
-          ? r.movies.title.length > 14
-            ? r.movies.title.slice(0, 14) + '…'
-            : r.movies.title
-          : 'Unknown',
-        watch_count: r.watch_count || 0,
-      }))
-      setTopWatched(watchedMapped)
+      // Top watched — if join failed (no FK), fall back to two-step query
+      if (historyRes.error || !historyRes.data) {
+        // Fallback: fetch history IDs first, then movie titles separately
+        const historyFallback = await supabase
+          .from('user_history')
+          .select('movie_id, watch_count')
+          .order('watch_count', { ascending: false })
+          .limit(10)
+
+        const fallbackData = (historyFallback.data || []) as any[]
+        if (fallbackData.length > 0) {
+          const movieIds = [...new Set(fallbackData.map((r: any) => r.movie_id))]
+          const moviesLookup = await supabase
+            .from('movies')
+            .select('id, title')
+            .in('id', movieIds)
+          const titleMap = new Map<string, string>(
+            ((moviesLookup.data || []) as any[]).map((m: any) => [m.id, m.title])
+          )
+          const watchedMapped: TopWatched[] = fallbackData.map((r: any) => {
+            const title = titleMap.get(r.movie_id) || 'Unknown'
+            return {
+              name: title.length > 14 ? title.slice(0, 14) + '…' : title,
+              watch_count: r.watch_count || 0,
+            }
+          })
+          setTopWatched(watchedMapped)
+        } else {
+          setTopWatched([])
+        }
+      } else {
+        const watched = historyRes.data as any[]
+        const watchedMapped: TopWatched[] = watched.map((r: any) => ({
+          name: r.movies?.title
+            ? r.movies.title.length > 14
+              ? r.movies.title.slice(0, 14) + '…'
+              : r.movies.title
+            : 'Unknown',
+          watch_count: r.watch_count || 0,
+        }))
+        setTopWatched(watchedMapped)
+      }
 
       // Daily activity
       const dailyRecords = (dailyRes.data || []) as any[]
       setDailyUsers(groupByDate(dailyRecords, 'watched_at'))
 
-      // Channel likes
-      const likesData = (likesRes.data || []) as any[]
-      const likesMap = new Map<string, number>()
-      likesData.forEach((r: any) => {
-        const ch = r.movies?.channel_name
-        if (ch) likesMap.set(ch, (likesMap.get(ch) || 0) + 1)
-      })
-      const likesArr: ChannelLike[] = Array.from(likesMap.entries())
-        .map(([name, count]) => ({ name, count }))
-        .sort((a, b) => b.count - a.count)
-        .slice(0, 5)
-      setChannelLikes(likesArr)
+      // Channel likes — if join failed (no FK), fall back to two-step query
+      if (likesRes.error || !likesRes.data) {
+        const likesFallback = await supabase
+          .from('user_likes')
+          .select('movie_id')
+
+        const fallbackLikes = (likesFallback.data || []) as any[]
+        if (fallbackLikes.length > 0) {
+          const likedMovieIds = [...new Set(fallbackLikes.map((r: any) => r.movie_id))]
+          const likedMoviesLookup = await supabase
+            .from('movies')
+            .select('id, channel_name')
+            .in('id', likedMovieIds)
+          const channelMapLikes = new Map<string, number>()
+          // Count likes per movie, then map to channel
+          const likeCountsPerMovie = new Map<string, number>()
+          fallbackLikes.forEach((r: any) => {
+            likeCountsPerMovie.set(r.movie_id, (likeCountsPerMovie.get(r.movie_id) || 0) + 1)
+          })
+          const movieChannelMap = new Map<string, string>(
+            ((likedMoviesLookup.data || []) as any[]).map((m: any) => [m.id, m.channel_name])
+          )
+          likeCountsPerMovie.forEach((count, movieId) => {
+            const ch = movieChannelMap.get(movieId)
+            if (ch) channelMapLikes.set(ch, (channelMapLikes.get(ch) || 0) + count)
+          })
+          const likesArr: ChannelLike[] = Array.from(channelMapLikes.entries())
+            .map(([name, count]) => ({ name, count }))
+            .sort((a, b) => b.count - a.count)
+            .slice(0, 5)
+          setChannelLikes(likesArr)
+        } else {
+          setChannelLikes([])
+        }
+      } else {
+        const likesData = likesRes.data as any[]
+        const likesMap = new Map<string, number>()
+        likesData.forEach((r: any) => {
+          const ch = r.movies?.channel_name
+          if (ch) likesMap.set(ch, (likesMap.get(ch) || 0) + 1)
+        })
+        const likesArr: ChannelLike[] = Array.from(likesMap.entries())
+          .map(([name, count]) => ({ name, count }))
+          .sort((a, b) => b.count - a.count)
+          .slice(0, 5)
+        setChannelLikes(likesArr)
+      }
 
       // Genre-like data (movies per channel)
       const moviesData = (moviesRes.data || []) as any[]

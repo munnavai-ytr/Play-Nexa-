@@ -218,9 +218,9 @@ export default function MovieManagerPage() {
         youtube_id: form.youtube_id.trim(),
         title: form.title.trim(),
         channel_name: form.channel_name.trim(),
-        thumbnail: form.thumbnail.trim(),
-        description: form.description.trim(),
-        duration: form.duration.trim(),
+        thumbnail: form.thumbnail.trim() || null,
+        description: form.description.trim() || null,
+        duration: form.duration.trim() || null,
         view_count: form.view_count ? parseInt(form.view_count, 10) : 0,
         published_at: form.published_at || null,
       }

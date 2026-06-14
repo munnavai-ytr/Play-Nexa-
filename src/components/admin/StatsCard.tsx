@@ -4,7 +4,7 @@
 
 'use client'
 
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState, useRef, ReactNode } from 'react'
 
 interface StatsCardProps {
   title: string
@@ -14,8 +14,6 @@ interface StatsCardProps {
   trend?: 'up' | 'down' | 'neutral'
   trendValue?: string
 }
-
-import { ReactNode } from 'react'
 
 export default function StatsCard({ title, value, icon, color, trend, trendValue }: StatsCardProps) {
   const [displayValue, setDisplayValue] = useState(0)

@@ -2,6 +2,7 @@
 // Real-time scan progress endpoint polled by Admin UI every 8 seconds
 // Returns scan_status, counts, progress percentage, batch info
 // Queries actual DB counts for movies/music for accuracy
+// Handles missing scan_* columns gracefully (returns defaults)
 
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
@@ -45,15 +46,16 @@ export async function GET(req: NextRequest) {
     .eq('source_channel_id', channelId)
 
   const imported = (movieCount || 0) + (musicCount || 0)
-  const total = ch.total_videos_on_channel || 0
-  const remaining = Math.max(0, total - imported)
 
-  // Progress percentage
+  // Handle missing scan_* columns gracefully
+  // These columns may not exist if the DB hasn't been migrated yet
+  const total = ch.total_videos_on_channel || ch.total_imported || 0
+  const remaining = Math.max(0, total - imported)
   const progress = total > 0 ? Math.round((imported / total) * 100) : 0
 
   return NextResponse.json({
     status: ch.scan_status || 'idle',
-    totalOnChannel: ch.total_videos_on_channel || 0,
+    totalOnChannel: total,
     imported,
     movieCount: movieCount || 0,
     musicCount: musicCount || 0,

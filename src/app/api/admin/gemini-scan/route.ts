@@ -56,7 +56,6 @@ export async function POST(req: NextRequest) {
     .from('ai_scan_jobs')
     .insert([
       {
-        channel_id: channelDbId,
         channel_name: channel.channel_name,
         status: 'scanning',
         started_at: new Date().toISOString(),

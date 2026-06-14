@@ -4,11 +4,41 @@
 // duplicate processing across multiple batches
 // Uses Gemini AI classification with rate limit protection
 // Checks pause/stop status mid-batch for responsive control
+// Handles missing scan_* columns gracefully (falls back to existing columns)
 
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { parseRSSXML } from '@/lib/rssParser'
 import { classifyVideo } from '@/lib/geminiScanner'
+
+/**
+ * Safely update yt_channels, handling the case where scan_* columns
+ * may not exist yet (before DB migration).
+ * Tries the full update first; if it fails due to missing columns,
+ * retries with only the columns that exist.
+ */
+async function safeChannelUpdate(
+  channelId: string,
+  fullUpdate: Record<string, unknown>,
+  fallbackUpdate: Record<string, unknown>
+) {
+  if (!supabaseAdmin) return
+
+  // Try full update first (includes scan_* columns)
+  const { error: fullErr } = await supabaseAdmin
+    .from('yt_channels')
+    .update(fullUpdate)
+    .eq('id', channelId)
+
+  if (fullErr) {
+    // If full update failed (likely missing columns), try fallback
+    console.log('[AUTO-SCAN] Full update failed, using fallback:', fullErr.message)
+    await supabaseAdmin
+      .from('yt_channels')
+      .update(fallbackUpdate)
+      .eq('id', channelId)
+  }
+}
 
 export async function POST(req: NextRequest) {
   const { channelDbId, action } = await req.json()
@@ -42,26 +72,28 @@ export async function POST(req: NextRequest) {
 
   // ── PAUSE ──
   if (action === 'pause') {
-    await supabaseAdmin
-      .from('yt_channels')
-      .update({ scan_status: 'paused' })
-      .eq('id', channelDbId)
+    await safeChannelUpdate(
+      channelDbId,
+      { scan_status: 'paused' },
+      { total_imported: channel.total_imported || 0 }
+    )
     console.log('[AUTO-SCAN] Paused:', channel.channel_name)
     return NextResponse.json({ success: true, status: 'paused' })
   }
 
   // ── STOP & RESET ──
   if (action === 'stop') {
-    await supabaseAdmin
-      .from('yt_channels')
-      .update({
+    await safeChannelUpdate(
+      channelDbId,
+      {
         scan_status: 'idle',
         scan_batch: 0,
         scanned_video_ids: [],
         videos_imported: 0,
         total_videos_on_channel: 0,
-      })
-      .eq('id', channelDbId)
+      },
+      { total_imported: 0 }
+    )
     console.log('[AUTO-SCAN] Stopped & reset:', channel.channel_name)
     return NextResponse.json({ success: true, status: 'stopped' })
   }
@@ -76,10 +108,11 @@ export async function POST(req: NextRequest) {
       })
     }
 
-    await supabaseAdmin
-      .from('yt_channels')
-      .update({ scan_status: 'scanning' })
-      .eq('id', channelDbId)
+    await safeChannelUpdate(
+      channelDbId,
+      { scan_status: 'scanning' },
+      {} // no fallback needed for status-only update
+    )
 
     // Run one batch asynchronously — don't await so UI doesn't timeout
     runBatch(channel).catch(err => {
@@ -105,6 +138,7 @@ export async function POST(req: NextRequest) {
  * classifies new ones with Gemini AI, inserts to DB.
  * Checks pause/stop status mid-batch for responsive control.
  * Saves progress every 5 videos.
+ * Handles missing scan_* columns gracefully.
  */
 async function runBatch(channel: any) {
   const channelId = channel.id
@@ -117,7 +151,10 @@ async function runBatch(channel: any) {
     console.log('[AUTO-SCAN] Batch start for:', channel.channel_name)
 
     // Get already scanned IDs (dedup system)
-    const scannedIds: string[] = channel.scanned_video_ids || []
+    // scanned_video_ids column may not exist — default to empty array
+    const scannedIds: string[] = Array.isArray(channel.scanned_video_ids)
+      ? channel.scanned_video_ids
+      : []
 
     // ── Fetch videos from YouTube RSS ──
     let allVideos: any[] = []
@@ -139,7 +176,7 @@ async function runBatch(channel: any) {
     } catch {}
 
     // Method 2: Uploads playlist (UC→UU)
-    if (channel.channel_id.startsWith('UC')) {
+    if (channel.channel_id?.startsWith('UC')) {
       try {
         const playlistId = 'UU' + channel.channel_id.slice(2)
         const res = await fetch(
@@ -153,7 +190,6 @@ async function runBatch(channel: any) {
           const xml = await res.text()
           if (xml.includes('<entry>')) {
             const extra = parseRSSXML(xml)
-            // Add only unique videos
             for (const v of extra) {
               if (!allVideos.find(x => x.videoId === v.videoId)) {
                 allVideos.push(v)
@@ -167,13 +203,14 @@ async function runBatch(channel: any) {
     console.log('[AUTO-SCAN] Videos fetched:', allVideos.length)
 
     if (allVideos.length === 0) {
-      await supabaseAdmin
-        .from('yt_channels')
-        .update({
+      await safeChannelUpdate(
+        channelId,
+        {
           scan_status: 'completed',
           last_synced_at: new Date().toISOString(),
-        })
-        .eq('id', channelId)
+        },
+        { last_synced_at: new Date().toISOString() }
+      )
       return
     }
 
@@ -183,28 +220,32 @@ async function runBatch(channel: any) {
     )
 
     if (newVideos.length === 0) {
-      // No new videos — all done
       console.log('[AUTO-SCAN] No new videos, marking completed')
-      await supabaseAdmin
-        .from('yt_channels')
-        .update({
+      await safeChannelUpdate(
+        channelId,
+        {
           scan_status: 'completed',
           last_synced_at: new Date().toISOString(),
           total_videos_on_channel: scannedIds.length,
-        })
-        .eq('id', channelId)
+        },
+        {
+          last_synced_at: new Date().toISOString(),
+          total_imported: scannedIds.length,
+        }
+      )
       return
     }
 
     console.log('[AUTO-SCAN] New videos to process:', newVideos.length)
 
     // Update total count estimate
-    await supabaseAdmin
-      .from('yt_channels')
-      .update({
+    await safeChannelUpdate(
+      channelId,
+      {
         total_videos_on_channel: scannedIds.length + newVideos.length,
-      })
-      .eq('id', channelId)
+      },
+      {}
+    )
 
     // ── Process each new video ──
     const newScannedIds = [...scannedIds]
@@ -213,23 +254,27 @@ async function runBatch(channel: any) {
       const video = newVideos[i]
 
       // Check if user paused/stopped mid-batch
-      const { data: current } = await supabaseAdmin
+      const { data: current } = await supabaseAdmin!
         .from('yt_channels')
-        .select('scan_status')
+        .select('*')
         .eq('id', channelId)
         .single()
 
-      if (current?.scan_status !== 'scanning') {
+      const currentStatus = current?.scan_status
+      if (currentStatus && currentStatus !== 'scanning') {
         // Save progress and stop
         console.log('[AUTO-SCAN] Stopped by user at video', i)
-        await supabaseAdmin
-          .from('yt_channels')
-          .update({
+        await safeChannelUpdate(
+          channelId,
+          {
             scanned_video_ids: newScannedIds,
             videos_imported:
               (channel.videos_imported || 0) + moviesAdded + musicAdded,
-          })
-          .eq('id', channelId)
+          },
+          {
+            total_imported: (channel.total_imported || 0) + moviesAdded + musicAdded,
+          }
+        )
         return
       }
 
@@ -257,7 +302,7 @@ async function runBatch(channel: any) {
         result.confidence >= 0.55 &&
         (channelType === 'movies' || channelType === 'mixed')
       ) {
-        const { error } = await supabaseAdmin
+        const { error } = await supabaseAdmin!
           .from('movies')
           .upsert(
             [
@@ -283,7 +328,7 @@ async function runBatch(channel: any) {
         if (!error) {
           moviesAdded++
         } else if (error.code === '23505') {
-          alreadyHad++ // duplicate, skip silently
+          alreadyHad++
         } else {
           console.error('[AUTO-SCAN] Movie upsert error:', error.message)
         }
@@ -295,7 +340,7 @@ async function runBatch(channel: any) {
         result.confidence >= 0.55 &&
         (channelType === 'music' || channelType === 'mixed')
       ) {
-        const { error } = await supabaseAdmin
+        const { error } = await supabaseAdmin!
           .from('music_tracks')
           .upsert(
             [
@@ -320,7 +365,7 @@ async function runBatch(channel: any) {
         if (!error) {
           musicAdded++
         } else if (error.code === '23505') {
-          alreadyHad++ // duplicate, skip silently
+          alreadyHad++
         } else {
           console.error('[AUTO-SCAN] Music upsert error:', error.message)
         }
@@ -331,11 +376,11 @@ async function runBatch(channel: any) {
       // Save progress every 5 videos or on last video
       if (i % 5 === 0 || i === newVideos.length - 1) {
         const totalImported =
-          (channel.videos_imported || 0) + moviesAdded + musicAdded
+          (channel.videos_imported || channel.total_imported || 0) + moviesAdded + musicAdded
 
-        await supabaseAdmin
-          .from('yt_channels')
-          .update({
+        await safeChannelUpdate(
+          channelId,
+          {
             scanned_video_ids: newScannedIds,
             videos_imported: totalImported,
             scan_batch: (channel.scan_batch || 0) + 1,
@@ -343,8 +388,11 @@ async function runBatch(channel: any) {
               channel.total_videos_on_channel || 0,
               newScannedIds.length
             ),
-          })
-          .eq('id', channelId)
+          },
+          {
+            total_imported: totalImported,
+          }
+        )
       }
     }
 
@@ -354,10 +402,8 @@ async function runBatch(channel: any) {
     )
 
     // Update channel_display visibility
-    // Use channel.id (UUID from yt_channels) — NOT channel.channel_id (UC... string)
-    // This prevents duplicate entries in channel_display
     if (moviesAdded > 0 || musicAdded > 0) {
-      await supabaseAdmin.from('channel_display').upsert(
+      await supabaseAdmin!.from('channel_display').upsert(
         [
           {
             channel_id: channel.id,
@@ -377,38 +423,36 @@ async function runBatch(channel: any) {
     }
 
     // Check if there might be more videos
-    // RSS gives max 15, so if we got 15+ there might be more on next scan
     const mightHaveMore = allVideos.length >= 15
 
     if (!mightHaveMore) {
-      // Mark as completed
-      await supabaseAdmin
-        .from('yt_channels')
-        .update({
+      await safeChannelUpdate(
+        channelId,
+        {
           scan_status: 'completed',
           last_synced_at: new Date().toISOString(),
-        })
-        .eq('id', channelId)
+        },
+        { last_synced_at: new Date().toISOString() }
+      )
       console.log('[AUTO-SCAN] Channel scan completed:', channel.channel_name)
     } else {
-      // Keep scanning status — next auto-trigger from UI polling will get more
-      await supabaseAdmin
-        .from('yt_channels')
-        .update({
+      await safeChannelUpdate(
+        channelId,
+        {
           last_synced_at: new Date().toISOString(),
-        })
-        .eq('id', channelId)
+        },
+        { last_synced_at: new Date().toISOString() }
+      )
       console.log(
         '[AUTO-SCAN] May have more videos, keeping scanning status'
       )
     }
   } catch (err: any) {
     console.error('[AUTO-SCAN] Error:', err.message)
-    await supabaseAdmin
-      .from('yt_channels')
-      .update({
-        scan_status: 'idle',
-      })
-      .eq('id', channelId)
+    await safeChannelUpdate(
+      channelId,
+      { scan_status: 'idle' },
+      {}
+    )
   }
 }

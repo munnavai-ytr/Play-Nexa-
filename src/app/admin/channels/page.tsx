@@ -197,11 +197,19 @@ export default function ChannelManagerPage() {
   }, [fetchChannels, fetchScanJobs])
 
   // ── Load scan status for all channels ──
+  // Only runs once on mount — uses a ref to track loaded channels
+  const loadedRef = useRef<Set<string>>(new Set())
+
   useEffect(() => {
     if (channels.length > 0) {
-      channels.forEach(ch => loadScanStatus(ch.id))
+      channels.forEach(ch => {
+        if (!loadedRef.current.has(ch.id)) {
+          loadedRef.current.add(ch.id)
+          loadScanStatus(ch.id)
+        }
+      })
     }
-  }, [channels])
+  }, [channels]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const loadScanStatus = async (chId: string) => {
     try {

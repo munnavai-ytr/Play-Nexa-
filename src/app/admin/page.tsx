@@ -358,7 +358,7 @@ export default function AdminDashboard() {
                     >
                       <td className="py-3 pr-3">
                         <img
-                          src={movie.thumbnail}
+                          src={movie.thumbnail ?? undefined}
                           alt={movie.title}
                           width={60}
                           height={34}

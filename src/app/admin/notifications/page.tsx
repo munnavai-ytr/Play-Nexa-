@@ -132,10 +132,12 @@ export default function NotificationCenterPage() {
         .from('notifications_log')
         .insert([{
           title: form.title.trim(),
+          body: form.message.trim(),
           message: form.message.trim(),
+          sent_to: form.target,
           target: form.target,
           icon: form.icon,
-          action_url: form.action_url.trim() || null,
+          action_url: form.action_url.trim() || '',
           sent_at: now,
         }])
 

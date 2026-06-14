@@ -170,17 +170,27 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: 'Server not configured' }, { status: 500 })
     }
 
+    // Get channel name before deleting (needed for ai_scan_jobs cleanup)
+    const { data: channelData } = await admin
+      .from('yt_channels')
+      .select('channel_name')
+      .eq('id', id)
+      .single()
+
     // Delete associated channel_display entries first
     await admin
       .from('channel_display')
       .delete()
       .eq('channel_id', id)
 
-    // Delete associated scan jobs
-    await admin
-      .from('ai_scan_jobs')
-      .delete()
-      .eq('channel_id', id)
+    // Delete associated scan jobs by channel name
+    // (ai_scan_jobs uses channel_name column, not channel_id)
+    if (channelData?.channel_name) {
+      await admin
+        .from('ai_scan_jobs')
+        .delete()
+        .eq('channel_name', channelData.channel_name)
+    }
 
     // Delete the channel itself
     const { error } = await admin
