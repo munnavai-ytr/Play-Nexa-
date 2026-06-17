@@ -1,34 +1,19 @@
 'use client'
 
-import { useState, useCallback } from 'react'
-import VideoLibrary from '@/components/video/VideoLibrary'
-import VideoPlayer from '@/components/video/VideoPlayer'
-import type { VideoFile } from '@/lib/mediaUtils'
+import { useCallback } from 'react'
+import { useRouter } from 'next/navigation'
+import LocalVideoPlayer from '@/components/video/LocalVideoPlayer'
 
 export default function VideoPage() {
-  const [selectedVideo, setSelectedVideo] = useState<VideoFile | null>(null)
-
-  const handleVideoSelect = useCallback((video: VideoFile) => {
-    setSelectedVideo(video)
-  }, [])
+  const router = useRouter()
 
   const handleBack = useCallback(() => {
-    setSelectedVideo(null)
+    router.back()
   }, [])
 
   return (
     <div className="min-h-screen bg-[#0A0A0A]">
-      {selectedVideo ? (
-        <VideoPlayer
-          video={selectedVideo}
-          onBack={handleBack}
-        />
-      ) : (
-        <VideoLibrary
-          onVideoSelect={handleVideoSelect}
-          onBack={handleBack}
-        />
-      )}
+      <LocalVideoPlayer onBack={handleBack} />
     </div>
   )
 }

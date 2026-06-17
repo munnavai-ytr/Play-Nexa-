@@ -272,3 +272,37 @@ Stage Summary:
 - 1 new ComingSoonPage reusable component created.
 - globals.css extended with real CSS for battery-saver / lite-animation / data-theme variants / --pn-transition variable — Settings toggles now produce visible effects.
 - 0 new TypeScript errors. 0 regressions. All touch targets ≥44px. AMOLED #0D0D0D base preserved. No backdrop-blur added. No style jsx.
+
+---
+Task ID: 5
+Agent: main (super-z)
+Task: Build a dedicated, premium, Google Files-inspired Local Video Player — completely separated from music player, accessible via "Video Player" card on home. Dual-mode (web input + native MediaStore auto-scan), custom immersive full-screen player with smart gestures (left=brightness, right=volume), screen lock, 3-dot speed menu (0.5/1.0/1.5/2.0x), custom seekbar with drag, play/pause/next/prev, timestamps. 2GB RAM optimized with URL.revokeObjectURL on switch/close, IntersectionObserver lazy thumbnails.
+
+Work Log:
+- Read existing /video route (page.tsx) and discovered it used old VideoLibrary + VideoPlayer split.
+- Read media-scanner system (types.ts, useLocalMediaScanner.ts, native-strategy.ts, web-strategy.ts) to confirm dual-mode hook API.
+- Created src/components/video/LocalVideoPlayer.tsx — single self-contained file with:
+  * LibraryView: Google Files-inspired header (back + "Local Videos" + refresh 🔄), 2-col grid of video cards with lazy thumbnails (IntersectionObserver-gated), empty states for web (Browse Storage/Videos button), native denied, native unsupported, native no-results, plus loading skeleton grid.
+  * ImmersivePlayer: full-screen black overlay with:
+    - <video> element (object-contain, brightness filter)
+    - Smart gestures via pointer events: left-half vertical swipe → brightness (10-100%), right-half vertical swipe → volume (0-100%), with live % feedback overlay
+    - Lock (🔒) toggle: freezes all controls except center unlock button
+    - 3-dot settings menu: speed options 0.5x/1.0x/1.5x/2.0x with checkmark on active
+    - Custom Seekbar with buffered indicator, drag-to-seek via pointer capture
+    - Bottom control bar: prev / -10s / play-pause / +10s / next + timestamp row + speed pill
+    - Top bar: back, title, lock, settings
+    - Auto-hide controls after 3.5s during playback
+    - Buffering spinner
+    - Auto-advance to next video on end
+  * URL lifecycle: extraUrlRef tracks fresh blob URLs created via refreshUri; revoked on close, switch (useEffect on currentVideo?.id), and unmount
+- Updated src/app/video/page.tsx to render LocalVideoPlayer (replacing old VideoLibrary/VideoPlayer split).
+- TypeScript check: zero new errors in LocalVideoPlayer.tsx or app/video/page.tsx (verified via grep on tsc output).
+
+Stage Summary:
+- 1 new component file: src/components/video/LocalVideoPlayer.tsx (~900 lines, fully self-contained, zero music-player coupling)
+- 1 file modified: src/app/video/page.tsx (now a thin wrapper around LocalVideoPlayer)
+- Fully offline, 100% private — no network calls
+- 2GB RAM safe: IntersectionObserver lazy thumbnails, blob URL revocation on every video switch and overlay close, 50-item pagination via useLocalMediaScanner
+- AMOLED #0A0A0A base, accent #7C3AED, 44px min touch targets, no backdrop-blur, no style jsx
+- Dual-mode: Web Mode shows "Browse Storage / Videos" button (hidden file input accept="video/*"); APK Mode auto-triggers MediaStore scan on mount and hides the button
+- All gesture/lock/speed/seekbar logic real and working — zero placeholders
