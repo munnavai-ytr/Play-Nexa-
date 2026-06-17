@@ -102,15 +102,21 @@ export default function ProfilePage() {
 
   // ----------------------------------------------------------------------
   // Load real stats from Supabase + localStorage download log.
+  // Depend on primitive IDs (uid + profile id) rather than object
+  // references — the Firebase `user` object identity can change on every
+  // auth-state callback even when uid is unchanged, which would otherwise
+  // cause repeated stats fetches.
   // ----------------------------------------------------------------------
+  const userUid = user?.uid;
+  const profileId = supabaseProfile?.id;
+
   useEffect(() => {
-    if (!isLoggedIn || !supabaseProfile) {
+    if (!isLoggedIn || !profileId) {
       setStatsLoaded(true);
       return;
     }
 
     const loadStats = async () => {
-      const authUserId = user?.uid;
       if (!supabase) {
         setStatsLoaded(true);
         return;
@@ -126,19 +132,19 @@ export default function ProfilePage() {
           supabase
             .from('user_watchlist')
             .select('*', { count: 'exact', head: true })
-            .eq('user_id', authUserId),
+            .eq('user_id', userUid),
           supabase
             .from('music_saved')
             .select('*', { count: 'exact', head: true })
-            .eq('user_id', authUserId),
+            .eq('user_id', userUid),
           supabase
             .from('user_history')
             .select('*', { count: 'exact', head: true })
-            .eq('user_id', authUserId),
+            .eq('user_id', userUid),
           supabase
             .from('game_data')
             .select('plays')
-            .eq('user_id', supabaseProfile.id),
+            .eq('user_id', profileId),
         ]);
 
         const watchlistCount = watchlistRes.count || 0;
@@ -188,15 +194,25 @@ export default function ProfilePage() {
     };
 
     void loadStats();
-  }, [isLoggedIn, supabaseProfile, user]);
+  }, [isLoggedIn, profileId, userUid]);
 
   // ----------------------------------------------------------------------
   // Load preferences + app version on mount.
   // ----------------------------------------------------------------------
   useEffect(() => {
     try {
-      const theme = localStorage.getItem('pn_theme');
-      setDarkMode(theme !== 'light');
+      // Prefer the new pn_theme_mode key (used by Settings); fall back to
+      // legacy pn_theme key for backward compatibility.
+      const themeMode = localStorage.getItem('pn_theme_mode');
+      const legacyTheme = localStorage.getItem('pn_theme');
+      if (themeMode === 'dark' || themeMode === 'neon') {
+        setDarkMode(true);
+      } else if (themeMode === 'amoled') {
+        setDarkMode(false);
+      } else {
+        // Fall back to legacy key.
+        setDarkMode(legacyTheme !== 'light');
+      }
       const lang = localStorage.getItem('pn_language') as 'bn' | 'en' | null;
       setLanguage(lang || 'bn');
     } catch {
@@ -250,8 +266,16 @@ export default function ProfilePage() {
     const next = !darkMode;
     setDarkMode(next);
     try {
+      // Use the SAME `pn_theme_mode` key + `data-theme` attribute that the
+      // Settings page uses, so toggling dark mode in Profile is reflected
+      // when the user later visits Settings (and vice versa).
+      const mode: 'dark' | 'amoled' = next ? 'dark' : 'amoled';
+      localStorage.setItem('pn_theme_mode', mode);
+      // Also keep the legacy `pn_theme` key in sync for any code that
+      // still reads it.
       localStorage.setItem('pn_theme', next ? 'dark' : 'light');
       if (typeof document !== 'undefined') {
+        document.documentElement.setAttribute('data-theme', mode);
         document.documentElement.classList.toggle('light-mode', !next);
       }
     } catch {

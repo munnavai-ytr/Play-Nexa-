@@ -22,7 +22,7 @@
 
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   getStorageBreakdown,
@@ -69,6 +69,25 @@ export default function SettingsPage() {
   const [autoPlayNext, setAutoPlayNext] = useState(true);
   const [thumbQuality, setThumbQuality] = useState<ThumbQuality>('medium');
 
+  // Refs mirror each boolean state so the toggle callbacks always see the
+  // latest value, even when called in rapid succession (avoids the stale-
+  // closure bug where two quick taps both see the same `current` value).
+  const smoothModeRef = useRef(smoothMode);
+  const batterySaverRef = useRef(batterySaver);
+  const liteAnimationRef = useRef(liteAnimation);
+  const perfBoostRef = useRef(perfBoost);
+  const lowDataModeRef = useRef(lowDataMode);
+  const smartLoadingRef = useRef(smartLoading);
+  const autoPlayNextRef = useRef(autoPlayNext);
+
+  useEffect(() => { smoothModeRef.current = smoothMode; }, [smoothMode]);
+  useEffect(() => { batterySaverRef.current = batterySaver; }, [batterySaver]);
+  useEffect(() => { liteAnimationRef.current = liteAnimation; }, [liteAnimation]);
+  useEffect(() => { perfBoostRef.current = perfBoost; }, [perfBoost]);
+  useEffect(() => { lowDataModeRef.current = lowDataMode; }, [lowDataMode]);
+  useEffect(() => { smartLoadingRef.current = smartLoading; }, [smartLoading]);
+  useEffect(() => { autoPlayNextRef.current = autoPlayNext; }, [autoPlayNext]);
+
   const [storage, setStorage] = useState<StorageBreakdown>({
     downloadsBytes: 0,
     cacheBytes: 0,
@@ -82,6 +101,7 @@ export default function SettingsPage() {
   const [showResetModal, setShowResetModal] = useState(false);
   const [resetConfirmText, setResetConfirmText] = useState('');
   const [toast, setToast] = useState('');
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Reference storage cap (10 GB) — only used for the progress bar visual.
   const TOTAL_DEVICE_MB = 10240;
@@ -138,8 +158,23 @@ export default function SettingsPage() {
   }, []);
 
   const showToast = useCallback((msg: string) => {
+    // Clear any previous auto-dismiss timer so a rapid second toast
+    // doesn't get cut short by the first toast's timer.
+    if (toastTimerRef.current) {
+      clearTimeout(toastTimerRef.current);
+    }
     setToast(msg);
-    setTimeout(() => setToast(''), 2500);
+    toastTimerRef.current = setTimeout(() => {
+      setToast('');
+      toastTimerRef.current = null;
+    }, 2500);
+  }, []);
+
+  // Cleanup toast timer on unmount.
+  useEffect(() => {
+    return () => {
+      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    };
   }, []);
 
   // ----------------------------------------------------------------------
@@ -157,14 +192,21 @@ export default function SettingsPage() {
     }
   };
 
+  /**
+   * Build a toggle handler that:
+   *   1. Reads the latest value from the ref (no stale closure).
+   *   2. Persists to localStorage.
+   *   3. Calls an optional side effect.
+   */
   const makeToggler = (
     key: string,
     setter: (v: boolean) => void,
-    current: boolean,
+    ref: React.MutableRefObject<boolean>,
     sideEffect?: (next: boolean) => void
   ) => () => {
-    const next = !current;
+    const next = !ref.current;
     setter(next);
+    ref.current = next;
     try {
       localStorage.setItem(key, String(next));
     } catch {
@@ -176,7 +218,7 @@ export default function SettingsPage() {
   const toggleSmooth = makeToggler(
     'pn_smooth_mode',
     setSmoothMode,
-    smoothMode,
+    smoothModeRef,
     (next) => {
       if (typeof document !== 'undefined') {
         document.documentElement.style.setProperty(
@@ -190,7 +232,7 @@ export default function SettingsPage() {
   const toggleBattery = makeToggler(
     'pn_battery_saver',
     setBatterySaver,
-    batterySaver,
+    batterySaverRef,
     (next) => {
       if (typeof document !== 'undefined') {
         document.documentElement.classList.toggle('battery-saver', next);
@@ -201,7 +243,7 @@ export default function SettingsPage() {
   const toggleLite = makeToggler(
     'pn_lite_animation',
     setLiteAnimation,
-    liteAnimation,
+    liteAnimationRef,
     (next) => {
       if (typeof document !== 'undefined') {
         document.documentElement.classList.toggle('lite-animation', next);
@@ -212,13 +254,13 @@ export default function SettingsPage() {
   const togglePerfBoost = makeToggler(
     'pn_perf_boost',
     setPerfBoost,
-    perfBoost
+    perfBoostRef
   );
 
   const toggleLowData = makeToggler(
     'pn_low_data',
     setLowDataMode,
-    lowDataMode,
+    lowDataModeRef,
     (next) => {
       // Low-data mode automatically forces low thumbnail quality.
       if (next) {
@@ -235,13 +277,13 @@ export default function SettingsPage() {
   const toggleSmartLoading = makeToggler(
     'pn_smart_loading',
     setSmartLoading,
-    smartLoading
+    smartLoadingRef
   );
 
   const toggleAutoPlay = makeToggler(
     'pn_autoplay_next',
     setAutoPlayNext,
-    autoPlayNext
+    autoPlayNextRef
   );
 
   const updateThumbQuality = (q: ThumbQuality) => {
