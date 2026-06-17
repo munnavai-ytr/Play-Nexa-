@@ -1,0 +1,1741 @@
+     1→     1→'use client';
+     2→     2→
+     3→     3→// ════════════════════════════════════════════════════════════════════
+     4→     4→//  Play Nexa · Local Music Player
+     5→     5→//  ───────────────────────────────────────────────────────────────────
+     6→     6→//  Google Files + Spotify-inspired, premium, fully offline dual-mode
+     7→     7→//  music player. 100% self-contained — zero coupling with the video
+     8→     8→//  player.
+     9→     9→//
+    10→    10→//  ▸ LIBRARY   : clean vertical list, music-note icon, real title +
+    11→    11→//                artist/folder, 3-dot menu per row.
+    12→    12→//  ▸ CACHE     : on every successful scan/pick, songs metadata is
+    13→    13→//                persisted to localStorage under
+    14→    14→//                `playnexa_cached_songs`. On mount, the cache is
+    15→    15→//                hydrated instantly so the user never re-scans.
+    16→    16→//                Native content:// URIs survive across sessions; web
+    17→    17→//                blob URLs may need re-pick (handled gracefully).
+    18→    18→//  ▸ WEB MODE  : "🎵 Browse Audio/Songs" button → hidden
+    19→    19→//                <input type="file" multiple accept="audio/*"> →
+    20→    20→//                URL.createObjectURL() → instant playback.
+    21→    21→//  ▸ APK MODE  : on mount, auto-request storage permission & scan
+    22→    22→//                /Music + /Download for .mp3/.wav/.aac/.m4a.
+    23→    23→//                Browse button is HIDDEN in native mode.
+    24→    24→//  ▸ MINI BAR  : persistent thin bar pinned to bottom. Marquee
+    25→    25→//                title + play/pause. App stays browseable.
+    26→    26→//  ▸ FULL SHEET: AUTO-EXPANDS on song click. Premium glassmorphism
+    27→    27→//                design — deep indigo/violet gradient background,
+    28→    28→//                glowing pulse album art, sleek controls. Drag-down
+    29→    29→//                to close.
+    30→    30→//  ▸ AUDIO     : SINGLE shared HTMLAudioElement owned by
+    31→    31→//                useMusicPlayer() (preserves background play &
+    32→    32→//                native lock-screen controls). On every new song
+    33→    33→//                selection, the previous track is fully stopped
+    34→    34→//                before the new one loads — no overlap.
+    35→    35→//
+    36→    36→//  Theme: Indigo Midnight gradient · accent #7C3AED · 44px min touch
+    37→    37→//         · glassmorphism · pulse-glow art · no harsh contrast
+    38→    38→// ════════════════════════════════════════════════════════════════════
+    39→    39→
+    40→    40→import {
+    41→    41→  useCallback,
+    42→    42→  useEffect,
+    43→    43→  useRef,
+    44→    44→  useState,
+    45→    45→  type PointerEvent as ReactPointerEvent,
+    46→    46→} from 'react';
+    47→    47→import { useLocalMediaScanner } from '@/lib/media-scanner/useLocalMediaScanner';
+    48→    48→import type { MediaFile } from '@/lib/media-scanner/types';
+    49→    49→import { useMusicPlayer } from '@/hooks/useMusicPlayer';
+    50→    50→import type { Song } from '@/lib/mediaUtils';
+    51→    51→
+    52→    52→// ─────────────────────────────────────────────────────────────────────
+    53→    53→// Props
+    54→    54→// ─────────────────────────────────────────────────────────────────────
+    55→    55→
+    56→    56→interface LocalMusicPlayerProps {
+    57→    57→  /** Called when user taps the back arrow in the library header. */
+    58→    58→  onBack: () => void;
+    59→    59→}
+    60→    60→
+    61→    61→// ─────────────────────────────────────────────────────────────────────
+    62→    62→// Helpers (zero-dep)
+    63→    63→// ─────────────────────────────────────────────────────────────────────
+    64→    64→
+    65→    65→function formatSize(bytes: number): string {
+    66→    66→  if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
+    67→    67→  if (bytes >= 1024 * 1024 * 1024)
+    68→    68→    return `${(bytes / 1024 / 1024 / 1024).toFixed(1)} GB`;
+    69→    69→  if (bytes >= 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(0)} MB`;
+    70→    70→  if (bytes >= 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+    71→    71→  return `${bytes} B`;
+    72→    72→}
+    73→    73→
+    74→    74→function formatTime(sec: number): string {
+    75→    75→  if (!Number.isFinite(sec) || sec < 0) return '0:00';
+    76→    76→  const h = Math.floor(sec / 3600);
+    77→    77→  const m = Math.floor((sec % 3600) / 60);
+    78→    78→  const s = Math.floor(sec % 60);
+    79→    79→  if (h > 0)
+    80→    80→    return `${h}:${m.toString().padStart(2, '0')}:${s
+    81→    81→      .toString()
+    82→    82→      .padStart(2, '0')}`;
+    83→    83→  return `${m}:${s.toString().padStart(2, '0')}`;
+    84→    84→}
+    85→    85→
+    86→    86→/** Parse "Artist - Title.mp3" or "Title.mp3" → {title, artist} */
+    87→    87→function parseFilename(name: string): { title: string; artist: string } {
+    88→    88→  const dot = name.lastIndexOf('.');
+    89→    89→  const base = dot > 0 ? name.slice(0, dot) : name;
+    90→    90→  const parts = base.split(' - ');
+    91→    91→  if (parts.length >= 2) {
+    92→    92→    return {
+    93→    93→      title: parts.slice(1).join(' - ').trim(),
+    94→    94→      artist: parts[0].trim(),
+    95→    95→    };
+    96→    96→  }
+    97→    97→  return { title: base.trim(), artist: 'Unknown Artist' };
+    98→    98→}
+    99→    99→
+   100→   100→/** Derive a folder name from a MediaFile (best effort) */
+   101→   101→function getFolderName(file: MediaFile): string {
+   102→   102→  if (file.source === 'native-mediastore') {
+   103→   103→    // Native items sometimes carry path metadata in the id (id/path encoded).
+   104→   104→    // We don't expose full path here — use a generic label.
+   105→   105→    return 'Device';
+   106→   106→  }
+   107→   107→  return 'Local Files';
+   108→   108→}
+   109→   109→
+   110→   110→// ─────────────────────────────────────────────────────────────────────
+   111→   111→// Constants
+   112→   112→// ─────────────────────────────────────────────────────────────────────
+   113→   113→
+   114→   114→const SHEET_EXPAND_MS = 280;
+   115→   115→
+   116→   116→/**
+   117→   117→ * localStorage key under which scanned MediaFile metadata is cached so
+   118→   118→ * the user never has to re-scan after navigating away and back.
+   119→   119→ *
+   120→   120→ * Stored shape: `MediaFile[]` (JSON-serialised). The `file` field
+   121→   121→ * (web-only File handle) is stripped before persistence because File
+   122→   122→ * objects are not JSON-serialisable and blob: URLs do not survive
+   123→   123→ * across sessions anyway.
+   124→   124→ */
+   125→   125→const LS_CACHED_SONGS = 'playnexa_cached_songs';
+   126→   126→
+   127→   127→/** Safe localStorage getter that survives SSR / private-mode quota errors. */
+   128→   128→function lsGetCachedSongs(): MediaFile[] {
+   129→   129→  if (typeof window === 'undefined') return [];
+   130→   130→  try {
+   131→   131→    const raw = window.localStorage.getItem(LS_CACHED_SONGS);
+   132→   132→    if (!raw) return [];
+   133→   133→    const parsed = JSON.parse(raw) as MediaFile[];
+   134→   134→    if (!Array.isArray(parsed)) return [];
+   135→   135→    // Defensive filter — drop any malformed entries.
+   136→   136→    return parsed.filter(
+   137→   137→      (m) => m && typeof m.id === 'string' && typeof m.uri === 'string'
+   138→   138→    );
+   139→   139→  } catch {
+   140→   140→    return [];
+   141→   141→  }
+   142→   142→}
+   143→   143→
+   144→   144→/** Safe localStorage setter that swallows quota / serialisation errors. */
+   145→   145→function lsSetCachedSongs(files: MediaFile[]): void {
+   146→   146→  if (typeof window === 'undefined') return;
+   147→   147→  try {
+   148→   148→    // Strip the File handle — it's not JSON-serialisable and is
+   149→   149→    // useless across sessions anyway (blob URLs die on tab close).
+   150→   150→    const serialisable = files.map(({ file: _file, ...rest }) => rest);
+   151→   151→    window.localStorage.setItem(
+   152→   152→      LS_CACHED_SONGS,
+   153→   153→      JSON.stringify(serialisable)
+   154→   154→    );
+   155→   155→  } catch {
+   156→   156→    // Quota exceeded or private mode — silently ignore; cache is
+   157→   157→    // best-effort, not critical functionality.
+   158→   158→  }
+   159→   159→}
+   160→   160→
+   161→   161→// ════════════════════════════════════════════════════════════════════
+   162→   162→// MAIN COMPONENT
+   163→   163→// ════════════════════════════════════════════════════════════════════
+   164→   164→
+   165→   165→export default function LocalMusicPlayer({
+   166→   166→  onBack,
+   167→   167→}: LocalMusicPlayerProps) {
+   168→   168→  // ── Dual-mode scanner hook ──
+   169→   169→  const {
+   170→   170→    files,
+   171→   171→    isLoading,
+   172→   172→    error,
+   173→   173→    isNative,
+   174→   174→    permissionState,
+   175→   175→    pickFiles,
+   176→   176→    requestScan,
+   177→   177→    clear,
+   178→   178→  } = useLocalMediaScanner('audio');
+   179→   179→
+   180→   180→  // ── Existing music-player hook (single shared <audio>, media session,
+   181→   181→  //    native lock-screen controls, persistence) ──
+   182→   182→  //    NOTE: play() is intentionally NOT destructured — handleSongSelect
+   183→   183→  //    uses setPlaylist(songs, index) which internally invokes play() via
+   184→   184→  //    the hook's playRef. Calling play() directly here would skip playlist
+   185→   185→  //    setup and break next/previous navigation.
+   186→   186→  const {
+   187→   187→    currentSong,
+   188→   188→    isPlaying,
+   189→   189→    currentTime,
+   190→   190→    duration,
+   191→   191→    pause,
+   192→   192→    resume,
+   193→   193→    next,
+   194→   194→    previous,
+   195→   195→    seekTo,
+   196→   196→    stop,
+   197→   197→    setPlaylist,
+   198→   198→  } = useMusicPlayer();
+   199→   199→
+   200→   200→  // ── UI state ──
+   201→   201→  const [expanded, setExpanded] = useState(false);
+   202→   202→  const [menuOpenFor, setMenuOpenFor] = useState<string | null>(null);
+   203→   203→
+   204→   204→  // ── Cached songs (localStorage hydration) ──
+   205→   205→  // We seed from localStorage ONCE on first render so the user never
+   206→   206→  // sees an empty list while the scanner is still warming up or after
+   207→   207→  // navigating back. We use a lazy initialiser so SSR renders empty
+   208→   208→  // (window is undefined on the server) and the client hydrates
+   209→   209→  // synchronously from localStorage on the very first paint.
+   210→   210→  //
+   211→   211→  // NOTE: `cachedFiles` is intentionally a one-time mount snapshot.
+   212→   212→  // We do NOT update it when `files` changes — instead we just write
+   213→   213→  // the fresh scan to localStorage via the effect below. The derived
+   214→   214→  // `displayedFiles` value automatically prefers the live `files`
+   215→   215→  // array when non-empty, so updating `cachedFiles` at runtime would
+   216→   216→  // just cause a redundant cascading render. The NEXT time the
+   217→   217→  // component mounts, the lazy initialiser re-reads localStorage and
+   218→   218→  // picks up the updated cache.
+   219→   219→  const [cachedFiles] = useState<MediaFile[]>(() => lsGetCachedSongs());
+   220→   220→
+   221→   221→  // Persist `files` → localStorage every time a fresh scan/pick
+   222→   222→  // succeeds. We deliberately skip empty results so a transient
+   223→   223→  // "no songs" state (e.g. permission denied mid-scan) doesn't wipe
+   224→   224→  // a previously-good cache.
+   225→   225→  useEffect(() => {
+   226→   226→    if (files.length > 0) {
+   227→   227→      lsSetCachedSongs(files);
+   228→   228→    }
+   229→   229→  }, [files]);
+   230→   230→
+   231→   231→  /**
+   232→   232→   * What the library actually renders. We prefer the freshly-scanned
+   233→   233→   * `files` array when non-empty; otherwise we fall back to whatever is
+   234→   234→   * in `cachedFiles` so the user sees their library immediately.
+   235→   235→   *
+   236→   236→   * NOTE on web blob URLs: when `cachedFiles` is sourced from a previous
+   237→   237→   * session, the `uri` field is a `blob:` URL that has been revoked by
+   238→   238→   * now. Clicking such a song will fire the `<audio>` element's `error`
+   239→   239→   * event (handled inside useMusicPlayer → setIsPlaying(false)). The
+   240→   240→   * user sees the song in the list (good — visual continuity) but
+   241→   241→   * tapping it doesn't make noise. We surface a friendly toast/banner
+   242→   242→   * via the EmptyState's error slot when this happens. On native
+   243→   243→   * (content:// URIs) the cache is fully functional.
+   244→   244→   */
+   245→   245→  const displayedFiles = files.length > 0 ? files : cachedFiles;
+   246→   246→
+   247→   247→  // ══════════════════════════════════════════════════════════════════
+   248→   248→  // MediaFile → Song adapter
+   249→   249→  // ══════════════════════════════════════════════════════════════════
+   250→   250→  //
+   251→   251→  // IMPORTANT: We do NOT call URL.createObjectURL() here. The scanner hook
+   252→   252→  // (useLocalMediaScanner) already created a blob: URL for each web-picked
+   253→   253→  // file and tracks them in urlSetRef for batch revocation on unmount /
+   254→   254→  // re-pick. Re-creating URLs here would leak them, because next/prev
+   255→   255→  // navigation inside useMusicPlayer calls play() directly on the next
+   256→   256→  // Song — bypassing this component, so we'd have no chance to revoke.
+   257→   257→  //
+   258→   258→  // Instead, we pass the scanner-owned URI through both `url` and `path`.
+   259→   259→  // The hook uses `song.path || song.url` and runs it through
+   260→   260→  // Capacitor.convertFileSrc() on native (no-op on web).
+   261→   261→
+   262→   262→  const mediaFileToSong = useCallback(
+   263→   263→    (mf: MediaFile): Song => {
+   264→   264→      const { title, artist } = parseFilename(mf.name);
+   265→   265→      return {
+   266→   266→        id: mf.id,
+   267→   267→        name: title,
+   268→   268→        artist,
+   269→   269→        album: getFolderName(mf),
+   270→   270→        url: mf.uri,
+   271→   271→        size: mf.sizeBytes,
+   272→   272→        duration: mf.durationSec ?? 0,
+   273→   273→        cover: null,
+   274→   274→        path: mf.uri,
+   275→   275→        format: mf.mimeType,
+   276→   276→        file: mf.file,
+   277→   277→      };
+   278→   278→    },
+   279→   279→    []
+   280→   280→  );
+   281→   281→
+   282→   282→  // ══════════════════════════════════════════════════════════════════
+   283→   283→  // Song selection / playlist management
+   284→   284→  // ══════════════════════════════════════════════════════════════════
+   285→   285→  //
+   286→   286→  // AUDIO OVERLAP PROTECTION:
+   287→   287→  // useMusicPlayer() internally creates a SINGLE shared HTMLAudioElement
+   288→   288→  // (via its own `audioRef` inside the hook). Its `play()` function calls
+   289→   289→  // `audio.pause()` before assigning a new `src`. So at the hook level,
+   290→   290→  // overlap is already impossible. We add a defensive `stop()` call
+   291→   291→  // here for two reasons:
+   292→   292→  //   1. It guarantees currentTime is reset to 0 before the new song
+   293→   293→  //      starts — even if a previous `audio.play()` Promise is still
+   294→   294→  //      resolving (race on rapid double-tap).
+   295→   295→  //   2. It makes the intent loud-and-clear at the component level so
+   296→   296→  //      future maintenance doesn't accidentally introduce a second
+   297→   297→  //      <audio> element.
+   298→   298→  //
+   299→   299→  // AUTO-EXPAND:
+   300→   300→  // After kicking off playback, we immediately flip `expanded` to true
+   301→   301→  // so the premium full-screen sheet slides up — matching the behavior
+   302→   302→  // of Spotify / Apple Music / YouTube Music on tap.
+   303→   303→
+   304→   304→  const handleSongSelect = useCallback(
+   305→   305→    (mf: MediaFile, index: number) => {
+   306→   306→      // 1. Hard-stop any currently-playing track BEFORE setting up the
+   307→   307→      //    new playlist. The hook's stop() pauses, resets currentTime,
+   308→   308→      //    and notifies native media-session listeners. It does NOT
+   309→   309→      //    clear audio.src — that's done by the subsequent play() call
+   310→   310→      //    inside setPlaylist → playRef.current(song).
+   311→   311→      stop();
+   312→   312→
+   313→   313→      // 2. Build the Song[] playlist from the displayed list, starting
+   314→   314→      //    at the tapped index. setPlaylist() in useMusicPlayer
+   315→   315→      //    internally calls play() on songs[index] — which pauses the
+   316→   316→      //    (already-stopped) audio, sets src, loads, and plays.
+   317→   317→      const songs = displayedFiles.map(mediaFileToSong);
+   318→   318→      setPlaylist(songs, index);
+   319→   319→
+   320→   320→      // 3. Auto-expand the full-screen premium player.
+   321→   321→      setExpanded(true);
+   322→   322→    },
+   323→   323→    [displayedFiles, mediaFileToSong, setPlaylist, stop]
+   324→   324→  );
+   325→   325→
+   326→   326→  /** Close the expanded full-sheet player. */
+   327→   327→  const handleCloseExpanded = useCallback(() => {
+   328→   328→    setExpanded(false);
+   329→   329→  }, []);
+   330→   330→
+   331→   331→  /** Stop playback entirely (also clears the mini bar). */
+   332→   332→  const handleStop = useCallback(() => {
+   333→   333→    stop();
+   334→   334→    // Note: blob URL revocation is handled by the scanner hook on unmount /
+   335→   335→    // re-pick. We do NOT revoke here — the same URL is still referenced by
+   336→   336→    // the Song in the playlist and may be re-played via next/prev.
+   337→   337→  }, [stop]);
+   338→   338→
+   339→   339→  // ══════════════════════════════════════════════════════════════════
+   340→   340→  // Render
+   341→   341→  // ══════════════════════════════════════════════════════════════════
+   342→   342→
+   343→   343→  return (
+   344→   344→    <div
+   345→   345→      className="min-h-screen flex flex-col relative"
+   346→   346→      style={{
+   347→   347→        // Deep luxurious dark indigo → midnight violet gradient backdrop
+   348→   348→        background:
+   349→   349→          'linear-gradient(180deg, #0B0B1E 0%, #0A0A18 45%, #05050F 100%)',
+   350→   350→      }}
+   351→   351→    >
+   352→   352→      <LibraryView
+   353→   353→        files={displayedFiles}
+   354→   354→        isLoading={isLoading}
+   355→   355→        error={error}
+   356→   356→        isNative={isNative}
+   357→   357→        permissionState={permissionState}
+   358→   358→        onPick={pickFiles}
+   359→   359→        onRefresh={() => {
+   360→   360→          clear();
+   361→   361→          if (isNative) {
+   362→   362→            void requestScan();
+   363→   363→          } else {
+   364→   364→            void pickFiles();
+   365→   365→          }
+   366→   366→        }}
+   367→   367→        onBack={onBack}
+   368→   368→        onSongSelect={handleSongSelect}
+   369→   369→        currentSongId={currentSong?.id ?? null}
+   370→   370→        isPlaying={isPlaying}
+   371→   371→        menuOpenFor={menuOpenFor}
+   372→   372→        setMenuOpenFor={setMenuOpenFor}
+   373→   373→      />
+   374→   374→
+   375→   375→      {/* Mini Player pinned above bottom of viewport */}
+   376→   376→      {currentSong && !expanded && (
+   377→   377→        <MiniPlayer
+   378→   378→          song={currentSong}
+   379→   379→          isPlaying={isPlaying}
+   380→   380→          currentTime={currentTime}
+   381→   381→          duration={duration}
+   382→   382→          onTogglePlay={() => (isPlaying ? pause() : resume())}
+   383→   383→          onExpand={() => setExpanded(true)}
+   384→   384→          onClose={handleStop}
+   385→   385→        />
+   386→   386→      )}
+   387→   387→
+   388→   388→      {/* Expanded full-sheet player (auto-expanded on song click) */}
+   389→   389→      {currentSong && expanded && (
+   390→   390→        <ExpandedPlayer
+   391→   391→          song={currentSong}
+   392→   392→          isPlaying={isPlaying}
+   393→   393→          currentTime={currentTime}
+   394→   394→          duration={duration}
+   395→   395→          onTogglePlay={() => (isPlaying ? pause() : resume())}
+   396→   396→          onNext={() => next()}
+   397→   397→          onPrev={() => previous()}
+   398→   398→          onSeek={seekTo}
+   399→   399→          onClose={handleCloseExpanded}
+   400→   400→        />
+   401→   401→      )}
+   402→   402→    </div>
+   403→   403→  );
+   404→   404→}
+   405→   405→
+   406→   406→// ════════════════════════════════════════════════════════════════════
+   407→   407→// LIBRARY VIEW (Google Files-inspired clean list)
+   408→   408→// ════════════════════════════════════════════════════════════════════
+   409→   409→
+   410→   410→interface LibraryViewProps {
+   411→   411→  files: MediaFile[];
+   412→   412→  isLoading: boolean;
+   413→   413→  error: string | null;
+   414→   414→  isNative: boolean;
+   415→   415→  permissionState: string;
+   416→   416→  onPick: () => void;
+   417→   417→  onRefresh: () => void;
+   418→   418→  onBack: () => void;
+   419→   419→  onSongSelect: (mf: MediaFile, index: number) => void;
+   420→   420→  currentSongId: string | null;
+   421→   421→  isPlaying: boolean;
+   422→   422→  menuOpenFor: string | null;
+   423→   423→  setMenuOpenFor: (id: string | null) => void;
+   424→   424→}
+   425→   425→
+   426→   426→function LibraryView({
+   427→   427→  files,
+   428→   428→  isLoading,
+   429→   429→  error,
+   430→   430→  isNative,
+   431→   431→  permissionState,
+   432→   432→  onPick,
+   433→   433→  onRefresh,
+   434→   434→  onBack,
+   435→   435→  onSongSelect,
+   436→   436→  currentSongId,
+   437→   437→  isPlaying,
+   438→   438→  menuOpenFor,
+   439→   439→  setMenuOpenFor,
+   440→   440→}: LibraryViewProps) {
+   441→   441→  const isEmpty = files.length === 0;
+   442→   442→
+   443→   443→  return (
+   444→   444→    <div
+   445→   445→      className="flex-1 flex flex-col"
+   446→   446→      style={{
+   447→   447→        paddingBottom: currentSongId ? 88 : 0, // leave room for mini player
+   448→   448→      }}
+   449→   449→    >
+   450→   450→      {/* ────────── HEADER ────────── */}
+   451→   451→      <header
+   452→   452→        className="flex items-center justify-between px-4 pt-5 pb-4 sticky top-0 z-30"
+   453→   453→        style={{
+   454→   454→          // Glassmorphism header: translucent indigo over the gradient bg.
+   455→   455→          backgroundColor: 'rgba(11, 11, 30, 0.72)',
+   456→   456→          backdropFilter: 'blur(18px)',
+   457→   457→          WebkitBackdropFilter: 'blur(18px)',
+   458→   458→          borderBottom: '1px solid rgba(124, 58, 237, 0.12)',
+   459→   459→        }}
+   460→   460→      >
+   461→   461→        <div className="flex items-center gap-3 min-w-0">
+   462→   462→          <button
+   463→   463→            type="button"
+   464→   464→            onClick={onBack}
+   465→   465→            aria-label="Back"
+   466→   466→            className="w-11 h-11 rounded-full flex items-center justify-center active:opacity-70 flex-shrink-0 transition-colors"
+   467→   467→            style={{
+   468→   468→              backgroundColor: 'rgba(124, 58, 237, 0.12)',
+   469→   469→              border: '1px solid rgba(124, 58, 237, 0.22)',
+   470→   470→            }}
+   471→   471→          >
+   472→   472→            <svg
+   473→   473→              width="20"
+   474→   474→              height="20"
+   475→   475→              viewBox="0 0 24 24"
+   476→   476→              fill="none"
+   477→   477→              stroke="white"
+   478→   478→              strokeWidth="2"
+   479→   479→              strokeLinecap="round"
+   480→   480→            >
+   481→   481→              <path d="M19 12H5M12 19l-7-7 7-7" />
+   482→   482→            </svg>
+   483→   483→          </button>
+   484→   484→          <div className="min-w-0">
+   485→   485→            <h1
+   486→   486→              className="text-white font-bold text-xl leading-tight truncate"
+   487→   487→              style={{ letterSpacing: '-0.01em' }}
+   488→   488→            >
+   489→   489→              Local Music
+   490→   490→            </h1>
+   491→   491→            <p className="text-[#9A9AB0] text-xs mt-0.5">
+   492→   492→              {isLoading
+   493→   493→                ? 'Scanning…'
+   494→   494→                : files.length > 0
+   495→   495→                  ? `${files.length} song${files.length === 1 ? '' : 's'} found`
+   496→   496→                  : 'Offline · 100% private'}
+   497→   497→            </p>
+   498→   498→          </div>
+   499→   499→        </div>
+   500→   500→        <button
+   501→   501→          type="button"
+   502→   502→          onClick={onRefresh}
+   503→   503→          aria-label="Refresh"
+   504→   504→          disabled={isLoading}
+   505→   505→          className="w-11 h-11 rounded-full flex items-center justify-center active:opacity-70 disabled:opacity-40 flex-shrink-0 transition-colors"
+   506→   506→          style={{
+   507→   507→            backgroundColor: 'rgba(124, 58, 237, 0.12)',
+   508→   508→            border: '1px solid rgba(124, 58, 237, 0.22)',
+   509→   509→          }}
+   510→   510→        >
+   511→   511→          <svg
+   512→   512→            width="20"
+   513→   513→            height="20"
+   514→   514→            viewBox="0 0 24 24"
+   515→   515→            fill="none"
+   516→   516→            stroke="white"
+   517→   517→            strokeWidth="2"
+   518→   518→            strokeLinecap="round"
+   519→   519→            className={isLoading ? 'animate-spin' : ''}
+   520→   520→          >
+   521→   521→            <path d="M21 12a9 9 0 1 1-2.64-6.36" />
+   522→   522→            <polyline points="21 3 21 9 15 9" />
+   523→   523→          </svg>
+   524→   524→        </button>
+   525→   525→      </header>
+   526→   526→
+   527→   527→      {/* ────────── BODY ────────── */}
+   528→   528→      <main className="flex-1 px-4 pb-24 pt-2">
+   529→   529→        {isLoading && isEmpty ? (
+   530→   530→          <LoadingList />
+   531→   531→        ) : isEmpty ? (
+   532→   532→          <EmptyState
+   533→   533→            isNative={isNative}
+   534→   534→            permissionState={permissionState}
+   535→   535→            error={error}
+   536→   536→            onPick={onPick}
+   537→   537→          />
+   538→   538→        ) : (
+   539→   539→          <>
+   540→   540→            {error && (
+   541→   541→              <div
+   542→   542→                className="mb-3 rounded-xl px-3 py-2 text-xs text-amber-300"
+   543→   543→                style={{
+   544→   544→                  backgroundColor: 'rgba(245, 158, 11, 0.08)',
+   545→   545→                  border: '1px solid rgba(245, 158, 11, 0.25)',
+   546→   546→                }}
+   547→   547→              >
+   548→   548→                {error}
+   549→   549→              </div>
+   550→   550→            )}
+   551→   551→            <SongList
+   552→   552→              files={files}
+   553→   553→              onSelect={onSongSelect}
+   554→   554→              currentSongId={currentSongId}
+   555→   555→              isPlaying={isPlaying}
+   556→   556→              menuOpenFor={menuOpenFor}
+   557→   557→              setMenuOpenFor={setMenuOpenFor}
+   558→   558→            />
+   559→   559→          </>
+   560→   560→        )}
+   561→   561→      </main>
+   562→   562→    </div>
+   563→   563→  );
+   564→   564→}
+   565→   565→
+   566→   566→// ─────────────────────────────────────────────────────────────────────
+   567→   567→// Song list
+   568→   568→// ─────────────────────────────────────────────────────────────────────
+   569→   569→
+   570→   570→function SongList({
+   571→   571→  files,
+   572→   572→  onSelect,
+   573→   573→  currentSongId,
+   574→   574→  isPlaying,
+   575→   575→  menuOpenFor,
+   576→   576→  setMenuOpenFor,
+   577→   577→}: {
+   578→   578→  files: MediaFile[];
+   579→   579→  onSelect: (mf: MediaFile, index: number) => void;
+   580→   580→  currentSongId: string | null;
+   581→   581→  isPlaying: boolean;
+   582→   582→  menuOpenFor: string | null;
+   583→   583→  setMenuOpenFor: (id: string | null) => void;
+   584→   584→}) {
+   585→   585→  return (
+   586→   586→    <ul className="flex flex-col" style={{ contentVisibility: 'auto' }}>
+   587→   587→      {files.map((mf, idx) => {
+   588→   588→        const { title, artist } = parseFilename(mf.name);
+   589→   589→        const isActive = currentSongId === mf.id;
+   590→   590→        const menuOpen = menuOpenFor === mf.id;
+   591→   591→        return (
+   592→   592→          <li key={mf.id} className="relative">
+   593→   593→            <div
+   594→   594→              role="button"
+   595→   595→              tabIndex={0}
+   596→   596→              aria-label={`Play ${title} by ${artist}`}
+   597→   597→              onClick={() => onSelect(mf, idx)}
+   598→   598→              onKeyDown={(e) => {
+   599→   599→                if (e.key === 'Enter' || e.key === ' ') {
+   600→   600→                  e.preventDefault();
+   601→   601→                  onSelect(mf, idx);
+   602→   602→                }
+   603→   603→              }}
+   604→   604→              className="cursor-pointer w-full flex items-center gap-3 px-2 py-3 rounded-xl transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#7C3AED]/60 hover:bg-white/[0.04] active:bg-white/[0.08]"
+   605→   605→              style={{
+   606→   606→                backgroundColor: isActive
+   607→   607→                  ? 'rgba(124, 58, 237, 0.12)'
+   608→   608→                  : 'transparent',
+   609→   609→                border: isActive
+   610→   610→                  ? '1px solid rgba(124, 58, 237, 0.25)'
+   611→   611→                  : '1px solid transparent',
+   612→   612→                minHeight: 64,
+   613→   613→              }}
+   614→   614→            >
+   615→   615→              {/* Icon / playing indicator */}
+   616→   616→              <div
+   617→   617→                className="w-11 h-11 rounded-lg flex items-center justify-center flex-shrink-0"
+   618→   618→                style={{
+   619→   619→                  background: isActive
+   620→   620→                    ? 'linear-gradient(135deg, #8B5CF6 0%, #6D28D9 100%)'
+   621→   621→                    : 'rgba(124, 58, 237, 0.10)',
+   622→   622→                  border: '1px solid rgba(124, 58, 237, 0.18)',
+   623→   623→                  boxShadow: isActive
+   624→   624→                    ? '0 4px 16px rgba(124, 58, 237, 0.4)'
+   625→   625→                    : 'none',
+   626→   626→                }}
+   627→   627→              >
+   628→   628→                {isActive && isPlaying ? (
+   629→   629→                  <NowPlayingBars />
+   630→   630→                ) : (
+   631→   631→                  <svg
+   632→   632→                    width="20"
+   633→   633→                    height="20"
+   634→   634→                    viewBox="0 0 24 24"
+   635→   635→                    fill="none"
+   636→   636→                    stroke={isActive ? 'white' : '#A78BFA'}
+   637→   637→                    strokeWidth="2"
+   638→   638→                    strokeLinecap="round"
+   639→   639→                  >
+   640→   640→                    <path d="M9 18V5l12-2v13" />
+   641→   641→                    <circle cx="6" cy="18" r="3" />
+   642→   642→                    <circle cx="18" cy="16" r="3" />
+   643→   643→                  </svg>
+   644→   644→                )}
+   645→   645→              </div>
+   646→   646→
+   647→   647→              {/* Title + artist */}
+   648→   648→              <div className="flex-1 min-w-0 text-left">
+   649→   649→                <p
+   650→   650→                  className={`text-[14px] font-medium leading-tight truncate ${
+   651→   651→                    isActive ? 'text-[#A78BFA]' : 'text-white'
+   652→   652→                  }`}
+   653→   653→                  title={title}
+   654→   654→                >
+   655→   655→                  {title}
+   656→   656→                </p>
+   657→   657→                <p
+   658→   658→                  className="text-[#8A8AA0] text-xs mt-0.5 truncate"
+   659→   659→                  title={artist}
+   660→   660→                >
+   661→   661→                  {artist} · {formatSize(mf.sizeBytes)}
+   662→   662→                </p>
+   663→   663→              </div>
+   664→   664→
+   665→   665→              {/* 3-dot menu */}
+   666→   666→              <button
+   667→   667→                type="button"
+   668→   668→                onClick={(e) => {
+   669→   669→                  e.stopPropagation();
+   670→   670→                  e.preventDefault();
+   671→   671→                  setMenuOpenFor(menuOpen ? null : mf.id);
+   672→   672→                }}
+   673→   673→                aria-label="More options"
+   674→   674→                className="w-9 h-9 rounded-full flex items-center justify-center active:opacity-60 flex-shrink-0"
+   675→   675→              >
+   676→   676→                <svg
+   677→   677→                  width="18"
+   678→   678→                  height="18"
+   679→   679→                  viewBox="0 0 24 24"
+   680→   680→                  fill="#9A9A9A"
+   681→   681→                >
+   682→   682→                  <circle cx="12" cy="5" r="2" />
+   683→   683→                  <circle cx="12" cy="12" r="2" />
+   684→   684→                  <circle cx="12" cy="19" r="2" />
+   685→   685→                </svg>
+   686→   686→              </button>
+   687→   687→            </div>
+   688→   688→
+   689→   689→            {/* Inline dropdown menu */}
+   690→   690→            {menuOpen && (
+   691→   691→              <>
+   692→   692→                {/* Tap-away catcher */}
+   693→   693→                <div
+   694→   694→                  className="fixed inset-0 z-10"
+   695→   695→                  onClick={() => setMenuOpenFor(null)}
+   696→   696→                />
+   697→   697→                <div
+   698→   698→                  className="absolute right-2 top-14 z-20 rounded-2xl overflow-hidden min-w-[160px] pn-fade-up"
+   699→   699→                  style={{
+   700→   700→                    backgroundColor: 'rgba(20, 20, 38, 0.92)',
+   701→   701→                    border: '1px solid rgba(124, 58, 237, 0.25)',
+   702→   702→                    boxShadow:
+   703→   703→                      '0 12px 36px rgba(0,0,0,0.65), 0 0 0 1px rgba(124,58,237,0.08)',
+   704→   704→                    backdropFilter: 'blur(16px)',
+   705→   705→                    WebkitBackdropFilter: 'blur(16px)',
+   706→   706→                  }}
+   707→   707→                >
+   708→   708→                  {[
+   709→   709→                    { label: 'Play next', icon: '▶' },
+   710→   710→                    { label: 'Add to queue', icon: '+' },
+   711→   711→                    { label: 'Song info', icon: 'ℹ' },
+   712→   712→                  ].map((item) => (
+   713→   713→                    <button
+   714→   714→                      key={item.label}
+   715→   715→                      type="button"
+   716→   716→                      onClick={() => setMenuOpenFor(null)}
+   717→   717→                      className="w-full px-4 py-3 flex items-center gap-3 text-white text-sm transition-colors hover:bg-white/[0.06] active:bg-white/[0.10]"
+   718→   718→                    >
+   719→   719→                      <span className="text-[#A78BFA] text-base">
+   720→   720→                        {item.icon}
+   721→   721→                      </span>
+   722→   722→                      {item.label}
+   723→   723→                    </button>
+   724→   724→                  ))}
+   725→   725→                </div>
+   726→   726→              </>
+   727→   727→            )}
+   728→   728→          </li>
+   729→   729→        );
+   730→   730→      })}
+   731→   731→    </ul>
+   732→   732→  );
+   733→   733→}
+   734→   734→
+   735→   735→/** Animated equalizer bars shown for the currently-playing row. */
+   736→   736→function NowPlayingBars() {
+   737→   737→  return (
+   738→   738→    <div className="flex items-end gap-[2px] h-5">
+   739→   739→      {[0, 1, 2, 3].map((i) => (
+   740→   740→        <span
+   741→   741→          key={i}
+   742→   742→          className="w-[3px] bg-white rounded-sm pn-mini-eq"
+   743→   743→          style={{
+   744→   744→            animationDelay: `${i * 120}ms`,
+   745→   745→            height: '40%',
+   746→   746→          }}
+   747→   747→        />
+   748→   748→      ))}
+   749→   749→    </div>
+   750→   750→  );
+   751→   751→}
+   752→   752→
+   753→   753→// ─────────────────────────────────────────────────────────────────────
+   754→   754→// Loading skeleton
+   755→   755→// ─────────────────────────────────────────────────────────────────────
+   756→   756→
+   757→   757→function LoadingList() {
+   758→   758→  return (
+   759→   759→    <ul className="flex flex-col gap-1">
+   760→   760→      {Array.from({ length: 8 }).map((_, i) => (
+   761→   761→        <li
+   762→   762→          key={i}
+   763→   763→          className="flex items-center gap-3 px-2 py-3"
+   764→   764→          style={{ minHeight: 64 }}
+   765→   765→        >
+   766→   766→          <div
+   767→   767→            className="w-11 h-11 rounded-lg flex-shrink-0"
+   768→   768→            style={{
+   769→   769→              backgroundColor: 'rgba(124,58,237,0.08)',
+   770→   770→              border: '1px solid rgba(124,58,237,0.12)',
+   771→   771→            }}
+   772→   772→          />
+   773→   773→          <div className="flex-1">
+   774→   774→            <div
+   775→   775→              className="h-3.5 rounded mb-2"
+   776→   776→              style={{
+   777→   777→                backgroundColor: 'rgba(124,58,237,0.10)',
+   778→   778→                width: '55%',
+   779→   779→              }}
+   780→   780→            />
+   781→   781→            <div
+   782→   782→              className="h-2.5 rounded"
+   783→   783→              style={{
+   784→   784→                backgroundColor: 'rgba(124,58,237,0.06)',
+   785→   785→                width: '35%',
+   786→   786→              }}
+   787→   787→            />
+   788→   788→          </div>
+   789→   789→        </li>
+   790→   790→      ))}
+   791→   791→    </ul>
+   792→   792→  );
+   793→   793→}
+   794→   794→
+   795→   795→// ─────────────────────────────────────────────────────────────────────
+   796→   796→// Empty state
+   797→   797→// ─────────────────────────────────────────────────────────────────────
+   798→   798→
+   799→   799→function EmptyState({
+   800→   800→  isNative,
+   801→   801→  permissionState,
+   802→   802→  error,
+   803→   803→  onPick,
+   804→   804→}: {
+   805→   805→  isNative: boolean;
+   806→   806→  permissionState: string;
+   807→   807→  error: string | null;
+   808→   808→  onPick: () => void;
+   809→   809→}) {
+   810→   810→  if (isNative && permissionState === 'denied') {
+   811→   811→    return (
+   812→   812→      <EmptyShell
+   813→   813→        title="Storage access required"
+   814→   814→        subtitle="Allow access to your device storage so we can scan for songs in /Music and /Download."
+   815→   815→        icon={
+   816→   816→          <svg
+   817→   817→            width="64"
+   818→   818→            height="64"
+   819→   819→            viewBox="0 0 24 24"
+   820→   820→            fill="none"
+   821→   821→            stroke="#7C3AED"
+   822→   822→            strokeWidth="1.5"
+   823→   823→            strokeLinecap="round"
+   824→   824→          >
+   825→   825→            <rect x="3" y="11" width="18" height="11" rx="2" />
+   826→   826→            <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+   827→   827→          </svg>
+   828→   828→        }
+   829→   829→      >
+   830→   830→        <button
+   831→   831→          type="button"
+   832→   832→          onClick={onPick}
+   833→   833→          className="w-full max-w-xs mx-auto block rounded-full py-3.5 text-white font-semibold text-sm active:scale-95 transition-transform"
+   834→   834→          style={{
+   835→   835→            background:
+   836→   836→              'linear-gradient(135deg, #8B5CF6 0%, #7C3AED 50%, #6D28D9 100%)',
+   837→   837→            boxShadow: '0 10px 30px rgba(124,58,237,0.45)',
+   838→   838→            minHeight: 44,
+   839→   839→          }}
+   840→   840→        >
+   841→   841→          Grant Permission
+   842→   842→        </button>
+   843→   843→      </EmptyShell>
+   844→   844→    );
+   845→   845→  }
+   846→   846→
+   847→   847→  if (isNative && permissionState === 'unsupported') {
+   848→   848→    return (
+   849→   849→      <EmptyShell
+   850→   850→        title="Audio scanning unavailable"
+   851→   851→        subtitle="This device doesn't support automatic media scanning."
+   852→   852→        icon={
+   853→   853→          <svg
+   854→   854→            width="64"
+   855→   855→            height="64"
+   856→   856→            viewBox="0 0 24 24"
+   857→   857→            fill="none"
+   858→   858→            stroke="#A78BFA"
+   859→   859→            strokeWidth="1.5"
+   860→   860→            strokeLinecap="round"
+   861→   861→          >
+   862→   862→            <circle cx="12" cy="12" r="10" />
+   863→   863→            <line x1="4.93" y1="4.93" x2="19.07" y2="19.07" />
+   864→   864→          </svg>
+   865→   865→        }
+   866→   866→      />
+   867→   867→    );
+   868→   868→  }
+   869→   869→
+   870→   870→  if (isNative) {
+   871→   871→    return (
+   872→   872→      <EmptyShell
+   873→   873→        title="No songs found"
+   874→   874→        subtitle={
+   875→   875→          error ??
+   876→   876→          "We scanned /Music and /Download but didn't find any .mp3, .wav, .aac or .m4a files."
+   877→   877→        }
+   878→   878→        icon={
+   879→   879→          <svg
+   880→   880→            width="64"
+   881→   881→            height="64"
+   882→   882→            viewBox="0 0 24 24"
+   883→   883→            fill="none"
+   884→   884→            stroke="#A78BFA"
+   885→   885→            strokeWidth="1.5"
+   886→   886→            strokeLinecap="round"
+   887→   887→          >
+   888→   888→            <path d="M9 18V5l12-2v13" />
+   889→   889→            <circle cx="6" cy="18" r="3" />
+   890→   890→            <circle cx="18" cy="16" r="3" />
+   891→   891→          </svg>
+   892→   892→        }
+   893→   893→      />
+   894→   894→    );
+   895→   895→  }
+   896→   896→
+   897→   897→  // WEB MODE — show Browse button
+   898→   898→  return (
+   899→   899→    <EmptyShell
+   900→   900→      title="No songs yet"
+   901→   901→      subtitle="Pick audio files from your device to start listening. Everything stays 100% offline — nothing is uploaded."
+   902→   902→      icon={
+   903→   903→        <svg
+   904→   904→          width="72"
+   905→   905→          height="72"
+   906→   906→          viewBox="0 0 24 24"
+   907→   907→          fill="none"
+   908→   908→          stroke="#A78BFA"
+   909→   909→          strokeWidth="1.5"
+   910→   910→          strokeLinecap="round"
+   911→   911→        >
+   912→   912→          <path d="M9 18V5l12-2v13" />
+   913→   913→          <circle cx="6" cy="18" r="3" />
+   914→   914→          <circle cx="18" cy="16" r="3" />
+   915→   915→        </svg>
+   916→   916→      }
+   917→   917→    >
+   918→   918→      <button
+   919→   919→        type="button"
+   920→   920→        onClick={onPick}
+   921→   921→        className="w-full max-w-xs mx-auto flex items-center justify-center gap-2 rounded-full py-3.5 text-white font-semibold text-sm active:scale-95 transition-transform"
+   922→   922→        style={{
+   923→   923→          background:
+   924→   924→            'linear-gradient(135deg, #8B5CF6 0%, #7C3AED 50%, #6D28D9 100%)',
+   925→   925→          boxShadow: '0 10px 30px rgba(124,58,237,0.45)',
+   926→   926→          minHeight: 44,
+   927→   927→        }}
+   928→   928→      >
+   929→   929→        <svg
+   930→   930→          width="18"
+   931→   931→          height="18"
+   932→   932→          viewBox="0 0 24 24"
+   933→   933→          fill="none"
+   934→   934→          stroke="white"
+   935→   935→          strokeWidth="2"
+   936→   936→          strokeLinecap="round"
+   937→   937→        >
+   938→   938→          <path d="M9 18V5l12-2v13" />
+   939→   939→          <circle cx="6" cy="18" r="3" />
+   940→   940→          <circle cx="18" cy="16" r="3" />
+   941→   941→        </svg>
+   942→   942→        Browse Audio / Songs
+   943→   943→      </button>
+   944→   944→    </EmptyShell>
+   945→   945→  );
+   946→   946→}
+   947→   947→
+   948→   948→function EmptyShell({
+   949→   949→  title,
+   950→   950→  subtitle,
+   951→   951→  icon,
+   952→   952→  children,
+   953→   953→}: {
+   954→   954→  title: string;
+   955→   955→  subtitle: string;
+   956→   956→  icon: React.ReactNode;
+   957→   957→  children?: React.ReactNode;
+   958→   958→}) {
+   959→   959→  return (
+   960→   960→    <div
+   961→   961→      className="flex flex-col items-center justify-center text-center px-6"
+   962→   962→      style={{ minHeight: '65vh' }}
+   963→   963→    >
+   964→   964→      <div
+   965→   965→        className="w-24 h-24 rounded-full flex items-center justify-center mb-6"
+   966→   966→        style={{
+   967→   967→          background:
+   968→   968→            'radial-gradient(circle at 50% 50%, rgba(124,58,237,0.18), rgba(124,58,237,0.04) 70%)',
+   969→   969→          border: '1px solid rgba(124, 58, 237, 0.22)',
+   970→   970→          boxShadow: '0 0 40px rgba(124,58,237,0.15)',
+   971→   971→        }}
+   972→   972→      >
+   973→   973→        {icon}
+   974→   974→      </div>
+   975→   975→      <h2
+   976→   976→        className="text-white font-bold text-xl mb-2"
+   977→   977→        style={{ textShadow: '0 2px 12px rgba(124,58,237,0.25)' }}
+   978→   978→      >
+   979→   979→        {title}
+   980→   980→      </h2>
+   981→   981→      <p className="text-[#8A8AA0] text-sm leading-relaxed max-w-xs mb-8">
+   982→   982→        {subtitle}
+   983→   983→      </p>
+   984→   984→      {children}
+   985→   985→    </div>
+   986→   986→  );
+   987→   987→}
+   988→   988→
+   989→   989→// ════════════════════════════════════════════════════════════════════
+   990→   990→// MINI PLAYER (persistent bottom bar)
+   991→   991→// ════════════════════════════════════════════════════════════════════
+   992→   992→
+   993→   993→interface MiniPlayerProps {
+   994→   994→  song: Song;
+   995→   995→  isPlaying: boolean;
+   996→   996→  currentTime: number;
+   997→   997→  duration: number;
+   998→   998→  onTogglePlay: () => void;
+   999→   999→  onExpand: () => void;
+  1000→  1000→  onClose: () => void;
+  1001→  1001→}
+  1002→  1002→
+  1003→  1003→function MiniPlayer({
+  1004→  1004→  song,
+  1005→  1005→  isPlaying,
+  1006→  1006→  currentTime,
+  1007→  1007→  duration,
+  1008→  1008→  onTogglePlay,
+  1009→  1009→  onExpand,
+  1010→  1010→  onClose,
+  1011→  1011→}: MiniPlayerProps) {
+  1012→  1012→  const pct =
+  1013→  1013→    duration > 0 ? Math.min(100, (currentTime / duration) * 100) : 0;
+  1014→  1014→
+  1015→  1015→  // Swipe-up detection
+  1016→  1016→  const startYRef = useRef<number | null>(null);
+  1017→  1017→  const handlePointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
+  1018→  1018→    startYRef.current = e.clientY;
+  1019→  1019→  };
+  1020→  1020→  const handlePointerUp = (e: ReactPointerEvent<HTMLDivElement>) => {
+  1021→  1021→    if (startYRef.current === null) return;
+  1022→  1022→    const dy = startYRef.current - e.clientY;
+  1023→  1023→    if (dy > 40) {
+  1024→  1024→      onExpand();
+  1025→  1025→    }
+  1026→  1026→    startYRef.current = null;
+  1027→  1027→  };
+  1028→  1028→
+  1029→  1029→  return (
+  1030→  1030→    <div
+  1031→  1031→      className="fixed bottom-0 left-0 right-0 z-40"
+  1032→  1032→      onPointerDown={handlePointerDown}
+  1033→  1033→      onPointerUp={handlePointerUp}
+  1034→  1034→    >
+  1035→  1035→      {/* Progress strip on top of mini bar */}
+  1036→  1036→      <div
+  1037→  1037→        className="absolute top-0 left-0 right-0"
+  1038→  1038→        style={{
+  1039→  1039→          height: 2,
+  1040→  1040→          backgroundColor: 'rgba(255,255,255,0.05)',
+  1041→  1041→        }}
+  1042→  1042→      >
+  1043→  1043→        <div
+  1044→  1044→          style={{
+  1045→  1045→            position: 'absolute',
+  1046→  1046→            top: 0,
+  1047→  1047→            left: 0,
+  1048→  1048→            bottom: 0,
+  1049→  1049→            width: `${pct}%`,
+  1050→  1050→            backgroundColor: '#7C3AED',
+  1051→  1051→            transition: 'width 200ms linear',
+  1052→  1052→          }}
+  1053→  1053→        />
+  1054→  1054→      </div>
+  1055→  1055→
+  1056→  1056→      <div
+  1057→  1057→        className="flex items-center gap-3 px-3 py-2.5"
+  1058→  1058→        style={{
+  1059→  1059→          // Glassmorphism mini-bar: translucent indigo over gradient bg.
+  1060→  1060→          backgroundColor: 'rgba(15, 15, 32, 0.85)',
+  1061→  1061→          borderTop: '1px solid rgba(124, 58, 237, 0.18)',
+  1062→  1062→          backdropFilter: 'blur(18px)',
+  1063→  1063→          WebkitBackdropFilter: 'blur(18px)',
+  1064→  1064→          boxShadow: '0 -8px 30px rgba(0,0,0,0.45)',
+  1065→  1065→          paddingBottom: 'calc(0.625rem + env(safe-area-inset-bottom))',
+  1066→  1066→        }}
+  1067→  1067→      >
+  1068→  1068→        {/* Album art thumb */}
+  1069→  1069→        <button
+  1070→  1070→          type="button"
+  1071→  1071→          onClick={onExpand}
+  1072→  1072→          aria-label="Expand"
+  1073→  1073→          className="w-11 h-11 rounded-lg flex items-center justify-center flex-shrink-0 active:scale-95 transition-transform"
+  1074→  1074→          style={{
+  1075→  1075→            background:
+  1076→  1076→              'linear-gradient(135deg, #8B5CF6 0%, #6D28D9 100%)',
+  1077→  1077→            boxShadow: '0 4px 14px rgba(124,58,237,0.4)',
+  1078→  1078→          }}
+  1079→  1079→        >
+  1080→  1080→          <svg
+  1081→  1081→            width="20"
+  1082→  1082→            height="20"
+  1083→  1083→            viewBox="0 0 24 24"
+  1084→  1084→            fill="none"
+  1085→  1085→            stroke="white"
+  1086→  1086→            strokeWidth="2"
+  1087→  1087→            strokeLinecap="round"
+  1088→  1088→          >
+  1089→  1089→            <path d="M9 18V5l12-2v13" />
+  1090→  1090→            <circle cx="6" cy="18" r="3" />
+  1091→  1091→            <circle cx="18" cy="16" r="3" />
+  1092→  1092→          </svg>
+  1093→  1093→        </button>
+  1094→  1094→
+  1095→  1095→        {/* Title + artist (marquee) */}
+  1096→  1096→        <button
+  1097→  1097→          type="button"
+  1098→  1098→          onClick={onExpand}
+  1099→  1099→          className="flex-1 min-w-0 text-left overflow-hidden"
+  1100→  1100→        >
+  1101→  1101→          <div className="overflow-hidden">
+  1102→  1102→            <Marquee
+  1103→  1103→              text={`${song.name} · ${song.artist}`}
+  1104→  1104→              className="text-white text-[13px] font-medium truncate"
+  1105→  1105→            />
+  1106→  1106→          </div>
+  1107→  1107→          <p className="text-[#8A8AA0] text-[11px] mt-0.5 truncate">
+  1108→  1108→            {formatTime(currentTime)} / {formatTime(duration)}
+  1109→  1109→          </p>
+  1110→  1110→        </button>
+  1111→  1111→
+  1112→  1112→        {/* Play / pause */}
+  1113→  1113→        <button
+  1114→  1114→          type="button"
+  1115→  1115→          onClick={(e) => {
+  1116→  1116→            e.stopPropagation();
+  1117→  1117→            onTogglePlay();
+  1118→  1118→          }}
+  1119→  1119→          aria-label={isPlaying ? 'Pause' : 'Play'}
+  1120→  1120→          className="w-11 h-11 rounded-full flex items-center justify-center active:scale-95 transition-transform flex-shrink-0"
+  1121→  1121→          style={{
+  1122→  1122→            backgroundColor: 'rgba(124,58,237,0.22)',
+  1123→  1123→            border: '1px solid rgba(124,58,237,0.35)',
+  1124→  1124→          }}
+  1125→  1125→        >
+  1126→  1126→          {isPlaying ? (
+  1127→  1127→            <svg
+  1128→  1128→              width="20"
+  1129→  1129→              height="20"
+  1130→  1130→              viewBox="0 0 24 24"
+  1131→  1131→              fill="white"
+  1132→  1132→            >
+  1133→  1133→              <rect x="6" y="5" width="4" height="14" rx="1" />
+  1134→  1134→              <rect x="14" y="5" width="4" height="14" rx="1" />
+  1135→  1135→            </svg>
+  1136→  1136→          ) : (
+  1137→  1137→            <svg width="20" height="20" viewBox="0 0 24 24" fill="white">
+  1138→  1138→              <polygon points="6 4 20 12 6 20 6 4" />
+  1139→  1139→            </svg>
+  1140→  1140→          )}
+  1141→  1141→        </button>
+  1142→  1142→
+  1143→  1143→        {/* Close */}
+  1144→  1144→        <button
+  1145→  1145→          type="button"
+  1146→  1146→          onClick={(e) => {
+  1147→  1147→            e.stopPropagation();
+  1148→  1148→            onClose();
+  1149→  1149→          }}
+  1150→  1150→          aria-label="Close"
+  1151→  1151→          className="w-9 h-9 rounded-full flex items-center justify-center active:opacity-60 flex-shrink-0"
+  1152→  1152→        >
+  1153→  1153→          <svg
+  1154→  1154→            width="18"
+  1155→  1155→            height="18"
+  1156→  1156→            viewBox="0 0 24 24"
+  1157→  1157→            fill="none"
+  1158→  1158→            stroke="#9A9AB0"
+  1159→  1159→            strokeWidth="2"
+  1160→  1160→            strokeLinecap="round"
+  1161→  1161→          >
+  1162→  1162→            <line x1="18" y1="6" x2="6" y2="18" />
+  1163→  1163→            <line x1="6" y1="6" x2="18" y2="18" />
+  1164→  1164→          </svg>
+  1165→  1165→        </button>
+  1166→  1166→      </div>
+  1167→  1167→    </div>
+  1168→  1168→  );
+  1169→  1169→}
+  1170→  1170→
+  1171→  1171→// ─────────────────────────────────────────────────────────────────────
+  1172→  1172→// Marquee text (CSS-only, plays once if text overflows)
+  1173→  1173→// ─────────────────────────────────────────────────────────────────────
+  1174→  1174→
+  1175→  1175→function Marquee({
+  1176→  1176→  text,
+  1177→  1177→  className,
+  1178→  1178→}: {
+  1179→  1179→  text: string;
+  1180→  1180→  className?: string;
+  1181→  1181→}) {
+  1182→  1182→  // We rely on truncate for short text, and CSS animation for long text.
+  1183→  1183→  // The animation kicks in only when text actually overflows its container
+  1184→  1184→  // (we render two copies side-by-side).
+  1185→  1185→  const textRef = useRef<HTMLSpanElement | null>(null);
+  1186→  1186→  const [overflowing, setOverflowing] = useState(false);
+  1187→  1187→
+  1188→  1188→  useEffect(() => {
+  1189→  1189→    const el = textRef.current;
+  1190→  1190→    if (!el) return;
+  1191→  1191→    const parent = el.parentElement;
+  1192→  1192→    if (!parent) return;
+  1193→  1193→    const check = () => {
+  1194→  1194→      setOverflowing(el.scrollWidth > parent.clientWidth + 1);
+  1195→  1195→    };
+  1196→  1196→    check();
+  1197→  1197→    const ro = new ResizeObserver(check);
+  1198→  1198→    ro.observe(parent);
+  1199→  1199→    return () => ro.disconnect();
+  1200→  1200→  }, [text]);
+  1201→  1201→
+  1202→  1202→  if (!overflowing) {
+  1203→  1203→    return (
+  1204→  1204→      <span ref={textRef} className={className}>
+  1205→  1205→        {text}
+  1206→  1206→      </span>
+  1207→  1207→    );
+  1208→  1208→  }
+  1209→  1209→
+  1210→  1210→  return (
+  1211→  1211→    <div className="relative overflow-hidden">
+  1212→  1212→      <div
+  1213→  1213→        className="flex whitespace-nowrap pn-marquee"
+  1214→  1214→        style={{
+  1215→  1215→          animationDuration: '12s',
+  1216→  1216→          willChange: 'transform',
+  1217→  1217→        }}
+  1218→  1218→      >
+  1219→  1219→        <span className={className} style={{ paddingRight: 32 }}>
+  1220→  1220→          {text}
+  1221→  1221→        </span>
+  1222→  1222→        <span className={className} style={{ paddingRight: 32 }}>
+  1223→  1223→          {text}
+  1224→  1224→        </span>
+  1225→  1225→      </div>
+  1226→  1226→    </div>
+  1227→  1227→  );
+  1228→  1228→}
+  1229→  1229→
+  1230→  1230→// ════════════════════════════════════════════════════════════════════
+  1231→  1231→// EXPANDED FULL PLAYER (premium glassmorphism, auto-expanded on tap)
+  1232→  1232→// ───────────────────────────────────────────────────────────────────
+  1233→  1233→// Visual language:
+  1234→  1234→//   • Background : deep indigo → midnight violet vertical gradient
+  1235→  1235→//   • Surface    : translucent glass with backdrop-blur (calming,
+  1236→  1236→//                  not harsh like pure black)
+  1237→  1237→//   • Album art  : large rounded-square, glowing neon-purple halo
+  1238→  1238→//                  that PULSES rhythmically while music plays, slow
+  1239→  1239→//                  cinematic disc rotation, frosted-glass overlay
+  1240→  1240→//   • Controls   : minimalist, high-contrast, hover/active scale
+  1241→  1241→//                  transitions, glowing play button with breath-pulse
+  1242→  1242→//   • Drag handle: drag-down anywhere to dismiss (iOS/Android feel)
+  1243→  1243→// ════════════════════════════════════════════════════════════════════
+  1244→  1244→
+  1245→  1245→interface ExpandedPlayerProps {
+  1246→  1246→  song: Song;
+  1247→  1247→  isPlaying: boolean;
+  1248→  1248→  currentTime: number;
+  1249→  1249→  duration: number;
+  1250→  1250→  onTogglePlay: () => void;
+  1251→  1251→  onNext: () => void;
+  1252→  1252→  onPrev: () => void;
+  1253→  1253→  onSeek: (t: number) => void;
+  1254→  1254→  onClose: () => void;
+  1255→  1255→}
+  1256→  1256→
+  1257→  1257→function ExpandedPlayer({
+  1258→  1258→  song,
+  1259→  1259→  isPlaying,
+  1260→  1260→  currentTime,
+  1261→  1261→  duration,
+  1262→  1262→  onTogglePlay,
+  1263→  1263→  onNext,
+  1264→  1264→  onPrev,
+  1265→  1265→  onSeek,
+  1266→  1266→  onClose,
+  1267→  1267→}: ExpandedPlayerProps) {
+  1268→  1268→  // Drag-down-to-close (attached to the entire sheet so the user can
+  1269→  1269→  // grab anywhere — not just the handle).
+  1270→  1270→  const startYRef = useRef<number | null>(null);
+  1271→  1271→  const [dragOffset, setDragOffset] = useState(0);
+  1272→  1272→
+  1273→  1273→  const handlePointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
+  1274→  1274→    startYRef.current = e.clientY;
+  1275→  1275→  };
+  1276→  1276→  const handlePointerMove = (e: ReactPointerEvent<HTMLDivElement>) => {
+  1277→  1277→    if (startYRef.current === null) return;
+  1278→  1278→    const dy = e.clientY - startYRef.current;
+  1279→  1279→    if (dy > 0) setDragOffset(dy);
+  1280→  1280→  };
+  1281→  1281→  const handlePointerUp = () => {
+  1282→  1282→    if (startYRef.current === null) return;
+  1283→  1283→    const dy = dragOffset;
+  1284→  1284→    startYRef.current = null;
+  1285→  1285→    setDragOffset(0);
+  1286→  1286→    if (dy > 120) onClose();
+  1287→  1287→  };
+  1288→  1288→
+  1289→  1289→  const pct = duration > 0 ? Math.min(100, (currentTime / duration) * 100) : 0;
+  1290→  1290→
+  1291→  1291→  return (
+  1292→  1292→    <div
+  1293→  1293→      className="fixed inset-0 z-50 flex flex-col pn-sheet-up"
+  1294→  1294→      style={{
+  1295→  1295→        // Deep luxurious dark indigo → midnight violet gradient.
+  1296→  1296→        background:
+  1297→  1297→          'linear-gradient(180deg, #0B0B1E 0%, #0A0A18 40%, #070716 70%, #05050F 100%)',
+  1298→  1298→        transform:
+  1299→  1299→          dragOffset > 0 ? `translateY(${dragOffset}px)` : 'translateY(0)',
+  1300→  1300→        transition: dragOffset > 0 ? 'none' : `transform ${SHEET_EXPAND_MS}ms ease-out`,
+  1301→  1301→        opacity: dragOffset > 0 ? Math.max(0.4, 1 - dragOffset / 600) : 1,
+  1302→  1302→        // Respect device safe-areas (notch / home indicator).
+  1303→  1303→        paddingTop: 'env(safe-area-inset-top)',
+  1304→  1304→      }}
+  1305→  1305→      onPointerDown={handlePointerDown}
+  1306→  1306→      onPointerMove={handlePointerMove}
+  1307→  1307→      onPointerUp={handlePointerUp}
+  1308→  1308→      onPointerCancel={handlePointerUp}
+  1309→  1309→    >
+  1310→  1310→      {/* Ambient aurora glow — sits behind everything for depth. */}
+  1311→  1311→      <div
+  1312→  1312→        aria-hidden
+  1313→  1313→        className="absolute inset-0 pointer-events-none overflow-hidden"
+  1314→  1314→      >
+  1315→  1315→        <div
+  1316→  1316→          className="absolute"
+  1317→  1317→          style={{
+  1318→  1318→            top: '-15%',
+  1319→  1319→            left: '-10%',
+  1320→  1320→            width: '70%',
+  1321→  1321→            height: '50%',
+  1322→  1322→            background:
+  1323→  1323→              'radial-gradient(ellipse at center, rgba(124,58,237,0.28), transparent 70%)',
+  1324→  1324→            filter: 'blur(60px)',
+  1325→  1325→          }}
+  1326→  1326→        />
+  1327→  1327→        <div
+  1328→  1328→          className="absolute"
+  1329→  1329→          style={{
+  1330→  1330→            bottom: '-20%',
+  1331→  1331→            right: '-15%',
+  1332→  1332→            width: '80%',
+  1333→  1333→            height: '55%',
+  1334→  1334→            background:
+  1335→  1335→              'radial-gradient(ellipse at center, rgba(76,29,149,0.22), transparent 70%)',
+  1336→  1336→            filter: 'blur(70px)',
+  1337→  1337→          }}
+  1338→  1338→        />
+  1339→  1339→      </div>
+  1340→  1340→
+  1341→  1341→      {/* Drag handle */}
+  1342→  1342→      <div className="relative pt-3 pb-2 flex justify-center cursor-grab active:cursor-grabbing">
+  1343→  1343→        <div
+  1344→  1344→          className="w-10 h-1 rounded-full"
+  1345→  1345→          style={{
+  1346→  1346→            backgroundColor: 'rgba(255,255,255,0.28)',
+  1347→  1347→          }}
+  1348→  1348→        />
+  1349→  1349→      </div>
+  1350→  1350→
+  1351→  1351→      {/* Top bar */}
+  1352→  1352→      <div className="relative flex items-center justify-between px-5 pt-2 pb-4">
+  1353→  1353→        <button
+  1354→  1354→          type="button"
+  1355→  1355→          onClick={onClose}
+  1356→  1356→          aria-label="Collapse"
+  1357→  1357→          className="w-11 h-11 rounded-full flex items-center justify-center active:scale-95 transition-all"
+  1358→  1358→          style={{
+  1359→  1359→            backgroundColor: 'rgba(255,255,255,0.06)',
+  1360→  1360→            border: '1px solid rgba(255,255,255,0.08)',
+  1361→  1361→            backdropFilter: 'blur(12px)',
+  1362→  1362→            WebkitBackdropFilter: 'blur(12px)',
+  1363→  1363→          }}
+  1364→  1364→        >
+  1365→  1365→          <svg
+  1366→  1366→            width="20"
+  1367→  1367→            height="20"
+  1368→  1368→            viewBox="0 0 24 24"
+  1369→  1369→            fill="none"
+  1370→  1370→            stroke="white"
+  1371→  1371→            strokeWidth="2"
+  1372→  1372→            strokeLinecap="round"
+  1373→  1373→            strokeLinejoin="round"
+  1374→  1374→          >
+  1375→  1375→            <polyline points="6 9 12 15 18 9" />
+  1376→  1376→          </svg>
+  1377→  1377→        </button>
+  1378→  1378→        <div className="flex flex-col items-center">
+  1379→  1379→          <p className="text-[#9A9AB0] text-[10px] uppercase tracking-[0.2em] font-medium">
+  1380→  1380→            Now Playing
+  1381→  1381→          </p>
+  1382→  1382→          <p className="text-white/40 text-[10px] mt-0.5">
+  1383→  1383→            {song.album || 'Local Audio'}
+  1384→  1384→          </p>
+  1385→  1385→        </div>
+  1386→  1386→        <button
+  1387→  1387→          type="button"
+  1388→  1388→          onClick={onClose}
+  1389→  1389→          aria-label="More"
+  1390→  1390→          className="w-11 h-11 rounded-full flex items-center justify-center active:scale-95 transition-all"
+  1391→  1391→          style={{
+  1392→  1392→            backgroundColor: 'rgba(255,255,255,0.06)',
+  1393→  1393→            border: '1px solid rgba(255,255,255,0.08)',
+  1394→  1394→            backdropFilter: 'blur(12px)',
+  1395→  1395→            WebkitBackdropFilter: 'blur(12px)',
+  1396→  1396→          }}
+  1397→  1397→        >
+  1398→  1398→          <svg
+  1399→  1399→            width="18"
+  1400→  1400→            height="18"
+  1401→  1401→            viewBox="0 0 24 24"
+  1402→  1402→            fill="white"
+  1403→  1403→          >
+  1404→  1404→            <circle cx="12" cy="5" r="2" />
+  1405→  1405→            <circle cx="12" cy="12" r="2" />
+  1406→  1406→            <circle cx="12" cy="19" r="2" />
+  1407→  1407→          </svg>
+  1408→  1408→        </button>
+  1409→  1409→      </div>
+  1410→  1410→
+  1411→  1411→      {/* ──────── Album art centerpiece ──────── */}
+  1412→  1412→      <div className="relative flex-1 flex items-center justify-center px-8">
+  1413→  1413→        <div
+  1414→  1414→          className="relative"
+  1415→  1415→          style={{
+  1416→  1416→            width: 'min(80vw, 340px)',
+  1417→  1417→            height: 'min(80vw, 340px)',
+  1418→  1418→          }}
+  1419→  1419→        >
+  1420→  1420→          {/* Outer pulse-glow halo — breathes while playing. */}
+  1421→  1421→          {isPlaying && (
+  1422→  1422→            <div
+  1423→  1423→              aria-hidden
+  1424→  1424→              className="absolute inset-0 rounded-[36px] pn-art-pulse"
+  1425→  1425→              style={{
+  1426→  1426→                background:
+  1427→  1427→                  'radial-gradient(circle at 50% 50%, rgba(124,58,237,0.55), rgba(76,29,149,0.25) 40%, transparent 75%)',
+  1428→  1428→                filter: 'blur(48px)',
+  1429→  1429→                transform: 'scale(1.15)',
+  1430→  1430→              }}
+  1431→  1431→            />
+  1432→  1432→          )}
+  1433→  1433→
+  1434→  1434→          {/* Soft steady glow when paused. */}
+  1435→  1435→          {!isPlaying && (
+  1436→  1436→            <div
+  1437→  1437→              aria-hidden
+  1438→  1438→              className="absolute inset-0 rounded-[36px]"
+  1439→  1439→              style={{
+  1440→  1440→                background:
+  1441→  1441→                  'radial-gradient(circle at 50% 50%, rgba(124,58,237,0.35), transparent 70%)',
+  1442→  1442→                filter: 'blur(40px)',
+  1443→  1443→                transform: 'scale(1.08)',
+  1444→  1444→                opacity: 0.6,
+  1445→  1445→              }}
+  1446→  1446→            />
+  1447→  1447→          )}
+  1448→  1448→
+  1449→  1449→          {/* Frosted-glass disc with neon-purple border. */}
+  1450→  1450→          <div
+  1451→  1451→            className={`absolute inset-0 rounded-[32px] flex items-center justify-center overflow-hidden ${
+  1452→  1452→              isPlaying ? 'pn-disc-spin' : ''
+  1453→  1453→            }`}
+  1454→  1454→            style={{
+  1455→  1455→              background:
+  1456→  1456→                'linear-gradient(135deg, rgba(26,26,46,0.85) 0%, rgba(20,20,31,0.92) 60%, rgba(14,14,24,0.95) 100%)',
+  1457→  1457→              border: '1.5px solid rgba(124,58,237,0.45)',
+  1458→  1458→              boxShadow:
+  1459→  1459→                '0 30px 80px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.06)',
+  1460→  1460→              backdropFilter: 'blur(20px)',
+  1461→  1461→              WebkitBackdropFilter: 'blur(20px)',
+  1462→  1462→              willChange: 'transform',
+  1463→  1463→            }}
+  1464→  1464→          >
+  1465→  1465→            {/* Center label */}
+  1466→  1466→            <div className="flex flex-col items-center gap-3 px-6 text-center">
+  1467→  1467→              <div
+  1468→  1468→                className="w-16 h-16 rounded-full flex items-center justify-center"
+  1469→  1469→                style={{
+  1470→  1470→                  background:
+  1471→  1471→                    'linear-gradient(135deg, #7C3AED 0%, #4C1D95 100%)',
+  1472→  1472→                  boxShadow:
+  1473→  1473→                    '0 0 24px rgba(124,58,237,0.6), inset 0 1px 0 rgba(255,255,255,0.2)',
+  1474→  1474→                }}
+  1475→  1475→              >
+  1476→  1476→                <svg
+  1477→  1477→                  width="28"
+  1478→  1478→                  height="28"
+  1479→  1479→                  viewBox="0 0 24 24"
+  1480→  1480→                  fill="none"
+  1481→  1481→                  stroke="white"
+  1482→  1482→                  strokeWidth="2"
+  1483→  1483→                  strokeLinecap="round"
+  1484→  1484→                  strokeLinejoin="round"
+  1485→  1485→                >
+  1486→  1486→                  <path d="M9 18V5l12-2v13" />
+  1487→  1487→                  <circle cx="6" cy="18" r="3" />
+  1488→  1488→                  <circle cx="18" cy="16" r="3" />
+  1489→  1489→                </svg>
+  1490→  1490→              </div>
+  1491→  1491→              <p
+  1492→  1492→                className="text-[10px] uppercase tracking-[0.25em] font-medium"
+  1493→  1493→                style={{ color: 'rgba(255,255,255,0.35)' }}
+  1494→  1494→              >
+  1495→  1495→                {song.album || 'Local Audio'}
+  1496→  1496→              </p>
+  1497→  1497→            </div>
+  1498→  1498→
+  1499→  1499→            {/* Frosted vinyl rings overlay */}
+  1500→  1500→            <div
+  1501→  1501→              className="absolute inset-0 rounded-[32px] pointer-events-none"
+  1502→  1502→              style={{
+  1503→  1503→                background:
+  1504→  1504→                  'repeating-radial-gradient(circle at 50% 50%, transparent 0px, transparent 22px, rgba(255,255,255,0.03) 23px, rgba(255,255,255,0.03) 24px)',
+  1505→  1505→              }}
+  1506→  1506→            />
+  1507→  1507→            {/* Top sheen */}
+  1508→  1508→            <div
+  1509→  1509→              className="absolute inset-x-0 top-0 h-1/2 rounded-t-[32px] pointer-events-none"
+  1510→  1510→              style={{
+  1511→  1511→                background:
+  1512→  1512→                  'linear-gradient(180deg, rgba(255,255,255,0.08), transparent)',
+  1513→  1513→              }}
+  1514→  1514→            />
+  1515→  1515→          </div>
+  1516→  1516→        </div>
+  1517→  1517→      </div>
+  1518→  1518→
+  1519→  1519→      {/* Title / artist */}
+  1520→  1520→      <div className="relative px-8 pt-4 pb-3 text-center pn-fade-up">
+  1521→  1521→        <h2
+  1522→  1522→          className="text-white font-bold text-2xl tracking-tight truncate"
+  1523→  1523→          title={song.name}
+  1524→  1524→          style={{ textShadow: '0 2px 12px rgba(124,58,237,0.35)' }}
+  1525→  1525→        >
+  1526→  1526→          {song.name}
+  1527→  1527→        </h2>
+  1528→  1528→        <p
+  1529→  1529→          className="text-[#B8B8D0] text-sm mt-1.5 truncate font-medium"
+  1530→  1530→          title={song.artist}
+  1531→  1531→        >
+  1532→  1532→          {song.artist}
+  1533→  1533→        </p>
+  1534→  1534→      </div>
+  1535→  1535→
+  1536→  1536→      {/* Seekbar */}
+  1537→  1537→      <div className="relative px-8 pb-3 pn-fade-up" style={{ animationDelay: '60ms' }}>
+  1538→  1538→        <SeekBar
+  1539→  1539→          progressPct={pct}
+  1540→  1540→          onSeek={onSeek}
+  1541→  1541→          duration={duration}
+  1542→  1542→        />
+  1543→  1543→        <div className="flex items-center justify-between mt-2 px-1">
+  1544→  1544→          <span
+  1545→  1545→            className="text-[11px] font-mono"
+  1546→  1546→            style={{ color: 'rgba(255,255,255,0.55)' }}
+  1547→  1547→          >
+  1548→  1548→            {formatTime(currentTime)}
+  1549→  1549→          </span>
+  1550→  1550→          <span
+  1551→  1551→            className="text-[11px] font-mono"
+  1552→  1552→            style={{ color: 'rgba(255,255,255,0.55)' }}
+  1553→  1553→          >
+  1554→  1554→            {formatTime(duration)}
+  1555→  1555→          </span>
+  1556→  1556→        </div>
+  1557→  1557→      </div>
+  1558→  1558→
+  1559→  1559→      {/* Controls */}
+  1560→  1560→      <div
+  1561→  1561→        className="relative flex items-center justify-center gap-10 px-8 pb-10 pn-fade-up"
+  1562→  1562→        style={{ animationDelay: '120ms' }}
+  1563→  1563→      >
+  1564→  1564→        <button
+  1565→  1565→          type="button"
+  1566→  1566→          onClick={onPrev}
+  1567→  1567→          aria-label="Previous"
+  1568→  1568→          className="w-14 h-14 rounded-full flex items-center justify-center active:scale-90 transition-all hover:bg-white/10"
+  1569→  1569→          style={{
+  1570→  1570→            backgroundColor: 'rgba(255,255,255,0.06)',
+  1571→  1571→            border: '1px solid rgba(255,255,255,0.08)',
+  1572→  1572→            backdropFilter: 'blur(12px)',
+  1573→  1573→            WebkitBackdropFilter: 'blur(12px)',
+  1574→  1574→          }}
+  1575→  1575→        >
+  1576→  1576→          <svg width="26" height="26" viewBox="0 0 24 24" fill="white">
+  1577→  1577→            <polygon points="19 5 9 12 19 19 19 5" />
+  1578→  1578→            <rect x="6" y="5" width="2" height="14" />
+  1579→  1579→          </svg>
+  1580→  1580→        </button>
+  1581→  1581→
+  1582→  1582→        <button
+  1583→  1583→          type="button"
+  1584→  1584→          onClick={onTogglePlay}
+  1585→  1585→          aria-label={isPlaying ? 'Pause' : 'Play'}
+  1586→  1586→          className={`w-20 h-20 rounded-full flex items-center justify-center active:scale-95 transition-all hover:scale-105 ${
+  1587→  1587→            isPlaying ? 'pn-btn-glow' : ''
+  1588→  1588→          }`}
+  1589→  1589→          style={{
+  1590→  1590→            background:
+  1591→  1591→              'linear-gradient(135deg, #8B5CF6 0%, #7C3AED 50%, #6D28D9 100%)',
+  1592→  1592→            boxShadow: isPlaying
+  1593→  1593→              ? undefined
+  1594→  1594→              : '0 12px 30px rgba(124,58,237,0.45), 0 0 0 1px rgba(124,58,237,0.5)',
+  1595→  1595→          }}
+  1596→  1596→        >
+  1597→  1597→          {isPlaying ? (
+  1598→  1598→            <svg width="34" height="34" viewBox="0 0 24 24" fill="white">
+  1599→  1599→              <rect x="6" y="5" width="4" height="14" rx="1.5" />
+  1600→  1600→              <rect x="14" y="5" width="4" height="14" rx="1.5" />
+  1601→  1601→            </svg>
+  1602→  1602→          ) : (
+  1603→  1603→            <svg width="34" height="34" viewBox="0 0 24 24" fill="white">
+  1604→  1604→              <polygon points="7 4 21 12 7 20 7 4" />
+  1605→  1605→            </svg>
+  1606→  1606→          )}
+  1607→  1607→        </button>
+  1608→  1608→
+  1609→  1609→        <button
+  1610→  1610→          type="button"
+  1611→  1611→          onClick={onNext}
+  1612→  1612→          aria-label="Next"
+  1613→  1613→          className="w-14 h-14 rounded-full flex items-center justify-center active:scale-90 transition-all hover:bg-white/10"
+  1614→  1614→          style={{
+  1615→  1615→            backgroundColor: 'rgba(255,255,255,0.06)',
+  1616→  1616→            border: '1px solid rgba(255,255,255,0.08)',
+  1617→  1617→            backdropFilter: 'blur(12px)',
+  1618→  1618→            WebkitBackdropFilter: 'blur(12px)',
+  1619→  1619→          }}
+  1620→  1620→        >
+  1621→  1621→          <svg width="26" height="26" viewBox="0 0 24 24" fill="white">
+  1622→  1622→            <polygon points="5 5 15 12 5 19 5 5" />
+  1623→  1623→            <rect x="16" y="5" width="2" height="14" />
+  1624→  1624→          </svg>
+  1625→  1625→        </button>
+  1626→  1626→      </div>
+  1627→  1627→    </div>
+  1628→  1628→  );
+  1629→  1629→}
+  1630→  1630→
+  1631→  1631→// ════════════════════════════════════════════════════════════════════
+  1632→  1632→// SEEKBAR — thin elegant bar with drag-to-seek
+  1633→  1633→// ════════════════════════════════════════════════════════════════════
+  1634→  1634→
+  1635→  1635→function SeekBar({
+  1636→  1636→  progressPct,
+  1637→  1637→  onSeek,
+  1638→  1638→  duration,
+  1639→  1639→}: {
+  1640→  1640→  progressPct: number;
+  1641→  1641→  onSeek: (t: number) => void;
+  1642→  1642→  duration: number;
+  1643→  1643→}) {
+  1644→  1644→  const trackRef = useRef<HTMLDivElement | null>(null);
+  1645→  1645→  const [dragging, setDragging] = useState(false);
+  1646→  1646→  const [dragPct, setDragPct] = useState<number | null>(null);
+  1647→  1647→
+  1648→  1648→  const pct = dragging && dragPct !== null ? dragPct : progressPct;
+  1649→  1649→
+  1650→  1650→  const seekFromClientX = useCallback(
+  1651→  1651→    (clientX: number) => {
+  1652→  1652→      const el = trackRef.current;
+  1653→  1653→      if (!el || duration <= 0) return;
+  1654→  1654→      const rect = el.getBoundingClientRect();
+  1655→  1655→      const ratio = Math.max(
+  1656→  1656→        0,
+  1657→  1657→        Math.min(1, (clientX - rect.left) / rect.width)
+  1658→  1658→      );
+  1659→  1659→      onSeek(ratio * duration);
+  1660→  1660→    },
+  1661→  1661→    [duration, onSeek]
+  1662→  1662→  );
+  1663→  1663→
+  1664→  1664→  const handlePointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
+  1665→  1665→    e.stopPropagation();
+  1666→  1666→    setDragging(true);
+  1667→  1667→    const el = trackRef.current;
+  1668→  1668→    if (el) {
+  1669→  1669→      const rect = el.getBoundingClientRect();
+  1670→  1670→      setDragPct(
+  1671→  1671→        Math.max(0, Math.min(100, ((e.clientX - rect.left) / rect.width) * 100))
+  1672→  1672→      );
+  1673→  1673→    }
+  1674→  1674→    (e.target as Element).setPointerCapture?.(e.pointerId);
+  1675→  1675→  };
+  1676→  1676→
+  1677→  1677→  const handlePointerMove = (e: ReactPointerEvent<HTMLDivElement>) => {
+  1678→  1678→    if (!dragging) return;
+  1679→  1679→    e.stopPropagation();
+  1680→  1680→    const el = trackRef.current;
+  1681→  1681→    if (!el) return;
+  1682→  1682→    const rect = el.getBoundingClientRect();
+  1683→  1683→    setDragPct(
+  1684→  1684→      Math.max(0, Math.min(100, ((e.clientX - rect.left) / rect.width) * 100))
+  1685→  1685→    );
+  1686→  1686→  };
+  1687→  1687→
+  1688→  1688→  const handlePointerUp = (e: ReactPointerEvent<HTMLDivElement>) => {
+  1689→  1689→    if (!dragging) return;
+  1690→  1690→    e.stopPropagation();
+  1691→  1691→    setDragging(false);
+  1692→  1692→    seekFromClientX(e.clientX);
+  1693→  1693→    setDragPct(null);
+  1694→  1694→  };
+  1695→  1695→
+  1696→  1696→  return (
+  1697→  1697→    <div
+  1698→  1698→      ref={trackRef}
+  1699→  1699→      onPointerDown={handlePointerDown}
+  1700→  1700→      onPointerMove={handlePointerMove}
+  1701→  1701→      onPointerUp={handlePointerUp}
+  1702→  1702→      onPointerCancel={handlePointerUp}
+  1703→  1703→      className="relative h-9 flex items-center cursor-pointer touch-none"
+  1704→  1704→    >
+  1705→  1705→      {/* Track */}
+  1706→  1706→      <div
+  1707→  1707→        className="relative w-full rounded-full"
+  1708→  1708→        style={{
+  1709→  1709→          height: 4,
+  1710→  1710→          backgroundColor: 'rgba(255,255,255,0.10)',
+  1711→  1711→        }}
+  1712→  1712→      >
+  1713→  1713→        {/* Progress */}
+  1714→  1714→        <div
+  1715→  1715→          className="absolute top-0 left-0 h-full rounded-full"
+  1716→  1716→          style={{
+  1717→  1717→            width: `${pct}%`,
+  1718→  1718→            background:
+  1719→  1719→              'linear-gradient(90deg, #8B5CF6 0%, #7C3AED 50%, #A78BFA 100%)',
+  1720→  1720→            boxShadow: '0 0 12px rgba(124,58,237,0.6)',
+  1721→  1721→            transition: dragging ? 'none' : 'width 200ms linear',
+  1722→  1722→          }}
+  1723→  1723→        />
+  1724→  1724→      </div>
+  1725→  1725→      {/* Thumb */}
+  1726→  1726→      <div
+  1727→  1727→        className="absolute top-1/2 -translate-y-1/2 rounded-full"
+  1728→  1728→        style={{
+  1729→  1729→          left: `calc(${pct}% - 7px)`,
+  1730→  1730→          width: dragging ? 16 : 12,
+  1731→  1731→          height: dragging ? 16 : 12,
+  1732→  1732→          backgroundColor: 'white',
+  1733→  1733→          boxShadow:
+  1734→  1734→            '0 2px 8px rgba(0,0,0,0.5), 0 0 12px rgba(124,58,237,0.6)',
+  1735→  1735→          transition: dragging ? 'none' : 'left 200ms linear',
+  1736→  1736→        }}
+  1737→  1737→      />
+  1738→  1738→    </div>
+  1739→  1739→  );
+  1740→  1740→}
+  1741→  1741→

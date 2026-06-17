@@ -652,3 +652,50 @@ html.light-mode picture {
 .pn-btn-glow {
   animation: pn-btn-glow 2.4s ease-in-out infinite;
 }
+
+/* ─────────────────────────────────────────────────────────────────────
+   ENHANCED LIVE EQUALIZER (4 dancing bars, staggered, smooth)
+   Replaces the older 2-state .pn-mini-eq with a richer 4-bar
+   "live DJ visualizer" used in the song list row.
+   ───────────────────────────────────────────────────────────────────── */
+@keyframes pn-eq-bar {
+  0%   { transform: scaleY(0.25); }
+  20%  { transform: scaleY(0.95); }
+  40%  { transform: scaleY(0.45); }
+  60%  { transform: scaleY(1);    }
+  80%  { transform: scaleY(0.35); }
+  100% { transform: scaleY(0.25); }
+}
+
+.pn-eq-bar {
+  transform-origin: bottom center;
+  animation: pn-eq-bar 900ms cubic-bezier(0.45, 0, 0.55, 1) infinite;
+}
+
+/* Slow ambient drift for the multicolor radial glows behind the
+   album art — gives the "calming" effect the user asked for. */
+@keyframes pn-aurora-drift {
+  0%   { transform: translate3d(-3%, -2%, 0) scale(1);    opacity: 0.55; }
+  50%  { transform: translate3d( 4%,  3%, 0) scale(1.08); opacity: 0.85; }
+  100% { transform: translate3d(-3%, -2%, 0) scale(1);    opacity: 0.55; }
+}
+.pn-aurora-drift {
+  animation: pn-aurora-drift 14s ease-in-out infinite;
+}
+@keyframes pn-aurora-drift-2 {
+  0%   { transform: translate3d( 3%,  2%, 0) scale(1.05); opacity: 0.55; }
+  50%  { transform: translate3d(-4%, -3%, 0) scale(1);    opacity: 0.85; }
+  100% { transform: translate3d( 3%,  2%, 0) scale(1.05); opacity: 0.55; }
+}
+.pn-aurora-drift-2 {
+  animation: pn-aurora-drift-2 18s ease-in-out infinite;
+}
+
+/* Gentle pulse for the music glyph inside album art (only when playing) */
+@keyframes pn-glyph-pulse {
+  0%, 100% { transform: scale(1);    opacity: 0.92; }
+  50%      { transform: scale(1.08); opacity: 1;    }
+}
+.pn-glyph-pulse {
+  animation: pn-glyph-pulse 2.6s ease-in-out infinite;
+}

@@ -1,40 +1,36 @@
 'use client';
 
 // ════════════════════════════════════════════════════════════════════
-//  Play Nexa · Local Music Player
+//  Play Nexa · Local Music Player  (Premium Glassmorphic Minimal v2)
 //  ───────────────────────────────────────────────────────────────────
-//  Google Files + Spotify-inspired, premium, fully offline dual-mode
-//  music player. 100% self-contained — zero coupling with the video
-//  player.
+//  A 100% offline, Google-Files + Spotify-inspired dual-mode player.
 //
-//  ▸ LIBRARY   : clean vertical list, music-note icon, real title +
-//                artist/folder, 3-dot menu per row.
-//  ▸ CACHE     : on every successful scan/pick, songs metadata is
-//                persisted to localStorage under
-//                `playnexa_cached_songs`. On mount, the cache is
-//                hydrated instantly so the user never re-scans.
-//                Native content:// URIs survive across sessions; web
-//                blob URLs may need re-pick (handled gracefully).
-//  ▸ WEB MODE  : "🎵 Browse Audio/Songs" button → hidden
-//                <input type="file" multiple accept="audio/*"> →
-//                URL.createObjectURL() → instant playback.
-//  ▸ APK MODE  : on mount, auto-request storage permission & scan
-//                /Music + /Download for .mp3/.wav/.aac/.m4a.
-//                Browse button is HIDDEN in native mode.
-//  ▸ MINI BAR  : persistent thin bar pinned to bottom. Marquee
-//                title + play/pause. App stays browseable.
-//  ▸ FULL SHEET: AUTO-EXPANDS on song click. Premium glassmorphism
-//                design — deep indigo/violet gradient background,
-//                glowing pulse album art, sleek controls. Drag-down
-//                to close.
-//  ▸ AUDIO     : SINGLE shared HTMLAudioElement owned by
-//                useMusicPlayer() (preserves background play &
-//                native lock-screen controls). On every new song
-//                selection, the previous track is fully stopped
-//                before the new one loads — no overlap.
+//  ▸ LIBRARY        clean vertical list, music-note icon, real title
+//                   + artist/folder, 3-dot menu per row, LIVE 4-bar
+//                   equalizer on the currently playing row.
+//  ▸ CACHE          scanned songs persist to localStorage under
+//                   `playnexa_cached_songs`. On mount the cache is
+//                   hydrated instantly so the user never re-scans.
+//  ▸ WEB / APK      auto-detects platform; web → file picker,
+//                   native → storage permission + /Music + /Download
+//                   scan.
+//  ▸ MINI BAR       persistent thin bar pinned to bottom with marquee
+//                   title + play/pause + progress strip.
+//  ▸ FULL SHEET     AUTO-EXPANDS on song click. Premium glassmorphism:
+//                   deep dark gradient, multicolor ambient radial glow,
+//                   frosted-glass album art with neon-purple border,
+//                   pulsing music glyph, minimalist seekbar, tactile
+//                   controls + shuffle + repeat. Drag-down to close.
+//  ▸ AUDIO ENGINE   SINGLE shared HTMLAudioElement owned by
+//                   useMusicPlayer() (preserves background play &
+//                   native lock-screen controls). On every new song,
+//                   the previous track is fully stopped before the
+//                   new one loads — no overlap. timeupdate +
+//                   loadedmetadata + durationchange listeners keep
+//                   the seekbar and timestamps ticking in real-time.
 //
-//  Theme: Indigo Midnight gradient · accent #7C3AED · 44px min touch
-//         · glassmorphism · pulse-glow art · no harsh contrast
+//  Theme: Premium Glassmorphic Minimal · accent #7C3AED · 44px min
+//         touch · frosted glass · ambient aurora · pulsing glyph
 // ════════════════════════════════════════════════════════════════════
 
 import {
@@ -46,7 +42,7 @@ import {
 } from 'react';
 import { useLocalMediaScanner } from '@/lib/media-scanner/useLocalMediaScanner';
 import type { MediaFile } from '@/lib/media-scanner/types';
-import { useMusicPlayer } from '@/hooks/useMusicPlayer';
+import { useMusicPlayer, type RepeatMode } from '@/hooks/useMusicPlayer';
 import type { Song } from '@/lib/mediaUtils';
 
 // ─────────────────────────────────────────────────────────────────────
@@ -100,8 +96,6 @@ function parseFilename(name: string): { title: string; artist: string } {
 /** Derive a folder name from a MediaFile (best effort) */
 function getFolderName(file: MediaFile): string {
   if (file.source === 'native-mediastore') {
-    // Native items sometimes carry path metadata in the id (id/path encoded).
-    // We don't expose full path here — use a generic label.
     return 'Device';
   }
   return 'Local Files';
@@ -177,8 +171,8 @@ export default function LocalMusicPlayer({
     clear,
   } = useLocalMediaScanner('audio');
 
-  // ── Existing music-player hook (single shared <audio>, media session,
-  //    native lock-screen controls, persistence) ──
+  // ── Music-player hook (single shared <audio>, media session,
+  //    native lock-screen controls, persistence, shuffle + repeat) ──
   //    NOTE: play() is intentionally NOT destructured — handleSongSelect
   //    uses setPlaylist(songs, index) which internally invokes play() via
   //    the hook's playRef. Calling play() directly here would skip playlist
@@ -188,6 +182,8 @@ export default function LocalMusicPlayer({
     isPlaying,
     currentTime,
     duration,
+    isShuffle,
+    repeatMode,
     pause,
     resume,
     next,
@@ -195,6 +191,8 @@ export default function LocalMusicPlayer({
     seekTo,
     stop,
     setPlaylist,
+    toggleShuffle,
+    cycleRepeat,
   } = useMusicPlayer();
 
   // ── UI state ──
@@ -207,15 +205,6 @@ export default function LocalMusicPlayer({
   // navigating back. We use a lazy initialiser so SSR renders empty
   // (window is undefined on the server) and the client hydrates
   // synchronously from localStorage on the very first paint.
-  //
-  // NOTE: `cachedFiles` is intentionally a one-time mount snapshot.
-  // We do NOT update it when `files` changes — instead we just write
-  // the fresh scan to localStorage via the effect below. The derived
-  // `displayedFiles` value automatically prefers the live `files`
-  // array when non-empty, so updating `cachedFiles` at runtime would
-  // just cause a redundant cascading render. The NEXT time the
-  // component mounts, the lazy initialiser re-reads localStorage and
-  // picks up the updated cache.
   const [cachedFiles] = useState<MediaFile[]>(() => lsGetCachedSongs());
 
   // Persist `files` → localStorage every time a fresh scan/pick
@@ -232,15 +221,6 @@ export default function LocalMusicPlayer({
    * What the library actually renders. We prefer the freshly-scanned
    * `files` array when non-empty; otherwise we fall back to whatever is
    * in `cachedFiles` so the user sees their library immediately.
-   *
-   * NOTE on web blob URLs: when `cachedFiles` is sourced from a previous
-   * session, the `uri` field is a `blob:` URL that has been revoked by
-   * now. Clicking such a song will fire the `<audio>` element's `error`
-   * event (handled inside useMusicPlayer → setIsPlaying(false)). The
-   * user sees the song in the list (good — visual continuity) but
-   * tapping it doesn't make noise. We surface a friendly toast/banner
-   * via the EmptyState's error slot when this happens. On native
-   * (content:// URIs) the cache is fully functional.
    */
   const displayedFiles = files.length > 0 ? files : cachedFiles;
 
@@ -286,15 +266,11 @@ export default function LocalMusicPlayer({
   // AUDIO OVERLAP PROTECTION:
   // useMusicPlayer() internally creates a SINGLE shared HTMLAudioElement
   // (via its own `audioRef` inside the hook). Its `play()` function calls
-  // `audio.pause()` before assigning a new `src`. So at the hook level,
-  // overlap is already impossible. We add a defensive `stop()` call
-  // here for two reasons:
-  //   1. It guarantees currentTime is reset to 0 before the new song
-  //      starts — even if a previous `audio.play()` Promise is still
-  //      resolving (race on rapid double-tap).
-  //   2. It makes the intent loud-and-clear at the component level so
-  //      future maintenance doesn't accidentally introduce a second
-  //      <audio> element.
+  // `audio.pause()` + `audio.currentTime = 0` before assigning a new
+  // `src`. So at the hook level, overlap is already impossible. We add a
+  // defensive `stop()` call here so currentTime is guaranteed reset
+  // even if a previous `audio.play()` Promise is still resolving (race
+  // on rapid double-tap).
   //
   // AUTO-EXPAND:
   // After kicking off playback, we immediately flip `expanded` to true
@@ -305,9 +281,7 @@ export default function LocalMusicPlayer({
     (mf: MediaFile, index: number) => {
       // 1. Hard-stop any currently-playing track BEFORE setting up the
       //    new playlist. The hook's stop() pauses, resets currentTime,
-      //    and notifies native media-session listeners. It does NOT
-      //    clear audio.src — that's done by the subsequent play() call
-      //    inside setPlaylist → playRef.current(song).
+      //    and notifies native media-session listeners.
       stop();
 
       // 2. Build the Song[] playlist from the displayed list, starting
@@ -344,9 +318,9 @@ export default function LocalMusicPlayer({
     <div
       className="min-h-screen flex flex-col relative"
       style={{
-        // Deep luxurious dark indigo → midnight violet gradient backdrop
+        // Premium deep dark gradient per spec (#0c0d19 → #06070c).
         background:
-          'linear-gradient(180deg, #0B0B1E 0%, #0A0A18 45%, #05050F 100%)',
+          'linear-gradient(180deg, #0c0d19 0%, #0a0b14 50%, #06070c 100%)',
       }}
     >
       <LibraryView
@@ -392,10 +366,14 @@ export default function LocalMusicPlayer({
           isPlaying={isPlaying}
           currentTime={currentTime}
           duration={duration}
+          isShuffle={isShuffle}
+          repeatMode={repeatMode}
           onTogglePlay={() => (isPlaying ? pause() : resume())}
           onNext={() => next()}
           onPrev={() => previous()}
           onSeek={seekTo}
+          onToggleShuffle={toggleShuffle}
+          onCycleRepeat={cycleRepeat}
           onClose={handleCloseExpanded}
         />
       )}
@@ -451,11 +429,11 @@ function LibraryView({
       <header
         className="flex items-center justify-between px-4 pt-5 pb-4 sticky top-0 z-30"
         style={{
-          // Glassmorphism header: translucent indigo over the gradient bg.
-          backgroundColor: 'rgba(11, 11, 30, 0.72)',
+          // Glassmorphism header: translucent dark over the gradient bg.
+          backgroundColor: 'rgba(12, 13, 25, 0.72)',
           backdropFilter: 'blur(18px)',
           WebkitBackdropFilter: 'blur(18px)',
-          borderBottom: '1px solid rgba(124, 58, 237, 0.12)',
+          borderBottom: '1px solid rgba(255,255,255,0.06)',
         }}
       >
         <div className="flex items-center gap-3 min-w-0">
@@ -463,10 +441,10 @@ function LibraryView({
             type="button"
             onClick={onBack}
             aria-label="Back"
-            className="w-11 h-11 rounded-full flex items-center justify-center active:opacity-70 flex-shrink-0 transition-colors"
+            className="w-11 h-11 rounded-full flex items-center justify-center active:opacity-70 active:scale-95 flex-shrink-0 transition-all"
             style={{
-              backgroundColor: 'rgba(124, 58, 237, 0.12)',
-              border: '1px solid rgba(124, 58, 237, 0.22)',
+              backgroundColor: 'rgba(255,255,255,0.05)',
+              border: '1px solid rgba(255,255,255,0.08)',
             }}
           >
             <svg
@@ -488,7 +466,7 @@ function LibraryView({
             >
               Local Music
             </h1>
-            <p className="text-[#9A9AB0] text-xs mt-0.5">
+            <p className="text-[#7A7A92] text-xs mt-0.5">
               {isLoading
                 ? 'Scanning…'
                 : files.length > 0
@@ -502,10 +480,10 @@ function LibraryView({
           onClick={onRefresh}
           aria-label="Refresh"
           disabled={isLoading}
-          className="w-11 h-11 rounded-full flex items-center justify-center active:opacity-70 disabled:opacity-40 flex-shrink-0 transition-colors"
+          className="w-11 h-11 rounded-full flex items-center justify-center active:opacity-70 active:scale-95 disabled:opacity-40 flex-shrink-0 transition-all"
           style={{
-            backgroundColor: 'rgba(124, 58, 237, 0.12)',
-            border: '1px solid rgba(124, 58, 237, 0.22)',
+            backgroundColor: 'rgba(255,255,255,0.05)',
+            border: '1px solid rgba(255,255,255,0.08)',
           }}
         >
           <svg
@@ -612,21 +590,23 @@ function SongList({
                 minHeight: 64,
               }}
             >
-              {/* Icon / playing indicator */}
+              {/* Icon / LIVE EQUALIZER for active+playing song */}
               <div
                 className="w-11 h-11 rounded-lg flex items-center justify-center flex-shrink-0"
                 style={{
                   background: isActive
                     ? 'linear-gradient(135deg, #8B5CF6 0%, #6D28D9 100%)'
-                    : 'rgba(124, 58, 237, 0.10)',
-                  border: '1px solid rgba(124, 58, 237, 0.18)',
+                    : 'rgba(255,255,255,0.04)',
+                  border: isActive
+                    ? '1px solid rgba(124, 58, 237, 0.45)'
+                    : '1px solid rgba(255,255,255,0.06)',
                   boxShadow: isActive
                     ? '0 4px 16px rgba(124, 58, 237, 0.4)'
                     : 'none',
                 }}
               >
                 {isActive && isPlaying ? (
-                  <NowPlayingBars />
+                  <LiveEqualizer />
                 ) : (
                   <svg
                     width="20"
@@ -648,14 +628,14 @@ function SongList({
               <div className="flex-1 min-w-0 text-left">
                 <p
                   className={`text-[14px] font-medium leading-tight truncate ${
-                    isActive ? 'text-[#A78BFA]' : 'text-white'
+                    isActive ? 'text-[#C4B5FD]' : 'text-white'
                   }`}
                   title={title}
                 >
                   {title}
                 </p>
                 <p
-                  className="text-[#8A8AA0] text-xs mt-0.5 truncate"
+                  className="text-[#7A7A92] text-xs mt-0.5 truncate"
                   title={artist}
                 >
                   {artist} · {formatSize(mf.sizeBytes)}
@@ -671,13 +651,13 @@ function SongList({
                   setMenuOpenFor(menuOpen ? null : mf.id);
                 }}
                 aria-label="More options"
-                className="w-9 h-9 rounded-full flex items-center justify-center active:opacity-60 flex-shrink-0"
+                className="w-9 h-9 rounded-full flex items-center justify-center active:opacity-60 active:scale-95 flex-shrink-0 transition-transform"
               >
                 <svg
                   width="18"
                   height="18"
                   viewBox="0 0 24 24"
-                  fill="#9A9A9A"
+                  fill="#9A9AB0"
                 >
                   <circle cx="12" cy="5" r="2" />
                   <circle cx="12" cy="12" r="2" />
@@ -732,17 +712,29 @@ function SongList({
   );
 }
 
-/** Animated equalizer bars shown for the currently-playing row. */
-function NowPlayingBars() {
+/**
+ * Live 4-bar dancing audio equalizer shown next to the title of the
+ * currently-playing row. Uses staggered CSS animations to look like a
+ * DJ visualizer reacting to music. Purely decorative — no JS state.
+ */
+function LiveEqualizer() {
+  // 4 bars with staggered animation delays for an organic, lively feel.
+  const bars = [0, 110, 220, 80];
   return (
-    <div className="flex items-end gap-[2px] h-5">
-      {[0, 1, 2, 3].map((i) => (
+    <div
+      className="flex items-end justify-center gap-[3px] h-5"
+      aria-hidden
+    >
+      {bars.map((delay, i) => (
         <span
           key={i}
-          className="w-[3px] bg-white rounded-sm pn-mini-eq"
+          className="pn-eq-bar w-[3px] rounded-sm"
           style={{
-            animationDelay: `${i * 120}ms`,
-            height: '40%',
+            height: '100%',
+            backgroundColor: 'white',
+            animationDelay: `${delay}ms`,
+            // Vary durations slightly so the bars don't sync.
+            animationDuration: `${820 + i * 90}ms`,
           }}
         />
       ))}
@@ -766,22 +758,22 @@ function LoadingList() {
           <div
             className="w-11 h-11 rounded-lg flex-shrink-0"
             style={{
-              backgroundColor: 'rgba(124,58,237,0.08)',
-              border: '1px solid rgba(124,58,237,0.12)',
+              backgroundColor: 'rgba(255,255,255,0.04)',
+              border: '1px solid rgba(255,255,255,0.06)',
             }}
           />
           <div className="flex-1">
             <div
               className="h-3.5 rounded mb-2"
               style={{
-                backgroundColor: 'rgba(124,58,237,0.10)',
+                backgroundColor: 'rgba(255,255,255,0.06)',
                 width: '55%',
               }}
             />
             <div
               className="h-2.5 rounded"
               style={{
-                backgroundColor: 'rgba(124,58,237,0.06)',
+                backgroundColor: 'rgba(255,255,255,0.04)',
                 width: '35%',
               }}
             />
@@ -978,7 +970,7 @@ function EmptyShell({
       >
         {title}
       </h2>
-      <p className="text-[#8A8AA0] text-sm leading-relaxed max-w-xs mb-8">
+      <p className="text-[#7A7A92] text-sm leading-relaxed max-w-xs mb-8">
         {subtitle}
       </p>
       {children}
@@ -1056,8 +1048,8 @@ function MiniPlayer({
       <div
         className="flex items-center gap-3 px-3 py-2.5"
         style={{
-          // Glassmorphism mini-bar: translucent indigo over gradient bg.
-          backgroundColor: 'rgba(15, 15, 32, 0.85)',
+          // Glassmorphism mini-bar: translucent dark over gradient bg.
+          backgroundColor: 'rgba(12, 13, 25, 0.88)',
           borderTop: '1px solid rgba(124, 58, 237, 0.18)',
           backdropFilter: 'blur(18px)',
           WebkitBackdropFilter: 'blur(18px)',
@@ -1065,7 +1057,7 @@ function MiniPlayer({
           paddingBottom: 'calc(0.625rem + env(safe-area-inset-bottom))',
         }}
       >
-        {/* Album art thumb */}
+        {/* Album art thumb (also expands the full sheet) */}
         <button
           type="button"
           onClick={onExpand}
@@ -1077,19 +1069,23 @@ function MiniPlayer({
             boxShadow: '0 4px 14px rgba(124,58,237,0.4)',
           }}
         >
-          <svg
-            width="20"
-            height="20"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="white"
-            strokeWidth="2"
-            strokeLinecap="round"
-          >
-            <path d="M9 18V5l12-2v13" />
-            <circle cx="6" cy="18" r="3" />
-            <circle cx="18" cy="16" r="3" />
-          </svg>
+          {isPlaying ? (
+            <LiveEqualizer />
+          ) : (
+            <svg
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="white"
+              strokeWidth="2"
+              strokeLinecap="round"
+            >
+              <path d="M9 18V5l12-2v13" />
+              <circle cx="6" cy="18" r="3" />
+              <circle cx="18" cy="16" r="3" />
+            </svg>
+          )}
         </button>
 
         {/* Title + artist (marquee) */}
@@ -1104,7 +1100,7 @@ function MiniPlayer({
               className="text-white text-[13px] font-medium truncate"
             />
           </div>
-          <p className="text-[#8A8AA0] text-[11px] mt-0.5 truncate">
+          <p className="text-[#7A7A92] text-[11px] mt-0.5 truncate">
             {formatTime(currentTime)} / {formatTime(duration)}
           </p>
         </button>
@@ -1148,7 +1144,7 @@ function MiniPlayer({
             onClose();
           }}
           aria-label="Close"
-          className="w-9 h-9 rounded-full flex items-center justify-center active:opacity-60 flex-shrink-0"
+          className="w-9 h-9 rounded-full flex items-center justify-center active:opacity-60 active:scale-95 flex-shrink-0 transition-transform"
         >
           <svg
             width="18"
@@ -1228,18 +1224,24 @@ function Marquee({
 }
 
 // ════════════════════════════════════════════════════════════════════
-// EXPANDED FULL PLAYER (premium glassmorphism, auto-expanded on tap)
+// EXPANDED FULL PLAYER — Premium Glassmorphic Minimal
 // ───────────────────────────────────────────────────────────────────
 // Visual language:
-//   • Background : deep indigo → midnight violet vertical gradient
-//   • Surface    : translucent glass with backdrop-blur (calming,
-//                  not harsh like pure black)
-//   • Album art  : large rounded-square, glowing neon-purple halo
-//                  that PULSES rhythmically while music plays, slow
-//                  cinematic disc rotation, frosted-glass overlay
-//   • Controls   : minimalist, high-contrast, hover/active scale
-//                  transitions, glowing play button with breath-pulse
-//   • Drag handle: drag-down anywhere to dismiss (iOS/Android feel)
+//   • Background : deep dark gradient (#0c0d19 → #06070c) per spec
+//   • Ambient    : soft blurry multicolor radial glow (purple + pink
+//                  + cyan) drifting slowly behind album art — calming
+//   • Album art  : large rounded-square, frosted glass
+//                  (backdrop-blur-md bg-white/5 border-white/10) with
+//                  a glowing neon-purple halo that breathes while
+//                  playing. Inside: a minimalist music glyph that
+//                  pulses gently only when music is active.
+//   • Typography : bright high-contrast title; muted artist/timestamps
+//                  for premium feel.
+//   • Controls   : minimalist row — shuffle | prev | play/pause | next
+//                  | repeat. All buttons tactile (hover scale + active
+//                  scale-down + glow). Shuffle/repeat light up when on.
+//   • Seekbar    : thin elegant bar with drag-to-seek + live thumb.
+//   • Drag handle: drag-down anywhere to dismiss (iOS/Android feel).
 // ════════════════════════════════════════════════════════════════════
 
 interface ExpandedPlayerProps {
@@ -1247,10 +1249,14 @@ interface ExpandedPlayerProps {
   isPlaying: boolean;
   currentTime: number;
   duration: number;
+  isShuffle: boolean;
+  repeatMode: RepeatMode;
   onTogglePlay: () => void;
   onNext: () => void;
   onPrev: () => void;
   onSeek: (t: number) => void;
+  onToggleShuffle: () => void;
+  onCycleRepeat: () => void;
   onClose: () => void;
 }
 
@@ -1259,10 +1265,14 @@ function ExpandedPlayer({
   isPlaying,
   currentTime,
   duration,
+  isShuffle,
+  repeatMode,
   onTogglePlay,
   onNext,
   onPrev,
   onSeek,
+  onToggleShuffle,
+  onCycleRepeat,
   onClose,
 }: ExpandedPlayerProps) {
   // Drag-down-to-close (attached to the entire sheet so the user can
@@ -1292,9 +1302,9 @@ function ExpandedPlayer({
     <div
       className="fixed inset-0 z-50 flex flex-col pn-sheet-up"
       style={{
-        // Deep luxurious dark indigo → midnight violet gradient.
+        // Premium deep dark gradient per spec.
         background:
-          'linear-gradient(180deg, #0B0B1E 0%, #0A0A18 40%, #070716 70%, #05050F 100%)',
+          'linear-gradient(180deg, #0c0d19 0%, #0a0b14 45%, #06070c 100%)',
         transform:
           dragOffset > 0 ? `translateY(${dragOffset}px)` : 'translateY(0)',
         transition: dragOffset > 0 ? 'none' : `transform ${SHEET_EXPAND_MS}ms ease-out`,
@@ -1307,33 +1317,49 @@ function ExpandedPlayer({
       onPointerUp={handlePointerUp}
       onPointerCancel={handlePointerUp}
     >
-      {/* Ambient aurora glow — sits behind everything for depth. */}
+      {/* ──────── Ambient aurora glow (multicolor, calming) ──────── */}
       <div
         aria-hidden
         className="absolute inset-0 pointer-events-none overflow-hidden"
       >
+        {/* Purple glow — top-left, drifting */}
         <div
-          className="absolute"
+          className="absolute pn-aurora-drift"
           style={{
-            top: '-15%',
-            left: '-10%',
+            top: '-10%',
+            left: '-15%',
             width: '70%',
-            height: '50%',
-            background:
-              'radial-gradient(ellipse at center, rgba(124,58,237,0.28), transparent 70%)',
-            filter: 'blur(60px)',
-          }}
-        />
-        <div
-          className="absolute"
-          style={{
-            bottom: '-20%',
-            right: '-15%',
-            width: '80%',
             height: '55%',
             background:
-              'radial-gradient(ellipse at center, rgba(76,29,149,0.22), transparent 70%)',
+              'radial-gradient(ellipse at center, rgba(124,58,237,0.32), transparent 70%)',
             filter: 'blur(70px)',
+          }}
+        />
+        {/* Pink-magenta glow — top-right, drifting opposite */}
+        <div
+          className="absolute pn-aurora-drift-2"
+          style={{
+            top: '-5%',
+            right: '-15%',
+            width: '65%',
+            height: '50%',
+            background:
+              'radial-gradient(ellipse at center, rgba(236,72,153,0.18), transparent 70%)',
+            filter: 'blur(80px)',
+          }}
+        />
+        {/* Cyan glow — bottom, very subtle */}
+        <div
+          className="absolute pn-aurora-drift"
+          style={{
+            bottom: '-20%',
+            left: '20%',
+            width: '70%',
+            height: '55%',
+            background:
+              'radial-gradient(ellipse at center, rgba(6,182,212,0.14), transparent 70%)',
+            filter: 'blur(90px)',
+            animationDelay: '3s',
           }}
         />
       </div>
@@ -1354,9 +1380,9 @@ function ExpandedPlayer({
           type="button"
           onClick={onClose}
           aria-label="Collapse"
-          className="w-11 h-11 rounded-full flex items-center justify-center active:scale-95 transition-all"
+          className="w-11 h-11 rounded-full flex items-center justify-center active:scale-95 transition-all hover:bg-white/10"
           style={{
-            backgroundColor: 'rgba(255,255,255,0.06)',
+            backgroundColor: 'rgba(255,255,255,0.05)',
             border: '1px solid rgba(255,255,255,0.08)',
             backdropFilter: 'blur(12px)',
             WebkitBackdropFilter: 'blur(12px)',
@@ -1376,7 +1402,7 @@ function ExpandedPlayer({
           </svg>
         </button>
         <div className="flex flex-col items-center">
-          <p className="text-[#9A9AB0] text-[10px] uppercase tracking-[0.2em] font-medium">
+          <p className="text-[#7A7A92] text-[10px] uppercase tracking-[0.2em] font-medium">
             Now Playing
           </p>
           <p className="text-white/40 text-[10px] mt-0.5">
@@ -1387,9 +1413,9 @@ function ExpandedPlayer({
           type="button"
           onClick={onClose}
           aria-label="More"
-          className="w-11 h-11 rounded-full flex items-center justify-center active:scale-95 transition-all"
+          className="w-11 h-11 rounded-full flex items-center justify-center active:scale-95 transition-all hover:bg-white/10"
           style={{
-            backgroundColor: 'rgba(255,255,255,0.06)',
+            backgroundColor: 'rgba(255,255,255,0.05)',
             border: '1px solid rgba(255,255,255,0.08)',
             backdropFilter: 'blur(12px)',
             WebkitBackdropFilter: 'blur(12px)',
@@ -1408,7 +1434,7 @@ function ExpandedPlayer({
         </button>
       </div>
 
-      {/* ──────── Album art centerpiece ──────── */}
+      {/* ──────── Album art centerpiece (frosted glass) ──────── */}
       <div className="relative flex-1 flex items-center justify-center px-8">
         <div
           className="relative"
@@ -1438,7 +1464,7 @@ function ExpandedPlayer({
               className="absolute inset-0 rounded-[36px]"
               style={{
                 background:
-                  'radial-gradient(circle at 50% 50%, rgba(124,58,237,0.35), transparent 70%)',
+                  'radial-gradient(circle at 50% 50%, rgba(124,58,237,0.30), transparent 70%)',
                 filter: 'blur(40px)',
                 transform: 'scale(1.08)',
                 opacity: 0.6,
@@ -1446,36 +1472,38 @@ function ExpandedPlayer({
             />
           )}
 
-          {/* Frosted-glass disc with neon-purple border. */}
+          {/* Frosted-glass art container with neon-purple border. */}
           <div
-            className={`absolute inset-0 rounded-[32px] flex items-center justify-center overflow-hidden ${
-              isPlaying ? 'pn-disc-spin' : ''
-            }`}
+            className="absolute inset-0 rounded-[32px] flex items-center justify-center overflow-hidden"
             style={{
-              background:
-                'linear-gradient(135deg, rgba(26,26,46,0.85) 0%, rgba(20,20,31,0.92) 60%, rgba(14,14,24,0.95) 100%)',
-              border: '1.5px solid rgba(124,58,237,0.45)',
+              // Frosted glass per spec:
+              //   backdrop-blur-md  +  bg-white/5  +  border-white/10
+              backgroundColor: 'rgba(255,255,255,0.05)',
+              border: '1px solid rgba(255,255,255,0.10)',
               boxShadow:
-                '0 30px 80px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.06)',
+                '0 30px 80px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.08), 0 0 0 1.5px rgba(124,58,237,0.45)',
               backdropFilter: 'blur(20px)',
               WebkitBackdropFilter: 'blur(20px)',
               willChange: 'transform',
             }}
           >
-            {/* Center label */}
-            <div className="flex flex-col items-center gap-3 px-6 text-center">
+            {/* Center label — minimalist music glyph that pulses when playing */}
+            <div className="flex flex-col items-center gap-4 px-6 text-center">
               <div
-                className="w-16 h-16 rounded-full flex items-center justify-center"
+                className={`w-20 h-20 rounded-2xl flex items-center justify-center ${
+                  isPlaying ? 'pn-glyph-pulse' : ''
+                }`}
                 style={{
                   background:
-                    'linear-gradient(135deg, #7C3AED 0%, #4C1D95 100%)',
+                    'linear-gradient(135deg, rgba(124,58,237,0.85) 0%, rgba(76,29,149,0.85) 100%)',
+                  border: '1px solid rgba(255,255,255,0.15)',
                   boxShadow:
-                    '0 0 24px rgba(124,58,237,0.6), inset 0 1px 0 rgba(255,255,255,0.2)',
+                    '0 0 30px rgba(124,58,237,0.5), inset 0 1px 0 rgba(255,255,255,0.25)',
                 }}
               >
                 <svg
-                  width="28"
-                  height="28"
+                  width="36"
+                  height="36"
                   viewBox="0 0 24 24"
                   fill="none"
                   stroke="white"
@@ -1490,26 +1518,18 @@ function ExpandedPlayer({
               </div>
               <p
                 className="text-[10px] uppercase tracking-[0.25em] font-medium"
-                style={{ color: 'rgba(255,255,255,0.35)' }}
+                style={{ color: 'rgba(255,255,255,0.40)' }}
               >
                 {song.album || 'Local Audio'}
               </p>
             </div>
 
-            {/* Frosted vinyl rings overlay */}
-            <div
-              className="absolute inset-0 rounded-[32px] pointer-events-none"
-              style={{
-                background:
-                  'repeating-radial-gradient(circle at 50% 50%, transparent 0px, transparent 22px, rgba(255,255,255,0.03) 23px, rgba(255,255,255,0.03) 24px)',
-              }}
-            />
-            {/* Top sheen */}
+            {/* Frosted glass sheen overlay */}
             <div
               className="absolute inset-x-0 top-0 h-1/2 rounded-t-[32px] pointer-events-none"
               style={{
                 background:
-                  'linear-gradient(180deg, rgba(255,255,255,0.08), transparent)',
+                  'linear-gradient(180deg, rgba(255,255,255,0.10), transparent)',
               }}
             />
           </div>
@@ -1526,7 +1546,7 @@ function ExpandedPlayer({
           {song.name}
         </h2>
         <p
-          className="text-[#B8B8D0] text-sm mt-1.5 truncate font-medium"
+          className="text-[#9A9AB0] text-sm mt-1.5 truncate font-medium"
           title={song.artist}
         >
           {song.artist}
@@ -1556,18 +1576,56 @@ function ExpandedPlayer({
         </div>
       </div>
 
-      {/* Controls */}
+      {/* ──────── Controls row (premium tactile) ──────── */}
       <div
-        className="relative flex items-center justify-center gap-10 px-8 pb-10 pn-fade-up"
+        className="relative flex items-center justify-between px-8 pb-10 pn-fade-up"
         style={{ animationDelay: '120ms' }}
       >
+        {/* Shuffle */}
+        <button
+          type="button"
+          onClick={onToggleShuffle}
+          aria-label="Shuffle"
+          aria-pressed={isShuffle}
+          className="w-12 h-12 rounded-full flex items-center justify-center active:scale-90 transition-all hover:bg-white/10"
+          style={{
+            backgroundColor: isShuffle
+              ? 'rgba(124,58,237,0.22)'
+              : 'rgba(255,255,255,0.04)',
+            border: isShuffle
+              ? '1px solid rgba(124,58,237,0.55)'
+              : '1px solid rgba(255,255,255,0.06)',
+            boxShadow: isShuffle
+              ? '0 0 18px rgba(124,58,237,0.45)'
+              : 'none',
+          }}
+        >
+          <svg
+            width="20"
+            height="20"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke={isShuffle ? '#C4B5FD' : 'white'}
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <polyline points="16 3 21 3 21 8" />
+            <line x1="4" y1="20" x2="21" y2="3" />
+            <polyline points="21 16 21 21 16 21" />
+            <line x1="15" y1="15" x2="21" y2="21" />
+            <line x1="4" y1="4" x2="9" y2="9" />
+          </svg>
+        </button>
+
+        {/* Previous */}
         <button
           type="button"
           onClick={onPrev}
           aria-label="Previous"
           className="w-14 h-14 rounded-full flex items-center justify-center active:scale-90 transition-all hover:bg-white/10"
           style={{
-            backgroundColor: 'rgba(255,255,255,0.06)',
+            backgroundColor: 'rgba(255,255,255,0.05)',
             border: '1px solid rgba(255,255,255,0.08)',
             backdropFilter: 'blur(12px)',
             WebkitBackdropFilter: 'blur(12px)',
@@ -1579,6 +1637,7 @@ function ExpandedPlayer({
           </svg>
         </button>
 
+        {/* Play / Pause — large, gradient, glowing */}
         <button
           type="button"
           onClick={onTogglePlay}
@@ -1606,13 +1665,14 @@ function ExpandedPlayer({
           )}
         </button>
 
+        {/* Next */}
         <button
           type="button"
           onClick={onNext}
           aria-label="Next"
           className="w-14 h-14 rounded-full flex items-center justify-center active:scale-90 transition-all hover:bg-white/10"
           style={{
-            backgroundColor: 'rgba(255,255,255,0.06)',
+            backgroundColor: 'rgba(255,255,255,0.05)',
             border: '1px solid rgba(255,255,255,0.08)',
             backdropFilter: 'blur(12px)',
             WebkitBackdropFilter: 'blur(12px)',
@@ -1622,6 +1682,57 @@ function ExpandedPlayer({
             <polygon points="5 5 15 12 5 19 5 5" />
             <rect x="16" y="5" width="2" height="14" />
           </svg>
+        </button>
+
+        {/* Repeat — 3 states: off / one / all */}
+        <button
+          type="button"
+          onClick={onCycleRepeat}
+          aria-label={`Repeat: ${repeatMode}`}
+          aria-pressed={repeatMode !== 'off'}
+          className="w-12 h-12 rounded-full flex items-center justify-center active:scale-90 transition-all hover:bg-white/10 relative"
+          style={{
+            backgroundColor:
+              repeatMode !== 'off'
+                ? 'rgba(124,58,237,0.22)'
+                : 'rgba(255,255,255,0.04)',
+            border:
+              repeatMode !== 'off'
+                ? '1px solid rgba(124,58,237,0.55)'
+                : '1px solid rgba(255,255,255,0.06)',
+            boxShadow:
+              repeatMode !== 'off'
+                ? '0 0 18px rgba(124,58,237,0.45)'
+                : 'none',
+          }}
+        >
+          <svg
+            width="20"
+            height="20"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke={repeatMode !== 'off' ? '#C4B5FD' : 'white'}
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <polyline points="17 1 21 5 17 9" />
+            <path d="M3 11V9a4 4 0 0 1 4-4h14" />
+            <polyline points="7 23 3 19 7 15" />
+            <path d="M21 13v2a4 4 0 0 1-4 4H3" />
+          </svg>
+          {/* "1" badge for repeat-one mode */}
+          {repeatMode === 'one' && (
+            <span
+              className="absolute -top-0.5 -right-0.5 w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-bold text-white"
+              style={{
+                backgroundColor: '#7C3AED',
+                border: '1px solid rgba(255,255,255,0.4)',
+              }}
+            >
+              1
+            </span>
+          )}
         </button>
       </div>
     </div>

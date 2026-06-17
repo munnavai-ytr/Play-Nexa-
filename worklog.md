@@ -456,3 +456,41 @@ Stage Summary:
   * The single shared HTMLAudioElement remains owned by useMusicPlayer() — no second audioRef introduced at the component level (would reintroduce overlap bug).
   * localStorage cache is best-effort: native content:// URIs work fully; web blob URLs are visible but cannot play across sessions (browser limitation).
   * cachedFiles is a one-time mount snapshot (no setState in effect — avoids cascading renders).
+
+---
+Task ID: 3
+Agent: Main Agent
+Task: Mega Fix & Total UI Overhaul of LocalMusicPlayer.tsx (Premium Glassmorphic Minimal)
+
+Work Log:
+- Read full existing LocalMusicPlayer.tsx (1740 lines) and useMusicPlayer.ts hook to understand audio engine
+- Verified useMusicPlayer hook already implements: single shared HTMLAudioElement via useRef, timeupdate/durationchange/ended/error listeners, working play/pause/resume/seekTo/next/previous/toggleShuffle/cycleRepeat
+- Destructured isShuffle + repeatMode + toggleShuffle + cycleRepeat from useMusicPlayer (previously unused in component)
+- Added new CSS keyframes to src/app/globals.css: pn-eq-bar (4-bar dancing equalizer), pn-aurora-drift + pn-aurora-drift-2 (multicolor radial glow drift), pn-glyph-pulse (gentle pulsing music glyph)
+- Replaced NowPlayingBars with LiveEqualizer component: 4 staggered vertical bars with transform: scaleY animation, varying animationDuration per bar for organic feel — shown on the active+playing row in song list AND in mini player album thumb
+- Rebuilt ExpandedPlayer with new premium glassmorphic minimal UI:
+  • Background gradient per spec: linear-gradient(180deg, #0c0d19 0%, #0a0b14 50%, #06070c 100%)
+  • Multicolor ambient aurora glow: 3 radial-gradient layers (purple top-left, pink-magenta top-right, cyan bottom) with pn-aurora-drift animation for calming motion
+  • Frosted glass album art per spec: bg-white/5 + border-white/10 + backdrop-blur(20px) + neon-purple glow border (rgba(124,58,237,0.45))
+  • Center: rounded-2xl purple gradient tile containing minimalist music glyph; tile pulses via pn-glyph-pulse ONLY when isPlaying
+  • Removed old vinyl rings overlay (was too busy); kept subtle top sheen
+  • Title: bright white text-shadow glow; artist: muted #9A9AB0 for high contrast
+  • Seekbar: thin (4px) gradient track with glowing white thumb + drag-to-seek + real-time formatTime(currentTime)/formatTime(duration) timestamps
+  • Controls row: shuffle | prev | play/pause | next | repeat — spread evenly with justify-between
+  • Shuffle button lights up purple when active (bg-purple-22, border-purple-55, glow)
+  • Repeat button: 3-state visualization (off=default, one=purple+badge "1", all=purple no badge)
+  • Play/Pause button: large 80px gradient with pn-btn-glow rhythmic pulse when playing
+- Updated library header colors from indigo-tinted to neutral white/06 borders to match new dark theme
+- Updated mini player background from indigo to dark (rgba(12,13,25,0.88))
+- Updated empty state muted text from #8A8AA0 to #7A7A92 for the new theme
+- Updated active row title color from #A78BFA to brighter #C4B5FD for better visibility
+- TypeScript check: NO errors in LocalMusicPlayer.tsx (verified via `npx tsc --noEmit | grep LocalMusicPlayer` returns nothing)
+- Next.js production build: SUCCESS — all 30+ routes compile, including /music/player
+
+Stage Summary:
+- DELIVERED: Full production-ready LocalMusicPlayer.tsx (~1500 lines) with all 3 functional fixes + new premium UI theme
+- AUDIO: Verified single shared HTMLAudioElement via useMusicPlayer; play() pauses + resets src + load + play; timeupdate listener updates currentTime every tick; durationchange updates duration; seekbar wired to seekTo()
+- CONTROLS: Play/Pause toggles audio state via pause()/resume(); Next/Previous call next()/previous() which shift playlist index correctly; Shuffle toggles isShuffle state and is reflected visually; Repeat cycles off→one→all→off via cycleRepeat() with proper active-state styling
+- LIST VISUALIZER: 4-bar live dancing equalizer (pn-eq-bar keyframe) with staggered delays (0/110/220/80ms) and varying durations (820-1090ms) — replaces old static 2-state NowPlayingBars
+- UI THEME: Ditched old concentric vinyl rings; replaced with glassmorphic minimal album art (backdrop-blur + bg-white/5 + border-white/10 + neon-purple halo) on deep #0c0d19→#06070c gradient with multicolor ambient aurora
+- FILES MODIFIED: src/components/music/LocalMusicPlayer.tsx (full rewrite), src/app/globals.css (+50 lines of new keyframes)
