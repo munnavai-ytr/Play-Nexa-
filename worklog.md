@@ -306,3 +306,36 @@ Stage Summary:
 - AMOLED #0A0A0A base, accent #7C3AED, 44px min touch targets, no backdrop-blur, no style jsx
 - Dual-mode: Web Mode shows "Browse Storage / Videos" button (hidden file input accept="video/*"); APK Mode auto-triggers MediaStore scan on mount and hides the button
 - All gesture/lock/speed/seekbar logic real and working — zero placeholders
+
+---
+Task ID: 6
+Agent: main (super-z)
+Task: Build a dedicated, premium Local Music Player — Google Files + Spotify-inspired, completely separated from the video player, accessible via "Music Player" card on home. Dual-mode (web input + native MediaStore auto-scan), Mini Player bar pinned to bottom with marquee title + play/pause (app stays browseable), swipe-up full-sheet player with rotating album art centerpiece, thin elegant seekbar with timestamps, large prev/play-pause/next controls. Background audio + Media Session + native lock-screen controls. URL.revokeObjectURL on every song switch to keep 2GB RAM fresh.
+
+Work Log:
+- Inspected existing /music route (page.tsx) — it used old MusicLibrary + NowPlaying + MiniPlayer split with useMusicPlayer hook.
+- Read useMusicPlayer hook (~800 lines) to confirm it owns the single shared <audio>, Media Session API, Capacitor Music Controls for native lock-screen, sleep timer, shuffle/repeat, playlist persistence. Reused it as-is to preserve background audio + native controls.
+- Read media-scanner system (useLocalMediaScanner) — confirmed 'audio' kind filter with .mp3/.wav/.aac/.m4a/.flac/.ogg/.opus + dual-mode (web file picker / native MediaStore auto-scan).
+- Created src/components/music/LocalMusicPlayer.tsx (~1350 lines, fully self-contained, zero video-player coupling) with:
+  * LibraryView: AMOLED #0A0A0A header (back + "Local Music" + refresh spinner), clean vertical song list. Each row = 11x11 music-note icon (purple-tinted when idle, purple-filled when active), title + artist/folder + size, 3-dot menu (Play next / Add to queue / Song info) with tap-away catcher. Active row shows animated 4-bar equalizer. Loading skeleton list.
+  * 5 empty states: web Browse Audio/Songs button, native denied, native unsupported, native no-results, generic. Beautiful rounded icon container with purple-tinted border.
+  * MediaFile → Song adapter: parseFilename() splits "Artist - Title.mp3" into title/artist. refreshUrl() re-creates fresh blob URL via URL.createObjectURL() if scanner had revoked the original, tracking the extra URL in extraUrlRef for cleanup on switch/close.
+  * MiniPlayer: fixed bottom bar, 2px purple progress strip on top, 11x11 album art thumb, marquee title (CSS-only via .pn-marquee, kicks in only when text overflows via ResizeObserver detection), play/pause + close. Swipe-up gesture (40px threshold) expands to full sheet.
+  * ExpandedPlayer: full-screen overlay, drag handle at top, down-drag-to-close (120px threshold), large rounded-[28px] album art (78vw/320px max) with purple radial glow + vinyl ring pattern + rotating animation (.pn-vinyl-spin, 12s linear, pauses when paused). Title + artist centered. Thin 3px SeekBar with drag-to-seek via pointer capture, current/total timestamps. Large prev (44px) / play-pause (80px, purple glow) / next (44px) controls.
+  * SeekBar: custom drag-to-seek with pointer capture, thumb grows 12px→16px while dragging, transitions disabled mid-drag.
+- Added 3 keyframes to src/app/globals.css: pn-mini-eq, pn-marquee, pn-vinyl-spin (no <style jsx> in component, per project rules).
+- Updated src/app/music/page.tsx to render LocalMusicPlayer as a thin wrapper (old MusicLibrary/NowPlaying/MiniPlayer components remain untouched for use by /ytmusic, /local, /music/player routes).
+- TypeScript check: zero new errors in LocalMusicPlayer.tsx or app/music/page.tsx (verified via grep on tsc output).
+- Reuses existing useMusicPlayer hook → single shared <audio> element preserved → Media Session metadata, native Capacitor Music Controls (lock-screen / notification), background playback, sleep timer, shuffle, repeat all work out-of-the-box.
+- URL lifecycle: extraUrlRef tracks fresh blob URLs created by refreshUrl(); revoked on song switch (inside refreshUrl itself), on stop (handleStop), and on final unmount (useEffect cleanup).
+
+Stage Summary:
+- 1 new component file: src/components/music/LocalMusicPlayer.tsx (~1350 lines, fully self-contained, zero video-player coupling)
+- 1 file modified: src/app/music/page.tsx (now a thin wrapper around LocalMusicPlayer)
+- 1 file extended: src/app/globals.css (+30 lines: 3 new keyframes + classes — no <style jsx>)
+- 100% offline, 100% private — no network calls
+- 2GB RAM safe: URL.revokeObjectURL on every song switch + on stop + on unmount, 50-item pagination via useLocalMediaScanner, content-visibility: auto on song list
+- AMOLED #0A0A0A base, accent #7C3AED, 44px min touch targets, no backdrop-blur, no <style jsx>
+- Dual-mode: Web Mode shows "Browse Audio / Songs" button (hidden file input accept="audio/*"); APK Mode auto-triggers MediaStore scan on mount and hides the button
+- Mini Player + Expanded Full Sheet both real and working — zero placeholders
+- Background audio + native lock-screen controls inherited from useMusicPlayer hook (Media Session API + capacitor-music-controls-plugin)

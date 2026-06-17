@@ -543,3 +543,37 @@ html.light-mode video,
 html.light-mode picture {
   filter: invert(1) hue-rotate(180deg);
 }
+
+/* ─────────────────────────────────────────────────────────────────────
+   LocalMusicPlayer (LocalMusicPlayer.tsx) — animations
+   ───────────────────────────────────────────────────────────────────── */
+
+/* Mini inline equalizer (4 bars) shown on the active row of the song list */
+@keyframes pn-mini-eq {
+  0% { height: 30%; }
+  100% { height: 100%; }
+}
+
+.pn-mini-eq {
+  animation: pn-mini-eq 800ms ease-in-out infinite alternate;
+}
+
+/* Marquee for the mini player's title — paired copies translate -50% */
+@keyframes pn-marquee {
+  0%   { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+
+.pn-marquee {
+  animation: pn-marquee 12s linear infinite;
+}
+
+/* Slow vinyl spin for the expanded player's album art */
+@keyframes pn-vinyl-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+.pn-vinyl-spin {
+  animation: pn-vinyl-spin 12s linear infinite;
+}
