@@ -339,3 +339,42 @@ Stage Summary:
 - Dual-mode: Web Mode shows "Browse Audio / Songs" button (hidden file input accept="audio/*"); APK Mode auto-triggers MediaStore scan on mount and hides the button
 - Mini Player + Expanded Full Sheet both real and working — zero placeholders
 - Background audio + native lock-screen controls inherited from useMusicPlayer hook (Media Session API + capacitor-music-controls-plugin)
+
+---
+Task ID: 7
+Agent: main (super-z)
+Task: User asked "continue build missing part and check or Fix your mistake" — audit LocalVideoPlayer.tsx + LocalMusicPlayer.tsx + their routes, find and fix every mistake.
+
+Work Log:
+- Ran TypeScript check (`npx tsc --noEmit`) filtered to my files — 0 errors.
+- Ran ESLint on all 4 new/modified files — caught 5 issues:
+  1. /music/page.tsx + /video/page.tsx: `useCallback(handleBack, [])` missing `router` dependency. React Compiler flagged. Fixed by adding `[router]` to deps.
+  2. LocalVideoPlayer.tsx:470: `setIsVisible(true)` called synchronously in effect body — cascading render risk. Fixed by switching to lazy useState initializer that checks `typeof IntersectionObserver === 'undefined'` at mount.
+  3. LocalVideoPlayer.tsx:541: unused `// eslint-disable-next-line @next/next/no-img-element` directive. Removed.
+  4. LocalVideoPlayer.tsx:925: unused `// eslint-disable-next-line react-hooks/exhaustive-deps` directive. Removed.
+  5. LocalVideoPlayer.tsx:965: `resetHideTimer()` called synchronously in effect (calls setShowControls). Fixed by wrapping in `setTimeout(() => resetHideTimer(), 0)` with proper cleanup.
+- Removed unused imports:
+  * Both files: `revokeUris` + `refreshUri` from web-strategy (referenced only in comments).
+  * LocalMusicPlayer.tsx: `useMemo` (never used).
+  * LocalMusicPlayer.tsx: `play` removed from `useMusicPlayer` destructuring (was only used to satisfy linter via `void play`).
+  * LocalMusicPlayer.tsx: dead `useEffect` that did nothing (commented no-op cleanup).
+  * LocalMusicPlayer.tsx: `void currentTime;` crutch removed; `currentTime` removed from SeekBar props signature AND its call site.
+- Fixed critical memory-leak bug in BOTH players:
+  * Symptom: `refreshUrl()` (music) and `handleVideoSelect()` (video) called `URL.createObjectURL(file)` per Song/video, tracking only the latest URL in `extraUrlRef`. When the user clicked next/prev, the previous blob URL was overwritten in the ref without revocation → leaked one blob URL per skip.
+  * Worse: in the music player, `setPlaylist(songs, index)` triggered `refreshUrl` for EVERY song in the playlist synchronously, all blob URLs created at once, only the last one tracked.
+  * Root cause: the scanner hook (`useLocalMediaScanner`) already owns blob URL lifecycle and only revokes on unmount / clear / re-pick — never mid-session. So the original `mf.uri` / `video.uri` stays valid for the entire session.
+  * Fix: removed `refreshUrl` / `extraUrlRef` entirely from both components. Songs/videos now carry `mf.uri` straight through. The scanner hook handles all revocation.
+- Added explanatory comment in LocalMusicPlayer.tsx documenting WHY we don't re-create blob URLs (so future maintenance doesn't reintroduce the leak).
+- Final verification:
+  * `npx tsc --noEmit` — 0 errors in my files.
+  * `npx eslint` (with --max-warnings 0) — 0 errors, 0 warnings.
+  * `npx next build` — both `/music` and `/video` routes built as Static (○). Only 6 pre-existing warnings from `useGameDownload.ts` (missing @capacitor/browser / @capacitor/filesystem plugins — unrelated to my work).
+
+Stage Summary:
+- 7 bugs found and fixed across 4 files (2 critical: memory leak in both players; 5 lint/build hygiene).
+- Files touched:
+  * src/components/video/LocalVideoPlayer.tsx — removed refreshUri pattern + extraUrlRef + 2 dead eslint-disable comments + setState-in-effect fix.
+  * src/components/music/LocalMusicPlayer.tsx — removed refreshUrl + extraUrlRef + dead useEffect + unused useMemo/useMemo import + unused `play` destructuring + unused currentTime prop on SeekBar.
+  * src/app/video/page.tsx — added `router` to useCallback deps.
+  * src/app/music/page.tsx — added `router` to useCallback deps.
+- All checks green: 0 TypeScript errors, 0 ESLint errors, 0 ESLint warnings, build succeeds for both routes.

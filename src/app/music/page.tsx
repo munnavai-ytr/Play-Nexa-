@@ -9,7 +9,7 @@ export default function MusicLibraryPage() {
 
   const handleBack = useCallback(() => {
     router.back()
-  }, [])
+  }, [router])
 
   return (
     <div className="min-h-screen bg-[#0A0A0A]">

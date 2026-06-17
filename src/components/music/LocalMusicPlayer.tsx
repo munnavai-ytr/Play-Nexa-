@@ -33,13 +33,11 @@
 import {
   useCallback,
   useEffect,
-  useMemo,
   useRef,
   useState,
   type PointerEvent as ReactPointerEvent,
 } from 'react';
 import { useLocalMediaScanner } from '@/lib/media-scanner/useLocalMediaScanner';
-import { revokeUris, refreshUri } from '@/lib/media-scanner/web-strategy';
 import type { MediaFile } from '@/lib/media-scanner/types';
 import { useMusicPlayer } from '@/hooks/useMusicPlayer';
 import type { Song } from '@/lib/mediaUtils';
@@ -129,12 +127,15 @@ export default function LocalMusicPlayer({
 
   // ── Existing music-player hook (single shared <audio>, media session,
   //    native lock-screen controls, persistence) ──
+  //    NOTE: play() is intentionally NOT destructured — handleSongSelect
+  //    uses setPlaylist(songs, index) which internally invokes play() via
+  //    the hook's playRef. Calling play() directly here would skip playlist
+  //    setup and break next/previous navigation.
   const {
     currentSong,
     isPlaying,
     currentTime,
     duration,
-    play,
     pause,
     resume,
     next,
@@ -148,33 +149,20 @@ export default function LocalMusicPlayer({
   const [expanded, setExpanded] = useState(false);
   const [menuOpenFor, setMenuOpenFor] = useState<string | null>(null);
 
-  /** Extra blob URLs created by refreshUri() — revoked on switch/close. */
-  const extraUrlRef = useRef<string | null>(null);
-
   // ══════════════════════════════════════════════════════════════════
   // MediaFile → Song adapter
   // ══════════════════════════════════════════════════════════════════
-
-  /** Refresh blob URL if the scanner had revoked the original. */
-  const refreshUrl = useCallback((mf: MediaFile): string => {
-    if (mf.source === 'native-mediastore') return mf.uri;
-    if (!mf.file) return mf.uri;
-    try {
-      const fresh = URL.createObjectURL(mf.file);
-      // Revoke the previous "extra" URL before tracking the new one.
-      if (extraUrlRef.current && extraUrlRef.current !== mf.uri) {
-        try {
-          URL.revokeObjectURL(extraUrlRef.current);
-        } catch {
-          /* noop */
-        }
-      }
-      extraUrlRef.current = fresh;
-      return fresh;
-    } catch {
-      return mf.uri;
-    }
-  }, []);
+  //
+  // IMPORTANT: We do NOT call URL.createObjectURL() here. The scanner hook
+  // (useLocalMediaScanner) already created a blob: URL for each web-picked
+  // file and tracks them in urlSetRef for batch revocation on unmount /
+  // re-pick. Re-creating URLs here would leak them, because next/prev
+  // navigation inside useMusicPlayer calls play() directly on the next
+  // Song — bypassing this component, so we'd have no chance to revoke.
+  //
+  // Instead, we pass the scanner-owned URI through both `url` and `path`.
+  // The hook uses `song.path || song.url` and runs it through
+  // Capacitor.convertFileSrc() on native (no-op on web).
 
   const mediaFileToSong = useCallback(
     (mf: MediaFile): Song => {
@@ -184,16 +172,16 @@ export default function LocalMusicPlayer({
         name: title,
         artist,
         album: getFolderName(mf),
-        url: refreshUrl(mf),
+        url: mf.uri,
         size: mf.sizeBytes,
         duration: mf.durationSec ?? 0,
         cover: null,
-        path: mf.uri, // use original uri — useMusicPlayer will convert if native
+        path: mf.uri,
         format: mf.mimeType,
         file: mf.file,
       };
     },
-    [refreshUrl]
+    []
   );
 
   // ══════════════════════════════════════════════════════════════════
@@ -203,13 +191,11 @@ export default function LocalMusicPlayer({
   const handleSongSelect = useCallback(
     (mf: MediaFile, index: number) => {
       // Build a Song[] playlist from the current files list, starting at index.
+      // setPlaylist() in useMusicPlayer internally calls play() on songs[index].
       const songs = files.map(mediaFileToSong);
       setPlaylist(songs, index);
-      // setPlaylist already calls play() internally via playRef.
-      // (see useMusicPlayer setPlaylistFn)
-      void play; // satisfy linter — play is invoked inside the hook
     },
-    [files, mediaFileToSong, setPlaylist, play]
+    [files, mediaFileToSong, setPlaylist]
   );
 
   /** Close the expanded full-sheet player. */
@@ -220,40 +206,10 @@ export default function LocalMusicPlayer({
   /** Stop playback entirely (also clears the mini bar). */
   const handleStop = useCallback(() => {
     stop();
-    if (extraUrlRef.current) {
-      try {
-        URL.revokeObjectURL(extraUrlRef.current);
-      } catch {
-        /* noop */
-      }
-      extraUrlRef.current = null;
-    }
+    // Note: blob URL revocation is handled by the scanner hook on unmount /
+    // re-pick. We do NOT revoke here — the same URL is still referenced by
+    // the Song in the playlist and may be re-played via next/prev.
   }, [stop]);
-
-  // ── Revoke extra URL whenever the current song changes mid-playback ──
-  useEffect(() => {
-    // When currentSong changes, the previous extra URL has already been
-    // replaced via refreshUrl() inside mediaFileToSong — but if the user
-    // navigated via next/prev (which calls playRef.current internally,
-    // bypassing our adapter), we should still clean up.
-    return () => {
-      // No-op here; primary cleanup happens in refreshUrl & handleStop.
-    };
-  }, [currentSong?.id]);
-
-  // ── Final unmount cleanup ──
-  useEffect(() => {
-    return () => {
-      if (extraUrlRef.current) {
-        try {
-          URL.revokeObjectURL(extraUrlRef.current);
-        } catch {
-          /* noop */
-        }
-        extraUrlRef.current = null;
-      }
-    };
-  }, []);
 
   // ══════════════════════════════════════════════════════════════════
   // Render
@@ -1275,7 +1231,6 @@ function ExpandedPlayer({
           progressPct={pct}
           onSeek={onSeek}
           duration={duration}
-          currentTime={currentTime}
         />
         <div className="flex items-center justify-between mt-2 px-1">
           <span className="text-[#9A9A9A] text-[11px] font-mono">
@@ -1349,12 +1304,10 @@ function SeekBar({
   progressPct,
   onSeek,
   duration,
-  currentTime,
 }: {
   progressPct: number;
   onSeek: (t: number) => void;
   duration: number;
-  currentTime: number;
 }) {
   const trackRef = useRef<HTMLDivElement | null>(null);
   const [dragging, setDragging] = useState(false);
@@ -1407,8 +1360,6 @@ function SeekBar({
     seekFromClientX(e.clientX);
     setDragPct(null);
   };
-
-  void currentTime; // unused; kept for parity
 
   return (
     <div

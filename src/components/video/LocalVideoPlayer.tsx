@@ -36,7 +36,6 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from 'react';
 import { useLocalMediaScanner } from '@/lib/media-scanner/useLocalMediaScanner';
-import { revokeUris, refreshUri } from '@/lib/media-scanner/web-strategy';
 import type { MediaFile } from '@/lib/media-scanner/types';
 
 // ─────────────────────────────────────────────────────────────────────
@@ -121,38 +120,18 @@ export default function LocalVideoPlayer({
 
   // ── Currently playing video (null = library view) ──
   const [currentVideo, setCurrentVideo] = useState<MediaFile | null>(null);
-  /** Extra blob URLs created by refreshUri() — revoked on close/switch. */
-  const extraUrlRef = useRef<string | null>(null);
 
-  // ── Pick a video — refresh its URL in case the scanner had revoked it ──
-  const handleVideoSelect = useCallback(
-    (video: MediaFile) => {
-      // If the source URL was revoked while scrolling, refresh it.
-      let uri = video.uri;
-      if (video.source === 'web-picker' && video.file) {
-        try {
-          uri = URL.createObjectURL(video.file);
-          extraUrlRef.current = uri;
-          // Note: original URL remains tracked by the hook for cleanup.
-        } catch {
-          uri = video.uri;
-        }
-      }
-      setCurrentVideo({ ...video, uri });
-    },
-    []
-  );
+  // ── Pick a video ──
+  // Note: the scanner hook (useLocalMediaScanner) owns blob URL lifecycle
+  // and only revokes on unmount / clear / re-pick — never mid-session.
+  // So we can safely pass video.uri straight through without re-creating
+  // a fresh URL each time (which would leak the old one on next/prev).
+  const handleVideoSelect = useCallback((video: MediaFile) => {
+    setCurrentVideo(video);
+  }, []);
 
-  // ── Close player overlay & revoke the extra URL ──
+  // ── Close player overlay ──
   const handleClosePlayer = useCallback(() => {
-    if (extraUrlRef.current) {
-      try {
-        URL.revokeObjectURL(extraUrlRef.current);
-      } catch {
-        /* noop */
-      }
-      extraUrlRef.current = null;
-    }
     setCurrentVideo(null);
   }, []);
 
@@ -172,20 +151,6 @@ export default function LocalVideoPlayer({
     const prev = files[(idx - 1 + files.length) % files.length];
     handleVideoSelect(prev);
   }, [currentVideo, files, handleVideoSelect]);
-
-  // ── Revoke extra URL whenever the current video changes (mid-playback switch) ──
-  useEffect(() => {
-    return () => {
-      if (extraUrlRef.current) {
-        try {
-          URL.revokeObjectURL(extraUrlRef.current);
-        } catch {
-          /* noop */
-        }
-        extraUrlRef.current = null;
-      }
-    };
-  }, [currentVideo?.id]);
 
   // ══════════════════════════════════════════════════════════════════
   // RENDER
@@ -461,14 +426,18 @@ function VideoThumbnail({ video }: { video: MediaFile }) {
   const videoElRef = useRef<HTMLVideoElement | null>(null);
   const [thumb, setThumb] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
-  const [isVisible, setIsVisible] = useState(false);
+  // Lazy-init: if IntersectionObserver is unavailable, treat as visible.
+  const [isVisible, setIsVisible] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    return typeof IntersectionObserver === 'undefined';
+  });
   const wrapRef = useRef<HTMLDivElement | null>(null);
 
   // Lazy mount the <video> only when scrolled into view (2GB RAM friendly).
   useEffect(() => {
     const el = wrapRef.current;
     if (!el || typeof IntersectionObserver === 'undefined') {
-      setIsVisible(true);
+      // Already initialized visible via lazy useState init above.
       return;
     }
     const io = new IntersectionObserver(
@@ -539,7 +508,6 @@ function VideoThumbnail({ video }: { video: MediaFile }) {
       className="absolute inset-0 flex items-center justify-center"
     >
       {thumb && !failed ? (
-        // eslint-disable-next-line @next/next/no-img-element
         <img
           src={thumb}
           alt=""
@@ -923,7 +891,6 @@ function ImmersivePlayer({
         /* noop */
       }
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [video.uri]);
 
   // Sync playback rate
@@ -961,8 +928,11 @@ function ImmersivePlayer({
   }, [isPlaying, isLocked]);
 
   useEffect(() => {
-    resetHideTimer();
+    // Defer to avoid calling setState synchronously inside the effect body,
+    // which would trigger cascading renders per React Compiler rule.
+    const timer = setTimeout(() => resetHideTimer(), 0);
     return () => {
+      clearTimeout(timer);
       if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
     };
   }, [resetHideTimer, isPlaying, isLocked]);
