@@ -494,3 +494,34 @@ Stage Summary:
 - LIST VISUALIZER: 4-bar live dancing equalizer (pn-eq-bar keyframe) with staggered delays (0/110/220/80ms) and varying durations (820-1090ms) — replaces old static 2-state NowPlayingBars
 - UI THEME: Ditched old concentric vinyl rings; replaced with glassmorphic minimal album art (backdrop-blur + bg-white/5 + border-white/10 + neon-purple halo) on deep #0c0d19→#06070c gradient with multicolor ambient aurora
 - FILES MODIFIED: src/components/music/LocalMusicPlayer.tsx (full rewrite), src/app/globals.css (+50 lines of new keyframes)
+
+---
+Task ID: 4
+Agent: Main Agent
+Task: Apply localStorage Persistence to LocalVideoPlayer (mirroring music player pattern)
+
+Work Log:
+- Read /home/z/my-project/src/components/video/LocalVideoPlayer.tsx (1657 lines) to understand existing structure: imports useLocalMediaScanner('video'), main component owns currentVideo state, LibraryView + ImmersivePlayer as children
+- Confirmed the music player pattern from LocalMusicPlayer.tsx (LS_CACHED_SONGS + lsGetCachedSongs / lsSetCachedSongs + cachedFiles state + persist effect + displayedFiles derivation)
+- Updated file header docstring to document the new CACHE behavior
+- Added LS_CACHED_VIDEOS = 'playnexa_cached_videos' constant after PLAYBACK_SPEEDS / CONTROLS_AUTO_HIDE_MS
+- Added 3 safe localStorage helper functions: lsGetCachedVideos() (defensive parse + filter for valid id+uri), lsSetCachedVideos() (strips File handle before JSON.stringify, swallows quota errors), lsClearCachedVideos()
+- Inside main LocalVideoPlayer component:
+  • Added cachedFiles state with lazy useState initializer reading from localStorage (SSR-safe via typeof window check)
+  • Added useEffect that persists files → localStorage whenever files is non-empty (skips empty to avoid wiping cache on transient scan failures)
+  • Derived displayedFiles = files.length > 0 ? files : cachedFiles
+  • Switched handleNext / handlePrev to use displayedFiles (so prev/next works even when library is rendered from cache)
+  • Switched ImmersivePlayer's hasNext/hasPrev props to displayedFiles.length > 1
+  • Switched LibraryView's files prop to displayedFiles
+  • Updated onRefresh handler to also call lsClearCachedVideos() — gives true "fresh start" when user taps Refresh (per user requirement: "clear the cache OR update the list manually")
+- TypeScript check (npx tsc --noEmit --skipLibCheck | grep LocalVideoPlayer): no errors
+- Next.js production build: SUCCESS — all routes including /video compile cleanly
+
+Stage Summary:
+- DELIVERED: Full localStorage persistence for LocalVideoPlayer mirroring the music player's pattern
+- CACHE KEY: playnexa_cached_videos (stored as JSON MediaFile[] with File handle stripped for JSON safety)
+- AUTO-LOAD: On mount, useState lazy initializer reads localStorage synchronously → user sees their video grid instantly without re-scanning
+- AUTO-SAVE: useEffect watches files; writes to localStorage whenever a fresh scan returns non-empty results (skips empty to preserve cache during transient permission failures)
+- REFRESH: Button still active — calls clear() on scanner + lsClearCachedVideos() + re-triggers scan/pick. User gets a true fresh start.
+- NATIVE vs WEB: On native (content:// URIs) the cache is fully functional across sessions. On web (blob: URLs) the cards still display for visual continuity but tapping a stale blob URL will fail to play — expected browser behavior.
+- FILES MODIFIED: src/components/video/LocalVideoPlayer.tsx only (no CSS changes needed)

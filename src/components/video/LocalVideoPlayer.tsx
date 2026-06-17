@@ -14,6 +14,15 @@
 //                and scan /Movies, /Download, /DCIM for .mp4/.mkv/.3gp.
 //                The Browse button is HIDDEN in native mode.
 //
+//  ▸ CACHE     : on every successful scan/pick, video metadata is
+//                persisted to localStorage under
+//                `playnexa_cached_videos`. On mount, the cache is
+//                hydrated instantly so the user never re-scans.
+//                Native content:// URIs survive across sessions; web
+//                blob URLs may need re-pick (handled gracefully —
+//                clicking such a card just shows the play overlay
+//                without playback).
+//
 //  ▸ PLAYER    : custom full-screen overlay.
 //                – Left-side vertical swipe  → Brightness
 //                – Right-side vertical swipe → Volume
@@ -99,6 +108,61 @@ function truncateName(name: string, max = 22): string {
 const PLAYBACK_SPEEDS = [0.5, 1.0, 1.5, 2.0] as const;
 const CONTROLS_AUTO_HIDE_MS = 3500;
 
+/**
+ * localStorage key under which scanned MediaFile metadata is cached so
+ * the user never has to re-scan after navigating away and back.
+ *
+ * Stored shape: `MediaFile[]` (JSON-serialised). The `file` field
+ * (web-only File handle) is stripped before persistence because File
+ * objects are not JSON-serialisable and blob: URLs do not survive
+ * across sessions anyway.
+ */
+const LS_CACHED_VIDEOS = 'playnexa_cached_videos';
+
+/** Safe localStorage getter that survives SSR / private-mode quota errors. */
+function lsGetCachedVideos(): MediaFile[] {
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = window.localStorage.getItem(LS_CACHED_VIDEOS);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as MediaFile[];
+    if (!Array.isArray(parsed)) return [];
+    // Defensive filter — drop any malformed entries.
+    return parsed.filter(
+      (m) => m && typeof m.id === 'string' && typeof m.uri === 'string'
+    );
+  } catch {
+    return [];
+  }
+}
+
+/** Safe localStorage setter that swallows quota / serialisation errors. */
+function lsSetCachedVideos(files: MediaFile[]): void {
+  if (typeof window === 'undefined') return;
+  try {
+    // Strip the File handle — it's not JSON-serialisable and is
+    // useless across sessions anyway (blob URLs die on tab close).
+    const serialisable = files.map(({ file: _file, ...rest }) => rest);
+    window.localStorage.setItem(
+      LS_CACHED_VIDEOS,
+      JSON.stringify(serialisable)
+    );
+  } catch {
+    // Quota exceeded or private mode — silently ignore; cache is
+    // best-effort, not critical functionality.
+  }
+}
+
+/** Remove the cached videos list from localStorage. */
+function lsClearCachedVideos(): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.removeItem(LS_CACHED_VIDEOS);
+  } catch {
+    // ignore
+  }
+}
+
 // ════════════════════════════════════════════════════════════════════
 // MAIN COMPONENT
 // ════════════════════════════════════════════════════════════════════
@@ -121,6 +185,48 @@ export default function LocalVideoPlayer({
   // ── Currently playing video (null = library view) ──
   const [currentVideo, setCurrentVideo] = useState<MediaFile | null>(null);
 
+  // ── Cached videos (localStorage hydration) ──
+  // We seed from localStorage ONCE on first render so the user never
+  // sees an empty grid while the scanner is still warming up or after
+  // navigating back. We use a lazy initialiser so SSR renders empty
+  // (window is undefined on the server) and the client hydrates
+  // synchronously from localStorage on the very first paint.
+  //
+  // NOTE: `cachedFiles` is intentionally a one-time mount snapshot.
+  // We do NOT update it when `files` changes — instead we just write
+  // the fresh scan to localStorage via the effect below. The derived
+  // `displayedFiles` value automatically prefers the live `files`
+  // array when non-empty, so updating `cachedFiles` at runtime would
+  // just cause a redundant cascading render. The NEXT time the
+  // component mounts, the lazy initialiser re-reads localStorage and
+  // picks up the updated cache.
+  const [cachedFiles] = useState<MediaFile[]>(() => lsGetCachedVideos());
+
+  // Persist `files` → localStorage every time a fresh scan/pick
+  // succeeds. We deliberately skip empty results so a transient
+  // "no videos" state (e.g. permission denied mid-scan) doesn't wipe
+  // a previously-good cache.
+  useEffect(() => {
+    if (files.length > 0) {
+      lsSetCachedVideos(files);
+    }
+  }, [files]);
+
+  /**
+   * What the library actually renders. We prefer the freshly-scanned
+   * `files` array when non-empty; otherwise we fall back to whatever
+   * is in `cachedFiles` so the user sees their library immediately.
+   *
+   * NOTE on web blob URLs: when `cachedFiles` is sourced from a previous
+   * session, the `uri` field is a `blob:` URL that has been revoked by
+   * now. Clicking such a card will fail to load the video (the
+   * <video> error handler in ImmersivePlayer surfaces a friendly
+   * message). The user still sees the card in the grid (good — visual
+   * continuity) but tapping it doesn't play. On native (content://
+   * URIs) the cache is fully functional.
+   */
+  const displayedFiles = files.length > 0 ? files : cachedFiles;
+
   // ── Pick a video ──
   // Note: the scanner hook (useLocalMediaScanner) owns blob URL lifecycle
   // and only revokes on unmount / clear / re-pick — never mid-session.
@@ -136,21 +242,25 @@ export default function LocalVideoPlayer({
   }, []);
 
   // ── Next / previous video navigation ──
+  // Uses `displayedFiles` so prev/next works even when the library is
+  // being rendered from the localStorage cache (i.e. the live scanner
+  // hasn't returned any results yet this session).
   const handleNext = useCallback(() => {
-    if (!currentVideo || files.length === 0) return;
-    const idx = files.findIndex((f) => f.id === currentVideo.id);
+    if (!currentVideo || displayedFiles.length === 0) return;
+    const idx = displayedFiles.findIndex((f) => f.id === currentVideo.id);
     if (idx < 0) return;
-    const next = files[(idx + 1) % files.length];
+    const next = displayedFiles[(idx + 1) % displayedFiles.length];
     handleVideoSelect(next);
-  }, [currentVideo, files, handleVideoSelect]);
+  }, [currentVideo, displayedFiles, handleVideoSelect]);
 
   const handlePrev = useCallback(() => {
-    if (!currentVideo || files.length === 0) return;
-    const idx = files.findIndex((f) => f.id === currentVideo.id);
+    if (!currentVideo || displayedFiles.length === 0) return;
+    const idx = displayedFiles.findIndex((f) => f.id === currentVideo.id);
     if (idx < 0) return;
-    const prev = files[(idx - 1 + files.length) % files.length];
+    const prev =
+      displayedFiles[(idx - 1 + displayedFiles.length) % displayedFiles.length];
     handleVideoSelect(prev);
-  }, [currentVideo, files, handleVideoSelect]);
+  }, [currentVideo, displayedFiles, handleVideoSelect]);
 
   // ══════════════════════════════════════════════════════════════════
   // RENDER
@@ -160,8 +270,8 @@ export default function LocalVideoPlayer({
     return (
       <ImmersivePlayer
         video={currentVideo}
-        hasNext={files.length > 1}
-        hasPrev={files.length > 1}
+        hasNext={displayedFiles.length > 1}
+        hasPrev={displayedFiles.length > 1}
         onClose={handleClosePlayer}
         onNext={handleNext}
         onPrev={handlePrev}
@@ -171,14 +281,18 @@ export default function LocalVideoPlayer({
 
   return (
     <LibraryView
-      files={files}
+      files={displayedFiles}
       isLoading={isLoading}
       error={error}
       isNative={isNative}
       permissionState={permissionState}
       onPick={pickFiles}
       onRefresh={() => {
+        // Clear in-memory scanner state AND the persisted cache so the
+        // user gets a true "fresh start" when they tap Refresh. The
+        // subsequent re-scan / re-pick will write a new cache.
         clear();
+        lsClearCachedVideos();
         // Re-trigger scan/picker depending on platform.
         if (isNative) {
           void requestScan();
