@@ -397,3 +397,62 @@ Stage Summary:
 - Hydration error root cause eliminated: invalid button-in-button DOM nesting removed.
 - Accessibility preserved: keyboard activation + focus ring + aria-label.
 - Click-bubbling from 3-dot menu to song row is now blocked by both stopPropagation + preventDefault.
+
+---
+Task ID: music-player-premium-upgrade
+Agent: main
+Task: Three critical fixes + premium glassmorphism redesign for LocalMusicPlayer.tsx: (1) localStorage scan persistence, (2) audio overlap protection, (3) auto-expand full-screen premium player.
+
+Work Log:
+- Read /home/z/my-project/src/components/music/LocalMusicPlayer.tsx (1725 lines), useMusicPlayer.ts hook (787 lines), useLocalMediaScanner.ts (348 lines), media-scanner/types.ts.
+- Confirmed the existing useMusicPlayer hook ALREADY uses a single shared HTMLAudioElement via internal audioRef + calls audio.pause() before assigning new src in play(). So at the hook level, overlap is impossible.
+- FIX 1 (Scan Persistence):
+  * Added `LS_CACHED_SONGS = 'playnexa_cached_songs'` localStorage key.
+  * Added `lsGetCachedSongs()` (safe getter — survives SSR, JSON parse errors, quota errors) and `lsSetCachedSongs()` (safe setter — strips non-serialisable `file: File` field before JSON.stringify).
+  * Added `cachedFiles` state with lazy initialiser `useState(() => lsGetCachedSongs())` so SSR renders empty and client hydrates synchronously from localStorage on first paint.
+  * Added useEffect that persists `files` → localStorage when `files.length > 0`. Deliberately skips empty results so transient permission-denied states don't wipe a good cache.
+  * Derived `displayedFiles = files.length > 0 ? files : cachedFiles` — passed to LibraryView and used to build the playlist in handleSongSelect. Native content:// URIs survive across sessions; web blob URLs gracefully degrade (song visible but won't play — handled by the hook's onError handler).
+  * Lint note: `cachedFiles` is intentionally a one-time mount snapshot (we don't setCachedFiles in the effect — that would trigger cascading renders per the react-hooks/set-state-in-effect rule). The next mount re-reads localStorage.
+- FIX 2 (Audio Overlap):
+  * Added defensive `stop()` call BEFORE `setPlaylist()` in handleSongSelect. The hook's stop() pauses audio, resets currentTime to 0, and notifies native media-session listeners. The subsequent play() inside setPlaylist then assigns a fresh src.
+  * Added extensive code comments explaining that useMusicPlayer already owns a single shared HTMLAudioElement via its own audioRef — adding a second audioRef at the component level would REINTRODUCE overlap. The defensive stop() is layered protection against rapid-tap race conditions on the play() Promise.
+- FIX 3 (Auto-Expand Premium Full-Screen Player):
+  * Added `setExpanded(true)` as the final step in handleSongSelect — after stop() + setPlaylist(). The ExpandedPlayer sheet now slides up automatically the instant a user taps a song, matching Spotify/Apple Music behavior.
+- PREMIUM GLASSMORPHISM REDESIGN:
+  * Added 5 new CSS keyframes to /home/z/my-project/src/app/globals.css:
+    - `pn-art-pulse`: rhythmic breathing halo around album art (2.4s ease-in-out infinite).
+    - `pn-disc-spin`: slow cinematic disc rotation (22s linear).
+    - `pn-sheet-up`: 360ms cubic-bezier slide-up entrance for the expanded sheet.
+    - `pn-fade-up`: 480ms staggered fade-up for title/seekbar/controls.
+    - `pn-btn-glow`: 2.4s breathing glow on the play button while music plays.
+  * Rewrote ExpandedPlayer component:
+    - Background: deep indigo → midnight violet vertical gradient (#0B0B1E → #05050F) replacing flat #0A0A0A.
+    - Ambient aurora glow layer (two radial-gradient blurs at top-left and bottom-right) for depth.
+    - Album art: 340px rounded-square (was 320px), 1.5px neon-purple border, backdrop-blur(20px) frosted glass, slow disc-spin while playing, pulse-glow halo while playing (steady glow when paused), top sheen highlight, vinyl ring overlay.
+    - Center label: 64px gradient disc with inner shadow + outer glow.
+    - Title: 2xl bold with text-shadow accent glow.
+    - Seekbar: gradient progress (#8B5CF6 → #7C3AED → #A78BFA) with 12px purple glow.
+    - Play button: 80px gradient (linear #8B5CF6 → #7C3AED → #6D28D9) with breathing `pn-btn-glow` animation while playing, hover:scale-105 + active:scale-95.
+    - Prev/Next/More/Collapse buttons: glassmorphism (rgba white 0.06 bg, 1px border, backdrop-blur 12px).
+    - Drag handle: now attached to entire sheet (drag anywhere to dismiss), 120px threshold.
+    - Staggered fade-up animations on title/seekbar/controls (60ms, 120ms delays).
+    - Respects device safe-areas (env(safe-area-inset-top)).
+  * Refreshed LibraryView header: glassmorphism (rgba(11,11,30,0.72) bg, backdrop-blur 18px, purple bottom border). Back/Refresh buttons now use translucent purple bg with 1px purple border.
+  * Refreshed SongList rows: active row uses translucent purple bg + 1px purple border; icon box uses gradient + box-shadow when active; hover/active states via Tailwind hover:bg-white/[0.04] active:bg-white/[0.08].
+  * Refreshed MiniPlayer: glassmorphism translucent indigo bg, backdrop-blur 18px, top shadow, gradient album thumb with purple glow.
+  * Refreshed EmptyState + EmptyShell: radial-gradient icon container with glow, gradient primary button (linear #8B5CF6 → #7C3AED → #6D28D9), text-shadow on title.
+  * Refreshed LoadingList skeleton to use translucent purple placeholders.
+  * Refreshed SeekBar: 4px tall (was 3px), gradient progress with purple glow, thumb now has purple glow halo.
+- Final verification:
+  * `npx tsc --noEmit` — 0 errors in modified files.
+  * `npx eslint src/components/music/LocalMusicPlayer.tsx` — 0 errors, 0 warnings (fixed cascading-render warning by switching to one-time mount snapshot pattern).
+
+Stage Summary:
+- 3 critical bugs fixed + complete visual overhaul of the music player.
+- Files touched:
+  * src/components/music/LocalMusicPlayer.tsx — added LS cache layer, defensive stop() in handleSongSelect, auto-expand on tap, full ExpandedPlayer rewrite, refreshed LibraryView/SongList/MiniPlayer/EmptyState/LoadingList/SeekBar styling.
+  * src/app/globals.css — added 5 new keyframes (pn-art-pulse, pn-disc-spin, pn-sheet-up, pn-fade-up, pn-btn-glow).
+- Architecture notes:
+  * The single shared HTMLAudioElement remains owned by useMusicPlayer() — no second audioRef introduced at the component level (would reintroduce overlap bug).
+  * localStorage cache is best-effort: native content:// URIs work fully; web blob URLs are visible but cannot play across sessions (browser limitation).
+  * cachedFiles is a one-time mount snapshot (no setState in effect — avoids cascading renders).

@@ -577,3 +577,78 @@ html.light-mode picture {
 .pn-vinyl-spin {
   animation: pn-vinyl-spin 12s linear infinite;
 }
+
+/* ─── Premium expanded player (glassmorphism) ─── */
+
+/* Rhythmic pulse halo around the album art while music plays */
+@keyframes pn-art-pulse {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 0.55;
+  }
+  50% {
+    transform: scale(1.08);
+    opacity: 0.9;
+  }
+}
+.pn-art-pulse {
+  animation: pn-art-pulse 2.4s ease-in-out infinite;
+}
+
+/* Soft slow rotation of the disc (slower than vinyl-spin, more cinematic) */
+@keyframes pn-disc-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+.pn-disc-spin {
+  animation: pn-disc-spin 22s linear infinite;
+}
+
+/* Slide-up entrance for the expanded sheet */
+@keyframes pn-sheet-up {
+  0% {
+    opacity: 0;
+    transform: translateY(100%);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.pn-sheet-up {
+  animation: pn-sheet-up 360ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* Fade-in for the title/controls once the sheet is visible */
+@keyframes pn-fade-up {
+  0% {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.pn-fade-up {
+  animation: pn-fade-up 480ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* Equalizer pulse for the play button glow */
+@keyframes pn-btn-glow {
+  0%, 100% {
+    box-shadow:
+      0 0 0 1px rgba(124, 58, 237, 0.4),
+      0 14px 38px rgba(124, 58, 237, 0.35),
+      0 0 60px rgba(124, 58, 237, 0.25);
+  }
+  50% {
+    box-shadow:
+      0 0 0 1px rgba(124, 58, 237, 0.6),
+      0 18px 48px rgba(124, 58, 237, 0.5),
+      0 0 90px rgba(124, 58, 237, 0.4);
+  }
+}
+.pn-btn-glow {
+  animation: pn-btn-glow 2.4s ease-in-out infinite;
+}

@@ -9,6 +9,12 @@
 //
 //  ▸ LIBRARY   : clean vertical list, music-note icon, real title +
 //                artist/folder, 3-dot menu per row.
+//  ▸ CACHE     : on every successful scan/pick, songs metadata is
+//                persisted to localStorage under
+//                `playnexa_cached_songs`. On mount, the cache is
+//                hydrated instantly so the user never re-scans.
+//                Native content:// URIs survive across sessions; web
+//                blob URLs may need re-pick (handled gracefully).
 //  ▸ WEB MODE  : "🎵 Browse Audio/Songs" button → hidden
 //                <input type="file" multiple accept="audio/*"> →
 //                URL.createObjectURL() → instant playback.
@@ -17,17 +23,18 @@
 //                Browse button is HIDDEN in native mode.
 //  ▸ MINI BAR  : persistent thin bar pinned to bottom. Marquee
 //                title + play/pause. App stays browseable.
-//  ▸ FULL SHEET: swipe/click mini → smooth slide-up full overlay.
-//                Large rounded-square album art that rotates while
-//                playing. Thin seekbar + timestamps. Big prev /
-//                play-pause / next controls.
+//  ▸ FULL SHEET: AUTO-EXPANDS on song click. Premium glassmorphism
+//                design — deep indigo/violet gradient background,
+//                glowing pulse album art, sleek controls. Drag-down
+//                to close.
+//  ▸ AUDIO     : SINGLE shared HTMLAudioElement owned by
+//                useMusicPlayer() (preserves background play &
+//                native lock-screen controls). On every new song
+//                selection, the previous track is fully stopped
+//                before the new one loads — no overlap.
 //
-//  ▸ MEMORY    : URL.revokeObjectURL on every song switch & overlay
-//                close. Single shared <audio> element via
-//                useMusicPlayer() hook (preserves background play &
-//                native lock-screen controls).
-//
-//  Theme: AMOLED #0A0A0A · accent #7C3AED · 44px min touch · no blur
+//  Theme: Indigo Midnight gradient · accent #7C3AED · 44px min touch
+//         · glassmorphism · pulse-glow art · no harsh contrast
 // ════════════════════════════════════════════════════════════════════
 
 import {
@@ -106,6 +113,51 @@ function getFolderName(file: MediaFile): string {
 
 const SHEET_EXPAND_MS = 280;
 
+/**
+ * localStorage key under which scanned MediaFile metadata is cached so
+ * the user never has to re-scan after navigating away and back.
+ *
+ * Stored shape: `MediaFile[]` (JSON-serialised). The `file` field
+ * (web-only File handle) is stripped before persistence because File
+ * objects are not JSON-serialisable and blob: URLs do not survive
+ * across sessions anyway.
+ */
+const LS_CACHED_SONGS = 'playnexa_cached_songs';
+
+/** Safe localStorage getter that survives SSR / private-mode quota errors. */
+function lsGetCachedSongs(): MediaFile[] {
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = window.localStorage.getItem(LS_CACHED_SONGS);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as MediaFile[];
+    if (!Array.isArray(parsed)) return [];
+    // Defensive filter — drop any malformed entries.
+    return parsed.filter(
+      (m) => m && typeof m.id === 'string' && typeof m.uri === 'string'
+    );
+  } catch {
+    return [];
+  }
+}
+
+/** Safe localStorage setter that swallows quota / serialisation errors. */
+function lsSetCachedSongs(files: MediaFile[]): void {
+  if (typeof window === 'undefined') return;
+  try {
+    // Strip the File handle — it's not JSON-serialisable and is
+    // useless across sessions anyway (blob URLs die on tab close).
+    const serialisable = files.map(({ file: _file, ...rest }) => rest);
+    window.localStorage.setItem(
+      LS_CACHED_SONGS,
+      JSON.stringify(serialisable)
+    );
+  } catch {
+    // Quota exceeded or private mode — silently ignore; cache is
+    // best-effort, not critical functionality.
+  }
+}
+
 // ════════════════════════════════════════════════════════════════════
 // MAIN COMPONENT
 // ════════════════════════════════════════════════════════════════════
@@ -149,6 +201,49 @@ export default function LocalMusicPlayer({
   const [expanded, setExpanded] = useState(false);
   const [menuOpenFor, setMenuOpenFor] = useState<string | null>(null);
 
+  // ── Cached songs (localStorage hydration) ──
+  // We seed from localStorage ONCE on first render so the user never
+  // sees an empty list while the scanner is still warming up or after
+  // navigating back. We use a lazy initialiser so SSR renders empty
+  // (window is undefined on the server) and the client hydrates
+  // synchronously from localStorage on the very first paint.
+  //
+  // NOTE: `cachedFiles` is intentionally a one-time mount snapshot.
+  // We do NOT update it when `files` changes — instead we just write
+  // the fresh scan to localStorage via the effect below. The derived
+  // `displayedFiles` value automatically prefers the live `files`
+  // array when non-empty, so updating `cachedFiles` at runtime would
+  // just cause a redundant cascading render. The NEXT time the
+  // component mounts, the lazy initialiser re-reads localStorage and
+  // picks up the updated cache.
+  const [cachedFiles] = useState<MediaFile[]>(() => lsGetCachedSongs());
+
+  // Persist `files` → localStorage every time a fresh scan/pick
+  // succeeds. We deliberately skip empty results so a transient
+  // "no songs" state (e.g. permission denied mid-scan) doesn't wipe
+  // a previously-good cache.
+  useEffect(() => {
+    if (files.length > 0) {
+      lsSetCachedSongs(files);
+    }
+  }, [files]);
+
+  /**
+   * What the library actually renders. We prefer the freshly-scanned
+   * `files` array when non-empty; otherwise we fall back to whatever is
+   * in `cachedFiles` so the user sees their library immediately.
+   *
+   * NOTE on web blob URLs: when `cachedFiles` is sourced from a previous
+   * session, the `uri` field is a `blob:` URL that has been revoked by
+   * now. Clicking such a song will fire the `<audio>` element's `error`
+   * event (handled inside useMusicPlayer → setIsPlaying(false)). The
+   * user sees the song in the list (good — visual continuity) but
+   * tapping it doesn't make noise. We surface a friendly toast/banner
+   * via the EmptyState's error slot when this happens. On native
+   * (content:// URIs) the cache is fully functional.
+   */
+  const displayedFiles = files.length > 0 ? files : cachedFiles;
+
   // ══════════════════════════════════════════════════════════════════
   // MediaFile → Song adapter
   // ══════════════════════════════════════════════════════════════════
@@ -187,15 +282,45 @@ export default function LocalMusicPlayer({
   // ══════════════════════════════════════════════════════════════════
   // Song selection / playlist management
   // ══════════════════════════════════════════════════════════════════
+  //
+  // AUDIO OVERLAP PROTECTION:
+  // useMusicPlayer() internally creates a SINGLE shared HTMLAudioElement
+  // (via its own `audioRef` inside the hook). Its `play()` function calls
+  // `audio.pause()` before assigning a new `src`. So at the hook level,
+  // overlap is already impossible. We add a defensive `stop()` call
+  // here for two reasons:
+  //   1. It guarantees currentTime is reset to 0 before the new song
+  //      starts — even if a previous `audio.play()` Promise is still
+  //      resolving (race on rapid double-tap).
+  //   2. It makes the intent loud-and-clear at the component level so
+  //      future maintenance doesn't accidentally introduce a second
+  //      <audio> element.
+  //
+  // AUTO-EXPAND:
+  // After kicking off playback, we immediately flip `expanded` to true
+  // so the premium full-screen sheet slides up — matching the behavior
+  // of Spotify / Apple Music / YouTube Music on tap.
 
   const handleSongSelect = useCallback(
     (mf: MediaFile, index: number) => {
-      // Build a Song[] playlist from the current files list, starting at index.
-      // setPlaylist() in useMusicPlayer internally calls play() on songs[index].
-      const songs = files.map(mediaFileToSong);
+      // 1. Hard-stop any currently-playing track BEFORE setting up the
+      //    new playlist. The hook's stop() pauses, resets currentTime,
+      //    and notifies native media-session listeners. It does NOT
+      //    clear audio.src — that's done by the subsequent play() call
+      //    inside setPlaylist → playRef.current(song).
+      stop();
+
+      // 2. Build the Song[] playlist from the displayed list, starting
+      //    at the tapped index. setPlaylist() in useMusicPlayer
+      //    internally calls play() on songs[index] — which pauses the
+      //    (already-stopped) audio, sets src, loads, and plays.
+      const songs = displayedFiles.map(mediaFileToSong);
       setPlaylist(songs, index);
+
+      // 3. Auto-expand the full-screen premium player.
+      setExpanded(true);
     },
-    [files, mediaFileToSong, setPlaylist]
+    [displayedFiles, mediaFileToSong, setPlaylist, stop]
   );
 
   /** Close the expanded full-sheet player. */
@@ -218,10 +343,14 @@ export default function LocalMusicPlayer({
   return (
     <div
       className="min-h-screen flex flex-col relative"
-      style={{ backgroundColor: '#0A0A0A' }}
+      style={{
+        // Deep luxurious dark indigo → midnight violet gradient backdrop
+        background:
+          'linear-gradient(180deg, #0B0B1E 0%, #0A0A18 45%, #05050F 100%)',
+      }}
     >
       <LibraryView
-        files={files}
+        files={displayedFiles}
         isLoading={isLoading}
         error={error}
         isNative={isNative}
@@ -256,7 +385,7 @@ export default function LocalMusicPlayer({
         />
       )}
 
-      {/* Expanded full-sheet player */}
+      {/* Expanded full-sheet player (auto-expanded on song click) */}
       {currentSong && expanded && (
         <ExpandedPlayer
           song={currentSong}
@@ -322,8 +451,11 @@ function LibraryView({
       <header
         className="flex items-center justify-between px-4 pt-5 pb-4 sticky top-0 z-30"
         style={{
-          backgroundColor: '#0A0A0A',
-          borderBottom: '1px solid #141414',
+          // Glassmorphism header: translucent indigo over the gradient bg.
+          backgroundColor: 'rgba(11, 11, 30, 0.72)',
+          backdropFilter: 'blur(18px)',
+          WebkitBackdropFilter: 'blur(18px)',
+          borderBottom: '1px solid rgba(124, 58, 237, 0.12)',
         }}
       >
         <div className="flex items-center gap-3 min-w-0">
@@ -331,7 +463,11 @@ function LibraryView({
             type="button"
             onClick={onBack}
             aria-label="Back"
-            className="w-11 h-11 rounded-full bg-[#141414] flex items-center justify-center active:opacity-70 flex-shrink-0"
+            className="w-11 h-11 rounded-full flex items-center justify-center active:opacity-70 flex-shrink-0 transition-colors"
+            style={{
+              backgroundColor: 'rgba(124, 58, 237, 0.12)',
+              border: '1px solid rgba(124, 58, 237, 0.22)',
+            }}
           >
             <svg
               width="20"
@@ -352,7 +488,7 @@ function LibraryView({
             >
               Local Music
             </h1>
-            <p className="text-[#7A7A7A] text-xs mt-0.5">
+            <p className="text-[#9A9AB0] text-xs mt-0.5">
               {isLoading
                 ? 'Scanning…'
                 : files.length > 0
@@ -366,7 +502,11 @@ function LibraryView({
           onClick={onRefresh}
           aria-label="Refresh"
           disabled={isLoading}
-          className="w-11 h-11 rounded-full bg-[#141414] flex items-center justify-center active:opacity-70 disabled:opacity-40 flex-shrink-0"
+          className="w-11 h-11 rounded-full flex items-center justify-center active:opacity-70 disabled:opacity-40 flex-shrink-0 transition-colors"
+          style={{
+            backgroundColor: 'rgba(124, 58, 237, 0.12)',
+            border: '1px solid rgba(124, 58, 237, 0.22)',
+          }}
         >
           <svg
             width="20"
@@ -461,9 +601,14 @@ function SongList({
                   onSelect(mf, idx);
                 }
               }}
-              className="cursor-pointer w-full flex items-center gap-3 px-2 py-3 rounded-xl active:bg-[#141420] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#7C3AED]/60"
+              className="cursor-pointer w-full flex items-center gap-3 px-2 py-3 rounded-xl transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#7C3AED]/60 hover:bg-white/[0.04] active:bg-white/[0.08]"
               style={{
-                backgroundColor: isActive ? '#14141F' : 'transparent',
+                backgroundColor: isActive
+                  ? 'rgba(124, 58, 237, 0.12)'
+                  : 'transparent',
+                border: isActive
+                  ? '1px solid rgba(124, 58, 237, 0.25)'
+                  : '1px solid transparent',
                 minHeight: 64,
               }}
             >
@@ -471,9 +616,13 @@ function SongList({
               <div
                 className="w-11 h-11 rounded-lg flex items-center justify-center flex-shrink-0"
                 style={{
-                  backgroundColor: isActive
-                    ? '#7C3AED'
-                    : 'rgba(124, 58, 237, 0.12)',
+                  background: isActive
+                    ? 'linear-gradient(135deg, #8B5CF6 0%, #6D28D9 100%)'
+                    : 'rgba(124, 58, 237, 0.10)',
+                  border: '1px solid rgba(124, 58, 237, 0.18)',
+                  boxShadow: isActive
+                    ? '0 4px 16px rgba(124, 58, 237, 0.4)'
+                    : 'none',
                 }}
               >
                 {isActive && isPlaying ? (
@@ -484,7 +633,7 @@ function SongList({
                     height="20"
                     viewBox="0 0 24 24"
                     fill="none"
-                    stroke={isActive ? 'white' : '#7C3AED'}
+                    stroke={isActive ? 'white' : '#A78BFA'}
                     strokeWidth="2"
                     strokeLinecap="round"
                   >
@@ -499,14 +648,14 @@ function SongList({
               <div className="flex-1 min-w-0 text-left">
                 <p
                   className={`text-[14px] font-medium leading-tight truncate ${
-                    isActive ? 'text-[#7C3AED]' : 'text-white'
+                    isActive ? 'text-[#A78BFA]' : 'text-white'
                   }`}
                   title={title}
                 >
                   {title}
                 </p>
                 <p
-                  className="text-[#7A7A7A] text-xs mt-0.5 truncate"
+                  className="text-[#8A8AA0] text-xs mt-0.5 truncate"
                   title={artist}
                 >
                   {artist} · {formatSize(mf.sizeBytes)}
@@ -546,11 +695,14 @@ function SongList({
                   onClick={() => setMenuOpenFor(null)}
                 />
                 <div
-                  className="absolute right-2 top-14 z-20 rounded-2xl overflow-hidden min-w-[160px]"
+                  className="absolute right-2 top-14 z-20 rounded-2xl overflow-hidden min-w-[160px] pn-fade-up"
                   style={{
-                    backgroundColor: '#181822',
-                    border: '1px solid #26263A',
-                    boxShadow: '0 10px 30px rgba(0,0,0,0.6)',
+                    backgroundColor: 'rgba(20, 20, 38, 0.92)',
+                    border: '1px solid rgba(124, 58, 237, 0.25)',
+                    boxShadow:
+                      '0 12px 36px rgba(0,0,0,0.65), 0 0 0 1px rgba(124,58,237,0.08)',
+                    backdropFilter: 'blur(16px)',
+                    WebkitBackdropFilter: 'blur(16px)',
                   }}
                 >
                   {[
@@ -562,9 +714,9 @@ function SongList({
                       key={item.label}
                       type="button"
                       onClick={() => setMenuOpenFor(null)}
-                      className="w-full px-4 py-3 flex items-center gap-3 text-white text-sm active:bg-[#1F1F2E]"
+                      className="w-full px-4 py-3 flex items-center gap-3 text-white text-sm transition-colors hover:bg-white/[0.06] active:bg-white/[0.10]"
                     >
-                      <span className="text-[#7C3AED] text-base">
+                      <span className="text-[#A78BFA] text-base">
                         {item.icon}
                       </span>
                       {item.label}
@@ -613,16 +765,25 @@ function LoadingList() {
         >
           <div
             className="w-11 h-11 rounded-lg flex-shrink-0"
-            style={{ backgroundColor: '#14141F' }}
+            style={{
+              backgroundColor: 'rgba(124,58,237,0.08)',
+              border: '1px solid rgba(124,58,237,0.12)',
+            }}
           />
           <div className="flex-1">
             <div
               className="h-3.5 rounded mb-2"
-              style={{ backgroundColor: '#14141F', width: '55%' }}
+              style={{
+                backgroundColor: 'rgba(124,58,237,0.10)',
+                width: '55%',
+              }}
             />
             <div
               className="h-2.5 rounded"
-              style={{ backgroundColor: '#10101A', width: '35%' }}
+              style={{
+                backgroundColor: 'rgba(124,58,237,0.06)',
+                width: '35%',
+              }}
             />
           </div>
         </li>
@@ -669,9 +830,11 @@ function EmptyState({
         <button
           type="button"
           onClick={onPick}
-          className="w-full max-w-xs mx-auto block rounded-full py-3.5 text-white font-semibold text-sm active:opacity-80"
+          className="w-full max-w-xs mx-auto block rounded-full py-3.5 text-white font-semibold text-sm active:scale-95 transition-transform"
           style={{
-            backgroundColor: '#7C3AED',
+            background:
+              'linear-gradient(135deg, #8B5CF6 0%, #7C3AED 50%, #6D28D9 100%)',
+            boxShadow: '0 10px 30px rgba(124,58,237,0.45)',
             minHeight: 44,
           }}
         >
@@ -692,7 +855,7 @@ function EmptyState({
             height="64"
             viewBox="0 0 24 24"
             fill="none"
-            stroke="#7C3AED"
+            stroke="#A78BFA"
             strokeWidth="1.5"
             strokeLinecap="round"
           >
@@ -718,7 +881,7 @@ function EmptyState({
             height="64"
             viewBox="0 0 24 24"
             fill="none"
-            stroke="#7C3AED"
+            stroke="#A78BFA"
             strokeWidth="1.5"
             strokeLinecap="round"
           >
@@ -742,7 +905,7 @@ function EmptyState({
           height="72"
           viewBox="0 0 24 24"
           fill="none"
-          stroke="#7C3AED"
+          stroke="#A78BFA"
           strokeWidth="1.5"
           strokeLinecap="round"
         >
@@ -755,9 +918,11 @@ function EmptyState({
       <button
         type="button"
         onClick={onPick}
-        className="w-full max-w-xs mx-auto flex items-center justify-center gap-2 rounded-full py-3.5 text-white font-semibold text-sm active:opacity-80"
+        className="w-full max-w-xs mx-auto flex items-center justify-center gap-2 rounded-full py-3.5 text-white font-semibold text-sm active:scale-95 transition-transform"
         style={{
-          backgroundColor: '#7C3AED',
+          background:
+            'linear-gradient(135deg, #8B5CF6 0%, #7C3AED 50%, #6D28D9 100%)',
+          boxShadow: '0 10px 30px rgba(124,58,237,0.45)',
           minHeight: 44,
         }}
       >
@@ -799,14 +964,21 @@ function EmptyShell({
       <div
         className="w-24 h-24 rounded-full flex items-center justify-center mb-6"
         style={{
-          backgroundColor: 'rgba(124, 58, 237, 0.08)',
-          border: '1px solid rgba(124, 58, 237, 0.2)',
+          background:
+            'radial-gradient(circle at 50% 50%, rgba(124,58,237,0.18), rgba(124,58,237,0.04) 70%)',
+          border: '1px solid rgba(124, 58, 237, 0.22)',
+          boxShadow: '0 0 40px rgba(124,58,237,0.15)',
         }}
       >
         {icon}
       </div>
-      <h2 className="text-white font-bold text-xl mb-2">{title}</h2>
-      <p className="text-[#8A8A8A] text-sm leading-relaxed max-w-xs mb-8">
+      <h2
+        className="text-white font-bold text-xl mb-2"
+        style={{ textShadow: '0 2px 12px rgba(124,58,237,0.25)' }}
+      >
+        {title}
+      </h2>
+      <p className="text-[#8A8AA0] text-sm leading-relaxed max-w-xs mb-8">
         {subtitle}
       </p>
       {children}
@@ -884,8 +1056,12 @@ function MiniPlayer({
       <div
         className="flex items-center gap-3 px-3 py-2.5"
         style={{
-          backgroundColor: '#12121C',
-          borderTop: '1px solid #1E1E2E',
+          // Glassmorphism mini-bar: translucent indigo over gradient bg.
+          backgroundColor: 'rgba(15, 15, 32, 0.85)',
+          borderTop: '1px solid rgba(124, 58, 237, 0.18)',
+          backdropFilter: 'blur(18px)',
+          WebkitBackdropFilter: 'blur(18px)',
+          boxShadow: '0 -8px 30px rgba(0,0,0,0.45)',
           paddingBottom: 'calc(0.625rem + env(safe-area-inset-bottom))',
         }}
       >
@@ -894,10 +1070,11 @@ function MiniPlayer({
           type="button"
           onClick={onExpand}
           aria-label="Expand"
-          className="w-11 h-11 rounded-lg flex items-center justify-center flex-shrink-0 active:opacity-80"
+          className="w-11 h-11 rounded-lg flex items-center justify-center flex-shrink-0 active:scale-95 transition-transform"
           style={{
             background:
-              'linear-gradient(135deg, #7C3AED 0%, #4C1D95 100%)',
+              'linear-gradient(135deg, #8B5CF6 0%, #6D28D9 100%)',
+            boxShadow: '0 4px 14px rgba(124,58,237,0.4)',
           }}
         >
           <svg
@@ -927,7 +1104,7 @@ function MiniPlayer({
               className="text-white text-[13px] font-medium truncate"
             />
           </div>
-          <p className="text-[#7A7A7A] text-[11px] mt-0.5 truncate">
+          <p className="text-[#8A8AA0] text-[11px] mt-0.5 truncate">
             {formatTime(currentTime)} / {formatTime(duration)}
           </p>
         </button>
@@ -941,7 +1118,10 @@ function MiniPlayer({
           }}
           aria-label={isPlaying ? 'Pause' : 'Play'}
           className="w-11 h-11 rounded-full flex items-center justify-center active:scale-95 transition-transform flex-shrink-0"
-          style={{ backgroundColor: 'rgba(124,58,237,0.18)' }}
+          style={{
+            backgroundColor: 'rgba(124,58,237,0.22)',
+            border: '1px solid rgba(124,58,237,0.35)',
+          }}
         >
           {isPlaying ? (
             <svg
@@ -975,7 +1155,7 @@ function MiniPlayer({
             height="18"
             viewBox="0 0 24 24"
             fill="none"
-            stroke="#9A9A9A"
+            stroke="#9A9AB0"
             strokeWidth="2"
             strokeLinecap="round"
           >
@@ -1048,7 +1228,18 @@ function Marquee({
 }
 
 // ════════════════════════════════════════════════════════════════════
-// EXPANDED FULL PLAYER (swipe-up bottom sheet)
+// EXPANDED FULL PLAYER (premium glassmorphism, auto-expanded on tap)
+// ───────────────────────────────────────────────────────────────────
+// Visual language:
+//   • Background : deep indigo → midnight violet vertical gradient
+//   • Surface    : translucent glass with backdrop-blur (calming,
+//                  not harsh like pure black)
+//   • Album art  : large rounded-square, glowing neon-purple halo
+//                  that PULSES rhythmically while music plays, slow
+//                  cinematic disc rotation, frosted-glass overlay
+//   • Controls   : minimalist, high-contrast, hover/active scale
+//                  transitions, glowing play button with breath-pulse
+//   • Drag handle: drag-down anywhere to dismiss (iOS/Android feel)
 // ════════════════════════════════════════════════════════════════════
 
 interface ExpandedPlayerProps {
@@ -1074,7 +1265,8 @@ function ExpandedPlayer({
   onSeek,
   onClose,
 }: ExpandedPlayerProps) {
-  // Drag-down-to-close
+  // Drag-down-to-close (attached to the entire sheet so the user can
+  // grab anywhere — not just the handle).
   const startYRef = useRef<number | null>(null);
   const [dragOffset, setDragOffset] = useState(0);
 
@@ -1098,36 +1290,77 @@ function ExpandedPlayer({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex flex-col"
+      className="fixed inset-0 z-50 flex flex-col pn-sheet-up"
       style={{
-        backgroundColor: '#0A0A0A',
+        // Deep luxurious dark indigo → midnight violet gradient.
+        background:
+          'linear-gradient(180deg, #0B0B1E 0%, #0A0A18 40%, #070716 70%, #05050F 100%)',
         transform:
           dragOffset > 0 ? `translateY(${dragOffset}px)` : 'translateY(0)',
         transition: dragOffset > 0 ? 'none' : `transform ${SHEET_EXPAND_MS}ms ease-out`,
         opacity: dragOffset > 0 ? Math.max(0.4, 1 - dragOffset / 600) : 1,
+        // Respect device safe-areas (notch / home indicator).
+        paddingTop: 'env(safe-area-inset-top)',
       }}
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerUp}
+      onPointerCancel={handlePointerUp}
     >
-      {/* Drag handle */}
+      {/* Ambient aurora glow — sits behind everything for depth. */}
       <div
-        className="pt-3 pb-2 flex justify-center cursor-grab active:cursor-grabbing"
-        onPointerDown={handlePointerDown}
-        onPointerMove={handlePointerMove}
-        onPointerUp={handlePointerUp}
-        onPointerCancel={handlePointerUp}
+        aria-hidden
+        className="absolute inset-0 pointer-events-none overflow-hidden"
       >
         <div
+          className="absolute"
+          style={{
+            top: '-15%',
+            left: '-10%',
+            width: '70%',
+            height: '50%',
+            background:
+              'radial-gradient(ellipse at center, rgba(124,58,237,0.28), transparent 70%)',
+            filter: 'blur(60px)',
+          }}
+        />
+        <div
+          className="absolute"
+          style={{
+            bottom: '-20%',
+            right: '-15%',
+            width: '80%',
+            height: '55%',
+            background:
+              'radial-gradient(ellipse at center, rgba(76,29,149,0.22), transparent 70%)',
+            filter: 'blur(70px)',
+          }}
+        />
+      </div>
+
+      {/* Drag handle */}
+      <div className="relative pt-3 pb-2 flex justify-center cursor-grab active:cursor-grabbing">
+        <div
           className="w-10 h-1 rounded-full"
-          style={{ backgroundColor: 'rgba(255,255,255,0.25)' }}
+          style={{
+            backgroundColor: 'rgba(255,255,255,0.28)',
+          }}
         />
       </div>
 
       {/* Top bar */}
-      <div className="flex items-center justify-between px-5 pt-2 pb-4">
+      <div className="relative flex items-center justify-between px-5 pt-2 pb-4">
         <button
           type="button"
           onClick={onClose}
           aria-label="Collapse"
-          className="w-11 h-11 rounded-full bg-[#141414] flex items-center justify-center active:opacity-70"
+          className="w-11 h-11 rounded-full flex items-center justify-center active:scale-95 transition-all"
+          style={{
+            backgroundColor: 'rgba(255,255,255,0.06)',
+            border: '1px solid rgba(255,255,255,0.08)',
+            backdropFilter: 'blur(12px)',
+            WebkitBackdropFilter: 'blur(12px)',
+          }}
         >
           <svg
             width="20"
@@ -1137,45 +1370,95 @@ function ExpandedPlayer({
             stroke="white"
             strokeWidth="2"
             strokeLinecap="round"
+            strokeLinejoin="round"
           >
             <polyline points="6 9 12 15 18 9" />
           </svg>
         </button>
-        <p className="text-[#9A9A9A] text-[11px] uppercase tracking-wider font-medium">
-          Now Playing
-        </p>
-        <div className="w-11 h-11" />
+        <div className="flex flex-col items-center">
+          <p className="text-[#9A9AB0] text-[10px] uppercase tracking-[0.2em] font-medium">
+            Now Playing
+          </p>
+          <p className="text-white/40 text-[10px] mt-0.5">
+            {song.album || 'Local Audio'}
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="More"
+          className="w-11 h-11 rounded-full flex items-center justify-center active:scale-95 transition-all"
+          style={{
+            backgroundColor: 'rgba(255,255,255,0.06)',
+            border: '1px solid rgba(255,255,255,0.08)',
+            backdropFilter: 'blur(12px)',
+            WebkitBackdropFilter: 'blur(12px)',
+          }}
+        >
+          <svg
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="white"
+          >
+            <circle cx="12" cy="5" r="2" />
+            <circle cx="12" cy="12" r="2" />
+            <circle cx="12" cy="19" r="2" />
+          </svg>
+        </button>
       </div>
 
-      {/* Album art centerpiece */}
-      <div className="flex-1 flex items-center justify-center px-8">
+      {/* ──────── Album art centerpiece ──────── */}
+      <div className="relative flex-1 flex items-center justify-center px-8">
         <div
           className="relative"
           style={{
-            width: 'min(78vw, 320px)',
-            height: 'min(78vw, 320px)',
+            width: 'min(80vw, 340px)',
+            height: 'min(80vw, 340px)',
           }}
         >
-          {/* Glow */}
+          {/* Outer pulse-glow halo — breathes while playing. */}
+          {isPlaying && (
+            <div
+              aria-hidden
+              className="absolute inset-0 rounded-[36px] pn-art-pulse"
+              style={{
+                background:
+                  'radial-gradient(circle at 50% 50%, rgba(124,58,237,0.55), rgba(76,29,149,0.25) 40%, transparent 75%)',
+                filter: 'blur(48px)',
+                transform: 'scale(1.15)',
+              }}
+            />
+          )}
+
+          {/* Soft steady glow when paused. */}
+          {!isPlaying && (
+            <div
+              aria-hidden
+              className="absolute inset-0 rounded-[36px]"
+              style={{
+                background:
+                  'radial-gradient(circle at 50% 50%, rgba(124,58,237,0.35), transparent 70%)',
+                filter: 'blur(40px)',
+                transform: 'scale(1.08)',
+                opacity: 0.6,
+              }}
+            />
+          )}
+
+          {/* Frosted-glass disc with neon-purple border. */}
           <div
-            className="absolute inset-0 rounded-[28px]"
-            style={{
-              background:
-                'radial-gradient(circle at 50% 50%, rgba(124,58,237,0.35), transparent 70%)',
-              filter: 'blur(40px)',
-              transform: 'scale(1.1)',
-            }}
-          />
-          {/* Rotating disc */}
-          <div
-            className={`absolute inset-0 rounded-[28px] flex items-center justify-center overflow-hidden ${
-              isPlaying ? 'pn-vinyl-spin' : ''
+            className={`absolute inset-0 rounded-[32px] flex items-center justify-center overflow-hidden ${
+              isPlaying ? 'pn-disc-spin' : ''
             }`}
             style={{
               background:
-                'linear-gradient(135deg, #1A1A2E 0%, #14141F 60%, #0E0E18 100%)',
-              border: '1px solid rgba(124,58,237,0.25)',
-              animationDuration: '12s',
+                'linear-gradient(135deg, rgba(26,26,46,0.85) 0%, rgba(20,20,31,0.92) 60%, rgba(14,14,24,0.95) 100%)',
+              border: '1.5px solid rgba(124,58,237,0.45)',
+              boxShadow:
+                '0 30px 80px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.06)',
+              backdropFilter: 'blur(20px)',
+              WebkitBackdropFilter: 'blur(20px)',
               willChange: 'transform',
             }}
           >
@@ -1186,6 +1469,8 @@ function ExpandedPlayer({
                 style={{
                   background:
                     'linear-gradient(135deg, #7C3AED 0%, #4C1D95 100%)',
+                  boxShadow:
+                    '0 0 24px rgba(124,58,237,0.6), inset 0 1px 0 rgba(255,255,255,0.2)',
                 }}
               >
                 <svg
@@ -1196,22 +1481,35 @@ function ExpandedPlayer({
                   stroke="white"
                   strokeWidth="2"
                   strokeLinecap="round"
+                  strokeLinejoin="round"
                 >
                   <path d="M9 18V5l12-2v13" />
                   <circle cx="6" cy="18" r="3" />
                   <circle cx="18" cy="16" r="3" />
                 </svg>
               </div>
-              <p className="text-[#5A5A6A] text-[11px] uppercase tracking-widest">
+              <p
+                className="text-[10px] uppercase tracking-[0.25em] font-medium"
+                style={{ color: 'rgba(255,255,255,0.35)' }}
+              >
                 {song.album || 'Local Audio'}
               </p>
             </div>
-            {/* Vinyl rings */}
+
+            {/* Frosted vinyl rings overlay */}
             <div
-              className="absolute inset-0 rounded-[28px] pointer-events-none"
+              className="absolute inset-0 rounded-[32px] pointer-events-none"
               style={{
                 background:
-                  'repeating-radial-gradient(circle at 50% 50%, transparent 0px, transparent 18px, rgba(255,255,255,0.025) 19px, rgba(255,255,255,0.025) 20px)',
+                  'repeating-radial-gradient(circle at 50% 50%, transparent 0px, transparent 22px, rgba(255,255,255,0.03) 23px, rgba(255,255,255,0.03) 24px)',
+              }}
+            />
+            {/* Top sheen */}
+            <div
+              className="absolute inset-x-0 top-0 h-1/2 rounded-t-[32px] pointer-events-none"
+              style={{
+                background:
+                  'linear-gradient(180deg, rgba(255,255,255,0.08), transparent)',
               }}
             />
           </div>
@@ -1219,15 +1517,16 @@ function ExpandedPlayer({
       </div>
 
       {/* Title / artist */}
-      <div className="px-8 pt-2 pb-4 text-center">
+      <div className="relative px-8 pt-4 pb-3 text-center pn-fade-up">
         <h2
-          className="text-white font-bold text-xl truncate"
+          className="text-white font-bold text-2xl tracking-tight truncate"
           title={song.name}
+          style={{ textShadow: '0 2px 12px rgba(124,58,237,0.35)' }}
         >
           {song.name}
         </h2>
         <p
-          className="text-[#9A9A9A] text-sm mt-1 truncate"
+          className="text-[#B8B8D0] text-sm mt-1.5 truncate font-medium"
           title={song.artist}
         >
           {song.artist}
@@ -1235,32 +1534,46 @@ function ExpandedPlayer({
       </div>
 
       {/* Seekbar */}
-      <div className="px-8 pb-4">
+      <div className="relative px-8 pb-3 pn-fade-up" style={{ animationDelay: '60ms' }}>
         <SeekBar
           progressPct={pct}
           onSeek={onSeek}
           duration={duration}
         />
         <div className="flex items-center justify-between mt-2 px-1">
-          <span className="text-[#9A9A9A] text-[11px] font-mono">
+          <span
+            className="text-[11px] font-mono"
+            style={{ color: 'rgba(255,255,255,0.55)' }}
+          >
             {formatTime(currentTime)}
           </span>
-          <span className="text-[#9A9A9A] text-[11px] font-mono">
+          <span
+            className="text-[11px] font-mono"
+            style={{ color: 'rgba(255,255,255,0.55)' }}
+          >
             {formatTime(duration)}
           </span>
         </div>
       </div>
 
       {/* Controls */}
-      <div className="flex items-center justify-center gap-10 px-8 pb-10">
+      <div
+        className="relative flex items-center justify-center gap-10 px-8 pb-10 pn-fade-up"
+        style={{ animationDelay: '120ms' }}
+      >
         <button
           type="button"
           onClick={onPrev}
           aria-label="Previous"
-          className="w-14 h-14 rounded-full flex items-center justify-center active:scale-95 transition-transform"
-          style={{ backgroundColor: 'rgba(255,255,255,0.06)' }}
+          className="w-14 h-14 rounded-full flex items-center justify-center active:scale-90 transition-all hover:bg-white/10"
+          style={{
+            backgroundColor: 'rgba(255,255,255,0.06)',
+            border: '1px solid rgba(255,255,255,0.08)',
+            backdropFilter: 'blur(12px)',
+            WebkitBackdropFilter: 'blur(12px)',
+          }}
         >
-          <svg width="28" height="28" viewBox="0 0 24 24" fill="white">
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="white">
             <polygon points="19 5 9 12 19 19 19 5" />
             <rect x="6" y="5" width="2" height="14" />
           </svg>
@@ -1270,20 +1583,25 @@ function ExpandedPlayer({
           type="button"
           onClick={onTogglePlay}
           aria-label={isPlaying ? 'Pause' : 'Play'}
-          className="w-20 h-20 rounded-full flex items-center justify-center active:scale-95 transition-transform"
+          className={`w-20 h-20 rounded-full flex items-center justify-center active:scale-95 transition-all hover:scale-105 ${
+            isPlaying ? 'pn-btn-glow' : ''
+          }`}
           style={{
-            backgroundColor: '#7C3AED',
-            boxShadow: '0 10px 30px rgba(124,58,237,0.4)',
+            background:
+              'linear-gradient(135deg, #8B5CF6 0%, #7C3AED 50%, #6D28D9 100%)',
+            boxShadow: isPlaying
+              ? undefined
+              : '0 12px 30px rgba(124,58,237,0.45), 0 0 0 1px rgba(124,58,237,0.5)',
           }}
         >
           {isPlaying ? (
-            <svg width="36" height="36" viewBox="0 0 24 24" fill="white">
-              <rect x="6" y="5" width="4" height="14" rx="1" />
-              <rect x="14" y="5" width="4" height="14" rx="1" />
+            <svg width="34" height="34" viewBox="0 0 24 24" fill="white">
+              <rect x="6" y="5" width="4" height="14" rx="1.5" />
+              <rect x="14" y="5" width="4" height="14" rx="1.5" />
             </svg>
           ) : (
-            <svg width="36" height="36" viewBox="0 0 24 24" fill="white">
-              <polygon points="6 4 20 12 6 20 6 4" />
+            <svg width="34" height="34" viewBox="0 0 24 24" fill="white">
+              <polygon points="7 4 21 12 7 20 7 4" />
             </svg>
           )}
         </button>
@@ -1292,10 +1610,15 @@ function ExpandedPlayer({
           type="button"
           onClick={onNext}
           aria-label="Next"
-          className="w-14 h-14 rounded-full flex items-center justify-center active:scale-95 transition-transform"
-          style={{ backgroundColor: 'rgba(255,255,255,0.06)' }}
+          className="w-14 h-14 rounded-full flex items-center justify-center active:scale-90 transition-all hover:bg-white/10"
+          style={{
+            backgroundColor: 'rgba(255,255,255,0.06)',
+            border: '1px solid rgba(255,255,255,0.08)',
+            backdropFilter: 'blur(12px)',
+            WebkitBackdropFilter: 'blur(12px)',
+          }}
         >
-          <svg width="28" height="28" viewBox="0 0 24 24" fill="white">
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="white">
             <polygon points="5 5 15 12 5 19 5 5" />
             <rect x="16" y="5" width="2" height="14" />
           </svg>
@@ -1383,8 +1706,8 @@ function SeekBar({
       <div
         className="relative w-full rounded-full"
         style={{
-          height: 3,
-          backgroundColor: 'rgba(255,255,255,0.12)',
+          height: 4,
+          backgroundColor: 'rgba(255,255,255,0.10)',
         }}
       >
         {/* Progress */}
@@ -1392,7 +1715,9 @@ function SeekBar({
           className="absolute top-0 left-0 h-full rounded-full"
           style={{
             width: `${pct}%`,
-            backgroundColor: '#7C3AED',
+            background:
+              'linear-gradient(90deg, #8B5CF6 0%, #7C3AED 50%, #A78BFA 100%)',
+            boxShadow: '0 0 12px rgba(124,58,237,0.6)',
             transition: dragging ? 'none' : 'width 200ms linear',
           }}
         />
@@ -1405,7 +1730,8 @@ function SeekBar({
           width: dragging ? 16 : 12,
           height: dragging ? 16 : 12,
           backgroundColor: 'white',
-          boxShadow: '0 2px 8px rgba(0,0,0,0.5)',
+          boxShadow:
+            '0 2px 8px rgba(0,0,0,0.5), 0 0 12px rgba(124,58,237,0.6)',
           transition: dragging ? 'none' : 'left 200ms linear',
         }}
       />
