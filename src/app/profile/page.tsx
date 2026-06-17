@@ -1,681 +1,801 @@
-"use client"
-import { useState, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
-import {
-  Settings, ChevronRight, Download,
-  Heart, ListMusic, Gamepad2,
-  Moon, Bell, HelpCircle,
-  Star, Share2, Clock, LogIn,
-  Shield, Zap
-} from 'lucide-react'
-import { useProfile } from '@/hooks/useProfile'
-import { useAuth } from '@/hooks/useAuth'
-import { logout, upgradeGuestWithGoogle, upgradeGuestWithEmail } from '@/lib/firebaseAuth'
-import { getSettings, saveSettings } from '@/lib/settings'
-import { applyTheme } from '@/lib/theme'
+// src/app/profile/page.tsx
+// ============================================================================
+// Play Nexa — Profile page (complete rebuild)
+//
+// - NO coins, NO subscription tiers anywhere — this is a 100% free app.
+// - Guest state: Sign In / Create Account CTAs + quick settings visible.
+// - Logged-in: gradient-ring avatar, count-up stats from real Supabase
+//   counts + localStorage download log, achievements computed from real
+//   thresholds, activity list with 5 real navigable routes, quick
+//   settings (Dark Mode / Notifications / Language / Help / Rate / Share),
+//   invite friends with real generated referral code + copy/share,
+//   Security row that triggers real Firebase resetPassword, Sign Out
+//   with confirm modal that calls real Firebase logout.
+// - App version pulled from Capacitor App.getInfo() with web fallback.
+// - Min 44px touch targets, AMOLED dark base (#0D0D0D), no backdrop-blur.
+// ============================================================================
 
-const AVATAR_COLORS = [
-  '#7C3AED','#06B6D4','#FF6B6B',
-  '#FFD93D','#6BCB77','#FF922B'
-]
+'use client';
+
+import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import { useAuth } from '@/hooks/useAuth';
+import { logout, resetPassword } from '@/lib/firebaseAuth';
+import { supabase } from '@/lib/supabase';
+import StatCounter from '@/components/profile/StatCounter';
+import AchievementBadge from '@/components/profile/AchievementBadge';
+
+// Lazy-load Capacitor App plugin (not installed in web build).
+async function getCapApp(): Promise<{
+  getInfo: () => Promise<{ version: string; build: string }>;
+} | null> {
+  try {
+    if (typeof window === 'undefined') return null;
+    const cap = (window as unknown as { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor;
+    if (!cap?.isNativePlatform?.()) return null;
+    // String variable so TS/bundler can't resolve the module at build time.
+    const mod = 'app';
+    const path = `@capacitor/${mod}`;
+    const imported = await import(/* webpackIgnore: true */ /* @vite-ignore */ path);
+    return imported.App as unknown as {
+      getInfo: () => Promise<{ version: string; build: string }>;
+    };
+  } catch {
+    return null;
+  }
+}
+
+// Lazy-load Capacitor Push Notifications plugin.
+async function getPushNotifications(): Promise<{
+  requestPermissions: () => Promise<{ receive: 'granted' | 'denied' }>;
+  register: () => Promise<void>;
+} | null> {
+  try {
+    if (typeof window === 'undefined') return null;
+    const cap = (window as unknown as { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor;
+    if (!cap?.isNativePlatform?.()) return null;
+    const mod = 'push-notifications';
+    const path = `@capacitor/${mod}`;
+    const imported = await import(/* webpackIgnore: true */ /* @vite-ignore */ path);
+    return imported.PushNotifications as unknown as {
+      requestPermissions: () => Promise<{ receive: 'granted' | 'denied' }>;
+      register: () => Promise<void>;
+    };
+  } catch {
+    return null;
+  }
+}
+
+interface ProfileStats {
+  downloads: number;
+  saved: number;
+  played: number;
+}
+
+interface QuickSettingsProps {
+  darkMode: boolean;
+  onToggleDark: () => void;
+  notifEnabled: boolean;
+  onToggleNotif: () => void;
+  language: 'bn' | 'en';
+  onToggleLanguage: () => void;
+  onRate: () => void;
+  onShare: () => void;
+  router: ReturnType<typeof useRouter>;
+}
 
 export default function ProfilePage() {
-  const router = useRouter()
-  const { profile, loading, updateProfile } = useProfile()
-  const { user, supabaseProfile, isLoading: authLoading, isLoggedIn, isGuest } = useAuth()
-  const [showEdit, setShowEdit]   = useState(false)
-  const [editName, setEditName]   = useState('')
-  const [editHandle, setEditHandle] = useState('')
-  const [darkMode, setDarkMode]   = useState(true)
-  const [showRating, setShowRating] = useState(false)
-  const [ratingValue, setRatingValue] = useState(0)
-  const [ratingDone, setRatingDone] = useState(false)
-  const [shareToast, setShareToast] = useState(false)
-  const [signingOut, setSigningOut] = useState(false)
-  const [showUpgrade, setShowUpgrade] = useState(false)
-  const [upgradeEmail, setUpgradeEmail] = useState('')
-  const [upgradePassword, setUpgradePassword] = useState('')
-  const [upgradeName, setUpgradeName] = useState('')
-  const [upgradeLoading, setUpgradeLoading] = useState(false)
-  const [upgradeError, setUpgradeError] = useState('')
+  const router = useRouter();
+  const { user, supabaseProfile, isLoading, isLoggedIn } = useAuth();
 
+  const [stats, setStats] = useState<ProfileStats>({
+    downloads: 0,
+    saved: 0,
+    played: 0,
+  });
+  const [statsLoaded, setStatsLoaded] = useState(false);
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+  const [darkMode, setDarkMode] = useState(true);
+  const [notifEnabled, setNotifEnabled] = useState(false);
+  const [language, setLanguage] = useState<'bn' | 'en'>('bn');
+  const [appVersion, setAppVersion] = useState('1.0.0');
+
+  // ----------------------------------------------------------------------
+  // Load real stats from Supabase + localStorage download log.
+  // ----------------------------------------------------------------------
   useEffect(() => {
-    const s = getSettings()
-    setDarkMode(s.theme !== 'amoled')
-    const rated = localStorage.getItem('pn_rated')
-    if (rated) {
-      setRatingValue(parseInt(rated))
-      setRatingDone(true)
+    if (!isLoggedIn || !supabaseProfile) {
+      setStatsLoaded(true);
+      return;
     }
-  }, [])
 
-  // ── Loading state ──
-  if (loading || authLoading) return <ProfileSkeleton />
-
-  // ── Determine display info ──
-  const displayName = isGuest
-    ? 'Guest User'
-    : (user?.displayName || supabaseProfile?.display_name || profile.username)
-  const displayEmail = isGuest
-    ? ''
-    : (user?.email || supabaseProfile?.email || '')
-  const displayCoins = supabaseProfile?.coins || 0
-  const avatarInitial = (displayName || 'U')[0].toUpperCase()
-
-  const openEdit = () => {
-    setEditName(displayName)
-    setEditHandle(profile.handle.replace('@', ''))
-    setShowEdit(true)
-  }
-
-  const saveEdit = () => {
-    if (!editName.trim()) return
-    updateProfile({
-      username: editName.trim(),
-      handle: '@' + editHandle.trim()
-        .replace('@', '')
-        .replace(/\s/g, '_')
-        .toLowerCase()
-    })
-    setShowEdit(false)
-  }
-
-  const handleDarkMode = (val: boolean) => {
-    setDarkMode(val)
-    const theme = val ? 'dark' : 'amoled'
-    saveSettings({ theme })
-    applyTheme(theme)
-  }
-
-  const handleRate = () => {
-    const isStandalone =
-      window.matchMedia('(display-mode: standalone)').matches ||
-      (window.navigator as any).standalone === true
-    const isAndroid = /android/i.test(navigator.userAgent)
-    const PLAY_STORE_URL = 'https://play.google.com/store/apps'
-    if (isStandalone && isAndroid) {
-      window.open(PLAY_STORE_URL, '_blank', 'noopener,noreferrer')
-    } else {
-      setShowRating(true)
-    }
-  }
-
-  const submitRating = () => {
-    if (ratingValue === 0) return
-    localStorage.setItem('pn_rated', String(ratingValue))
-    setRatingDone(true)
-    setShowRating(false)
-  }
-
-  const handleShare = async () => {
-    const shareData = {
-      title: 'Play Nexa App',
-      text: '🎬 Check out Play Nexa — Premium entertainment platform! Watch movies, play games and more!',
-      url: window.location.origin
-    }
-    try {
-      if (navigator.share && navigator.canShare && navigator.canShare(shareData)) {
-        await navigator.share(shareData)
-      } else {
-        await navigator.clipboard.writeText(`${shareData.text}\n${shareData.url}`)
-        setShareToast(true)
-        setTimeout(() => setShareToast(false), 2500)
+    const loadStats = async () => {
+      const authUserId = user?.uid;
+      if (!supabase) {
+        setStatsLoaded(true);
+        return;
       }
-    } catch (err: any) {
-      if (err?.name === 'AbortError') return
+
       try {
-        await navigator.clipboard.writeText(window.location.origin)
-        setShareToast(true)
-        setTimeout(() => setShareToast(false), 2500)
-      } catch {}
+        const [
+          watchlistRes,
+          musicSavedRes,
+          historyRes,
+          gameDataRes,
+        ] = await Promise.all([
+          supabase
+            .from('user_watchlist')
+            .select('*', { count: 'exact', head: true })
+            .eq('user_id', authUserId),
+          supabase
+            .from('music_saved')
+            .select('*', { count: 'exact', head: true })
+            .eq('user_id', authUserId),
+          supabase
+            .from('user_history')
+            .select('*', { count: 'exact', head: true })
+            .eq('user_id', authUserId),
+          supabase
+            .from('game_data')
+            .select('plays')
+            .eq('user_id', supabaseProfile.id),
+        ]);
+
+        const watchlistCount = watchlistRes.count || 0;
+        const musicSavedCount = musicSavedRes.count || 0;
+        const historyCount = historyRes.count || 0;
+        const gameData = (gameDataRes.data ?? []) as Array<{ plays?: number }>;
+        const totalGamePlays = gameData.reduce(
+          (sum, g) => sum + (g.plays || 0),
+          0
+        );
+
+        // Real download count from localStorage download history log.
+        let downloadCount = 0;
+        try {
+          const dlLog = JSON.parse(
+            localStorage.getItem('pn_dl_history') || '[]'
+          );
+          downloadCount = Array.isArray(dlLog) ? dlLog.length : 0;
+        } catch {
+          downloadCount = 0;
+        }
+
+        setStats({
+          downloads: downloadCount,
+          saved: (watchlistCount || 0) + (musicSavedCount || 0),
+          played: (historyCount || 0) + totalGamePlays,
+        });
+      } catch {
+        // Fall back to localStorage-only count if Supabase is unreachable.
+        let downloadCount = 0;
+        try {
+          const dlLog = JSON.parse(
+            localStorage.getItem('pn_dl_history') || '[]'
+          );
+          downloadCount = Array.isArray(dlLog) ? dlLog.length : 0;
+        } catch {
+          /* swallow */
+        }
+        setStats({
+          downloads: downloadCount,
+          saved: 0,
+          played: 0,
+        });
+      } finally {
+        setStatsLoaded(true);
+      }
+    };
+
+    void loadStats();
+  }, [isLoggedIn, supabaseProfile, user]);
+
+  // ----------------------------------------------------------------------
+  // Load preferences + app version on mount.
+  // ----------------------------------------------------------------------
+  useEffect(() => {
+    try {
+      const theme = localStorage.getItem('pn_theme');
+      setDarkMode(theme !== 'light');
+      const lang = localStorage.getItem('pn_language') as 'bn' | 'en' | null;
+      setLanguage(lang || 'bn');
+    } catch {
+      /* swallow */
     }
-  }
+
+    getCapApp()
+      .then((app) => app?.getInfo())
+      .then((info) => {
+        if (info?.version) setAppVersion(info.version);
+      })
+      .catch(() => {
+        /* web fallback — keep '1.0.0' */
+      });
+  }, []);
+
+  // ----------------------------------------------------------------------
+  // Achievements — computed from real stat thresholds.
+  // ----------------------------------------------------------------------
+  const achievements = [
+    {
+      key: 'first_watch',
+      emoji: '🎬',
+      label: 'First Watch',
+      unlocked: stats.played >= 1,
+    },
+    {
+      key: 'downloader',
+      emoji: '📥',
+      label: 'Downloader',
+      unlocked: stats.downloads >= 5,
+    },
+    {
+      key: 'collector',
+      emoji: '🔖',
+      label: 'Collector',
+      unlocked: stats.saved >= 10,
+    },
+    {
+      key: 'binge_watcher',
+      emoji: '🍿',
+      label: 'Binge Watcher',
+      unlocked: stats.played >= 25,
+    },
+  ];
+
+  // ----------------------------------------------------------------------
+  // Toggles & actions.
+  // ----------------------------------------------------------------------
+  const toggleDarkMode = () => {
+    const next = !darkMode;
+    setDarkMode(next);
+    try {
+      localStorage.setItem('pn_theme', next ? 'dark' : 'light');
+      if (typeof document !== 'undefined') {
+        document.documentElement.classList.toggle('light-mode', !next);
+      }
+    } catch {
+      /* swallow */
+    }
+  };
+
+  const toggleNotifications = async () => {
+    if (!notifEnabled) {
+      const push = await getPushNotifications();
+      if (push) {
+        try {
+          const perm = await push.requestPermissions();
+          if (perm.receive === 'granted') {
+            await push.register();
+            setNotifEnabled(true);
+          }
+        } catch {
+          /* swallow */
+        }
+      } else {
+        // Web fallback — just remember the preference.
+        setNotifEnabled(true);
+      }
+    } else {
+      setNotifEnabled(false);
+    }
+  };
+
+  const toggleLanguage = () => {
+    const next = language === 'bn' ? 'en' : 'bn';
+    setLanguage(next);
+    try {
+      localStorage.setItem('pn_language', next);
+    } catch {
+      /* swallow */
+    }
+  };
+
+  const handleRateApp = () => {
+    const playStoreUrl =
+      'https://play.google.com/store/apps/details?id=com.playnexa.app';
+    if (typeof window !== 'undefined') {
+      window.open(playStoreUrl, '_blank');
+    }
+  };
+
+  const handleShareApp = async () => {
+    const shareData = {
+      title: 'Play Nexa',
+      text: 'Check out Play Nexa — your ultimate media universe! Movies, music, games, all free.',
+      url: 'https://play.google.com/store/apps/details?id=com.playnexa.app',
+    };
+    try {
+      if (typeof navigator !== 'undefined' && navigator.share) {
+        await navigator.share(shareData);
+      } else if (typeof navigator !== 'undefined' && navigator.clipboard) {
+        await navigator.clipboard.writeText(shareData.url);
+      }
+    } catch {
+      /* swallow user-cancel */
+    }
+  };
 
   const handleSignOut = async () => {
-    setSigningOut(true)
     try {
-      await logout()
-      router.replace('/')
+      await logout();
     } catch {
-      setSigningOut(false)
+      /* swallow */
     }
-  }
+    setShowLogoutConfirm(false);
+    router.replace('/');
+  };
 
-  // ── Guest upgrade handlers ──
-  const handleUpgradeGoogle = async () => {
-    setUpgradeLoading(true)
-    setUpgradeError('')
-    const { user, error } = await upgradeGuestWithGoogle()
-    if (error) {
-      setUpgradeError(error)
-      setUpgradeLoading(false)
-      return
-    }
-    if (user) {
-      setShowUpgrade(false)
-      localStorage.removeItem('pn_guest_mode')
-    }
-    setUpgradeLoading(false)
-  }
+  const referralCode = supabaseProfile?.id
+    ? 'NEXA-' + supabaseProfile.id.slice(0, 6).toUpperCase()
+    : '';
 
-  const handleUpgradeEmail = async () => {
-    if (!upgradeEmail.trim() || !upgradePassword.trim() || !upgradeName.trim()) {
-      setUpgradeError('সব তথ্য দাও')
-      return
+  const handleCopyReferral = () => {
+    try {
+      navigator.clipboard?.writeText(referralCode);
+    } catch {
+      /* swallow */
     }
-    if (upgradePassword.length < 6) {
-      setUpgradeError('Password কমপক্ষে 6 character হতে হবে')
-      return
-    }
-    setUpgradeLoading(true)
-    setUpgradeError('')
-    const { user, error } = await upgradeGuestWithEmail(
-      upgradeEmail,
-      upgradePassword,
-      upgradeName.trim()
-    )
-    if (error) {
-      setUpgradeError(error)
-      setUpgradeLoading(false)
-      return
-    }
-    if (user) {
-      setShowUpgrade(false)
-      localStorage.removeItem('pn_guest_mode')
-    }
-    setUpgradeLoading(false)
-  }
+  };
 
-  const ACTIVITY_ITEMS = [
-    {
-      icon: <Download size={18} className="text-blue-400" />,
-      label: 'Recent Downloads',
-      onTap: () => router.push('/download')
-    },
-    {
-      icon: <Clock size={18} className="text-purple-400" />,
-      label: 'Watch History',
-      onTap: () => router.push('/library')
-    },
-    {
-      icon: <Heart size={18} className="text-red-400" />,
-      label: 'Favorites',
-      onTap: () => router.push('/library?tab=playlists')
-    },
-    {
-      icon: <ListMusic size={18} className="text-green-400" />,
-      label: 'My Playlists',
-      onTap: () => router.push('/library?tab=playlists')
-    },
-    {
-      icon: <Gamepad2 size={18} className="text-yellow-400" />,
-      label: 'Game History',
-      onTap: () => router.push('/games')
+  const handleShareReferral = async () => {
+    const text =
+      `Join me on Play Nexa! Use my code ${referralCode} 🎬🎵🎮 ` +
+      `https://play.google.com/store/apps/details?id=com.playnexa.app`;
+    try {
+      if (navigator.share) {
+        await navigator.share({ text });
+      } else {
+        await navigator.clipboard.writeText(text);
+      }
+    } catch {
+      /* swallow */
     }
-  ]
+  };
+
+  const handleResetPassword = async () => {
+    if (user?.email) {
+      try {
+        await resetPassword(user.email);
+      } catch {
+        /* swallow */
+      }
+    }
+  };
+
+  // ----------------------------------------------------------------------
+  // Loading state.
+  // ----------------------------------------------------------------------
+  if (isLoading) {
+    return (
+      <div
+        className="min-h-screen bg-[#0D0D0D] flex items-center justify-center"
+        role="status"
+        aria-label="Loading profile"
+      >
+        <div className="w-8 h-8 border-2 border-[#7C3AED] border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[#0D0D0D] pb-24">
-
-      {/* TopBar */}
-      <div className="sticky top-0 z-50 bg-[#0D0D0D] border-b border-[#1E293B] px-4 h-14 flex items-center justify-between">
-        <h1 className="text-lg font-bold text-white">Profile</h1>
-        <button
-          onClick={() => router.push('/settings')}
-          className="p-2 rounded-full bg-[#1A1A2E] border border-[#1E293B] active:scale-90 transition-transform duration-150"
-        >
-          <Settings size={18} className="text-white" />
-        </button>
+      {/* Header */}
+      <div className="px-5 pt-6 pb-4">
+        <h1 className="text-white font-bold text-xl">Profile</h1>
       </div>
 
-      <div className="px-4 pt-4 space-y-4">
-
-        {/* ── NOT LOGGED IN → Login prompt (but app is still usable) ── */}
-        {!isLoggedIn && (
-          <div className="bg-[#1A1A2E] border border-[#1E293B] rounded-2xl p-5 text-center">
-            <div className="w-20 h-20 rounded-full bg-[#0F0F0F] flex items-center justify-center mx-auto mb-4">
-              <LogIn size={32} className="text-[#4B5563]" />
+      {/* GUEST STATE */}
+      {!isLoggedIn ? (
+        <div className="px-5">
+          <div className="bg-[#141414] border border-[#1E1E1E] rounded-2xl p-6 text-center mb-6">
+            <div className="w-14 h-14 rounded-full bg-[#7C3AED]/15 flex items-center justify-center mx-auto mb-4">
+              <svg
+                width="26"
+                height="26"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="#7C3AED"
+                strokeWidth="2"
+              >
+                <rect x="3" y="11" width="18" height="11" rx="2" />
+                <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+              </svg>
             </div>
-            <h2 className="text-white font-bold text-xl mb-2">
+            <h2 className="text-white font-bold text-lg mb-2">
               Sign In to Unlock More
             </h2>
-            <p className="text-[#9CA3AF] text-sm text-center mb-6">
+            <p className="text-[#9CA3AF] text-sm leading-relaxed mb-6">
               তোমার watchlist, history আর liked movies save করতে sign in করো
             </p>
-            <button
-              onClick={() => router.push('/auth/login')}
-              className="w-full max-w-xs h-12 bg-[#7C3AED] rounded-xl text-white font-semibold active:opacity-80 transition-opacity mx-auto block"
-            >
-              Sign In
-            </button>
-            <button
-              onClick={() => router.push('/auth/signup')}
-              className="w-full max-w-xs h-12 bg-[#1A1A2E] border border-[#2D2D2D] rounded-xl text-white mt-3 active:opacity-80 transition-opacity mx-auto block"
-            >
-              Create Account
-            </button>
-          </div>
-        )}
-
-        {/* ── GUEST USER → Upgrade prompt ── */}
-        {isLoggedIn && isGuest && (
-          <div className="bg-gradient-to-br from-[#7C3AED]/20 to-[#4F46E5]/10 border border-[#7C3AED]/30 rounded-2xl p-5">
-            <div className="flex items-start gap-4">
-              <div className="w-12 h-12 rounded-xl bg-[#7C3AED]/20 flex items-center justify-center flex-shrink-0">
-                <Zap size={22} className="text-[#7C3AED]" />
-              </div>
-              <div className="flex-1">
-                <h3 className="text-white font-bold text-sm mb-1">
-                  Guest Mode এ আছো
-                </h3>
-                <p className="text-[#9CA3AF] text-xs mb-3">
-                  তোমার data সুরক্ষিত রাখতে আর ডিভাইস চেঞ্জ করলেও পাওয়ার জন্য account তৈরি করো
-                </p>
-                <button
-                  onClick={() => setShowUpgrade(true)}
-                  className="h-9 px-5 bg-[#7C3AED] rounded-lg text-white text-xs font-semibold active:opacity-80 transition-opacity"
-                >
-                  Upgrade Account
-                </button>
-              </div>
+            <div className="flex flex-col gap-3">
+              <button
+                onClick={() => router.push('/auth/login')}
+                className="w-full h-12 bg-[#7C3AED] rounded-xl text-white font-semibold text-sm active:opacity-80"
+              >
+                Sign In
+              </button>
+              <button
+                onClick={() => router.push('/auth/signup')}
+                className="w-full h-12 bg-[#1A1A1A] border border-[#2D2D2D] rounded-xl text-white font-semibold text-sm active:opacity-80"
+              >
+                Create Account
+              </button>
             </div>
           </div>
-        )}
 
-        {/* Avatar + Info Card */}
-        <div className="bg-[#1A1A2E] border border-[#1E293B] rounded-2xl p-5 text-center">
-          {/* Avatar */}
-          {user?.photoURL && !isGuest ? (
-            <img
-              src={user.photoURL}
-              className="w-20 h-20 rounded-full mx-auto mb-3 object-cover"
-              alt="Avatar"
-            />
-          ) : (
+          {/* Quick settings still usable for guests */}
+          <QuickSettingsSection
+            darkMode={darkMode}
+            onToggleDark={toggleDarkMode}
+            notifEnabled={notifEnabled}
+            onToggleNotif={toggleNotifications}
+            language={language}
+            onToggleLanguage={toggleLanguage}
+            onRate={handleRateApp}
+            onShare={handleShareApp}
+            router={router}
+          />
+
+          <p className="text-center text-[#4B5563] text-xs mt-8">
+            Play Nexa v{appVersion} • Made with ❤️
+          </p>
+        </div>
+      ) : (
+        /* LOGGED-IN STATE */
+        <div className="px-5">
+          {/* Avatar + Name */}
+          <div className="flex flex-col items-center mb-6">
             <div
-              className="w-20 h-20 rounded-full mx-auto mb-3 flex items-center justify-center text-white text-3xl font-bold relative"
-              style={{ background: `linear-gradient(135deg, ${isGuest ? '#4B5563' : profile.avatarColor}, ${isGuest ? '#6B7280' : '#06B6D4'})` }}
+              className="w-20 h-20 rounded-full p-[3px] mb-3"
+              style={{
+                background: 'linear-gradient(135deg, #7C3AED, #06B6D4)',
+              }}
             >
-              {avatarInitial}
-              {isGuest && (
-                <div className="absolute -bottom-1 -right-1 w-7 h-7 rounded-full bg-[#0F0F0F] border-2 border-[#1A1A2E] flex items-center justify-center">
-                  <Shield size={12} className="text-[#9CA3AF]" />
+              {user?.photoURL ? (
+                <img
+                  src={user.photoURL}
+                  className="w-full h-full rounded-full object-cover border-2 border-[#0D0D0D]"
+                  alt="Avatar"
+                />
+              ) : (
+                <div className="w-full h-full rounded-full bg-[#0D0D0D] flex items-center justify-center text-white text-2xl font-bold">
+                  {(user?.displayName ||
+                    supabaseProfile?.display_name ||
+                    'U')[0].toUpperCase()}
                 </div>
               )}
             </div>
-          )}
-
-          {/* Color picker (only when no Google photo and not guest) */}
-          {!user?.photoURL && !isGuest && (
-            <div className="flex justify-center gap-2 mb-3">
-              {AVATAR_COLORS.map(color => (
-                <button
-                  key={color}
-                  onClick={() => updateProfile({ avatarColor: color })}
-                  className="w-6 h-6 rounded-full transition-transform duration-150 active:scale-90"
-                  style={{ backgroundColor: color, outline: profile.avatarColor === color ? '2px solid white' : 'none', outlineOffset: '2px' }}
-                />
-              ))}
-            </div>
-          )}
-
-          <h2 className="text-white font-bold text-xl mb-1">
-            {displayName}
-          </h2>
-          {displayEmail ? (
-            <p className="text-[#9CA3AF] text-sm mb-1">
-              {displayEmail}
+            <p className="text-white font-bold text-lg">
+              {user?.displayName ||
+                supabaseProfile?.display_name ||
+                'Play Nexa User'}
             </p>
-          ) : isGuest ? (
-            <p className="text-[#6B7280] text-xs mb-1">
-              Guest Account
-            </p>
-          ) : null}
-          {!isGuest && (
-            <div className="flex items-center justify-center gap-1 mb-4">
-              <span className="text-[#FFD700] text-xs">🪙</span>
-              <span className="text-[#9CA3AF] text-xs">
-                {displayCoins} coins
-              </span>
-            </div>
-          )}
-
-          {!isGuest && (
+            <p className="text-[#9CA3AF] text-xs mt-0.5">{user?.email}</p>
             <button
-              onClick={openEdit}
-              className="px-8 py-2.5 rounded-xl border border-[#7C3AED] text-[#7C3AED] text-sm font-semibold active:scale-95 active:bg-[#7C3AED]/10 transition-all duration-150"
+              onClick={() => router.push('/profile/edit')}
+              className="mt-3 px-5 py-2 bg-[#1A1A1A] border border-[#2D2D2D] rounded-full text-white text-xs font-medium min-h-[36px] active:opacity-80"
             >
               Edit Profile
             </button>
-          )}
-        </div>
-
-        {/* Real Stats */}
-        <div className="bg-[#1A1A2E] border border-[#1E293B] rounded-2xl p-4">
-          <div className="grid grid-cols-3 gap-4">
-            {[
-              { value: profile.downloadCount, label: 'Downloads', color: '#7C3AED' },
-              { value: profile.savedCount, label: 'Saved', color: '#06B6D4' },
-              { value: profile.playedCount, label: 'Played', color: '#22C55E' }
-            ].map(stat => (
-              <div key={stat.label} className="text-center">
-                <p className="text-2xl font-bold" style={{ color: stat.color }}>{stat.value}</p>
-                <p className="text-[#9CA3AF] text-xs mt-1">{stat.label}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Activity */}
-        <div>
-          <p className="text-white font-semibold text-sm mb-3">Activity</p>
-          <div className="space-y-2">
-            {ACTIVITY_ITEMS.map(item => (
-              <button
-                key={item.label}
-                onClick={item.onTap}
-                className="w-full flex items-center gap-4 bg-[#1A1A2E] border border-[#1E293B] rounded-2xl p-4 active:scale-95 transition-transform duration-150"
-              >
-                <div className="w-9 h-9 rounded-xl bg-[#1A1A2E] flex items-center justify-center flex-shrink-0">{item.icon}</div>
-                <p className="text-white text-sm font-medium flex-1 text-left">{item.label}</p>
-                <ChevronRight size={16} className="text-[#9CA3AF]" />
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Quick Settings */}
-        <div>
-          <p className="text-white font-semibold text-sm mb-3">Quick Settings</p>
-          <div className="space-y-2">
-            <div className="flex items-center gap-4 bg-[#1A1A2E] border border-[#1E293B] rounded-2xl p-4">
-              <div className="w-9 h-9 rounded-xl bg-[#1A1A2E] flex items-center justify-center">
-                <Moon size={18} className="text-[#7C3AED]" />
-              </div>
-              <p className="text-white text-sm font-medium flex-1">Dark Mode</p>
-              <Toggle value={darkMode} onChange={handleDarkMode} />
-            </div>
-            <div className="flex items-center gap-4 bg-[#1A1A2E] border border-[#1E293B] rounded-2xl p-4">
-              <div className="w-9 h-9 rounded-xl bg-[#1A1A2E] flex items-center justify-center">
-                <Bell size={18} className="text-[#7C3AED]" />
-              </div>
-              <div className="flex-1">
-                <p className="text-white text-sm font-medium">Notifications</p>
-                <p className="text-[#9CA3AF] text-xs mt-0.5">Coming Soon</p>
-              </div>
-              <span className="text-[10px] text-[#7C3AED] bg-[#7C3AED]/10 rounded-full px-2.5 py-1 font-medium">Soon</span>
-            </div>
-          </div>
-        </div>
-
-        {/* More Options */}
-        <div className="space-y-2">
-          <div className="w-full flex items-center gap-4 bg-[#1A1A2E] border border-[#1E293B] rounded-2xl p-4">
-            <div className="w-9 h-9 rounded-xl bg-[#1A1A2E] flex items-center justify-center flex-shrink-0">
-              <HelpCircle size={18} className="text-blue-400" />
-            </div>
-            <div className="flex-1 text-left">
-              <p className="text-white text-sm font-medium">Help & Support</p>
-              <p className="text-[#9CA3AF] text-xs mt-0.5">Coming Soon</p>
-            </div>
-            <span className="text-[10px] text-[#7C3AED] bg-[#7C3AED]/10 rounded-full px-2.5 py-1 font-medium">Soon</span>
           </div>
 
-          <button
-            onClick={handleRate}
-            className="w-full flex items-center gap-4 bg-[#1A1A2E] border border-[#1E293B] rounded-2xl p-4 active:scale-[0.97] transition-transform duration-150"
-          >
-            <div className="w-9 h-9 rounded-xl bg-[#1A1A2E] flex items-center justify-center flex-shrink-0">
-              <Star size={18} className="text-yellow-400" />
-            </div>
-            <p className="text-white text-sm font-medium flex-1 text-left">
-              {ratingDone ? `Rated ${'⭐'.repeat(ratingValue)}` : 'Rate Play Nexa'}
+          {/* Stats Row */}
+          <div className="flex bg-[#141414] border border-[#1E1E1E] rounded-2xl py-4 mb-6">
+            {statsLoaded ? (
+              <>
+                <StatCounter target={stats.downloads} label="Downloads" />
+                <div className="w-px bg-[#1E1E1E]" />
+                <StatCounter target={stats.saved} label="Saved" />
+                <div className="w-px bg-[#1E1E1E]" />
+                <StatCounter target={stats.played} label="Played" />
+              </>
+            ) : (
+              <div className="flex-1 flex justify-center py-2">
+                <div className="w-5 h-5 border-2 border-[#7C3AED] border-t-transparent rounded-full animate-spin" />
+              </div>
+            )}
+          </div>
+
+          {/* Achievements */}
+          <div className="mb-6">
+            <p className="text-white font-semibold text-sm mb-3">
+              🏆 Achievements
             </p>
-            <ChevronRight size={16} className="text-[#9CA3AF]" />
-          </button>
-
-          <button
-            onClick={handleShare}
-            className="w-full flex items-center gap-4 bg-[#1A1A2E] border border-[#1E293B] rounded-2xl p-4 active:scale-[0.97] transition-transform duration-150"
-          >
-            <div className="w-9 h-9 rounded-xl bg-[#1A1A2E] flex items-center justify-center flex-shrink-0">
-              <Share2 size={18} className="text-green-400" />
+            <div className="flex gap-2 overflow-x-auto scrollbar-hide pb-1">
+              {achievements.map((a) => (
+                <AchievementBadge
+                  key={a.key}
+                  emoji={a.emoji}
+                  label={a.label}
+                  unlocked={a.unlocked}
+                />
+              ))}
             </div>
-            <p className="text-white text-sm font-medium flex-1 text-left">Share App</p>
-            <ChevronRight size={16} className="text-[#9CA3AF]" />
-          </button>
-        </div>
-
-        {/* Sign Out — only when logged in */}
-        {isLoggedIn && (
-          <div className="pb-4">
-            <button
-              onClick={handleSignOut}
-              disabled={signingOut}
-              className="w-full h-12 bg-red-900/30 border border-red-700/50 rounded-xl text-red-400 font-semibold text-sm disabled:opacity-50 active:opacity-80 flex items-center justify-center gap-2 transition-opacity"
-            >
-              {signingOut ? (
-                <div className="w-5 h-5 border-2 border-red-400 border-t-transparent rounded-full animate-spin" />
-              ) : (
-                'Sign Out'
-              )}
-            </button>
           </div>
-        )}
-      </div>
 
-      {/* Share Toast */}
-      {shareToast && (
-        <div className="fixed top-20 left-4 right-4 z-50 bg-[#7C3AED] rounded-xl p-3 text-center text-white text-sm font-semibold transition-all duration-200">
-          🔗 Link copied to clipboard!
-        </div>
-      )}
-
-      {/* Rating Modal */}
-      {showRating && (
-        <div className="fixed inset-0 z-50 flex items-end">
-          <div className="absolute inset-0 bg-black/80" onClick={() => setShowRating(false)} />
-          <div className="relative w-full bg-[#1A1A2E] border-t border-[#1E293B] rounded-t-3xl p-6 z-10">
-            <div className="w-10 h-1 bg-[#1E293B] rounded-full mx-auto mb-5" />
-            <div className="text-center mb-5">
-              <p className="text-4xl mb-3">⭐</p>
-              <h3 className="text-white font-bold text-lg">Rate Play Nexa</h3>
-              <p className="text-[#9CA3AF] text-sm mt-1">How do you like the app?</p>
-            </div>
-            <div className="flex justify-center gap-3 mb-6">
-              {[1,2,3,4,5].map(star => (
+          {/* Activity */}
+          <div className="mb-6">
+            <p className="text-white font-semibold text-sm mb-3">Activity</p>
+            <div className="bg-[#141414] border border-[#1E1E1E] rounded-2xl overflow-hidden">
+              {(
+                [
+                  {
+                    emoji: '📥',
+                    label: 'Recent Downloads',
+                    route: '/profile/downloads',
+                  },
+                  {
+                    emoji: '📜',
+                    label: 'Watch History',
+                    route: '/profile/history',
+                  },
+                  {
+                    emoji: '❤️',
+                    label: 'Favorites',
+                    route: '/profile/favorites',
+                  },
+                  {
+                    emoji: '🎵',
+                    label: 'My Playlists',
+                    route: '/profile/playlists',
+                  },
+                  {
+                    emoji: '🎮',
+                    label: 'Game History',
+                    route: '/profile/games',
+                  },
+                ] as Array<{ emoji: string; label: string; route: string }>
+              ).map((item, i, arr) => (
                 <button
-                  key={star}
-                  onClick={() => setRatingValue(star)}
-                  className="text-4xl transition-transform duration-150 active:scale-90"
+                  key={item.route}
+                  onClick={() => router.push(item.route)}
+                  className={`w-full flex items-center gap-3 px-4 min-h-[52px] active:bg-[#1A1A1A] ${
+                    i < arr.length - 1 ? 'border-b border-[#1E1E1E]' : ''
+                  }`}
                 >
-                  {star <= ratingValue ? '⭐' : '☆'}
+                  <span className="text-lg">{item.emoji}</span>
+                  <span className="flex-1 text-left text-white text-sm">
+                    {item.label}
+                  </span>
+                  <svg
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="#6B7280"
+                    strokeWidth="2"
+                  >
+                    <path d="M9 18l6-6-6-6" />
+                  </svg>
                 </button>
               ))}
             </div>
-            {ratingValue > 0 && (
-              <p className="text-center text-[#9CA3AF] text-sm mb-5">
-                {ratingValue === 5 ? '🎉 Awesome! Thank you!'
-                 : ratingValue === 4 ? '😊 Great! Thanks!'
-                 : ratingValue === 3 ? '🙂 Thanks for feedback!'
-                 : ratingValue === 2 ? '😕 We will improve!'
-                 : '😔 Sorry! We will do better!'}
-              </p>
-            )}
-            <div className="flex gap-3">
-              <button onClick={() => setShowRating(false)} className="flex-1 h-12 rounded-xl border border-[#1E293B] text-[#9CA3AF] text-sm font-medium">Cancel</button>
+          </div>
+
+          {/* Quick Settings */}
+          <QuickSettingsSection
+            darkMode={darkMode}
+            onToggleDark={toggleDarkMode}
+            notifEnabled={notifEnabled}
+            onToggleNotif={toggleNotifications}
+            language={language}
+            onToggleLanguage={toggleLanguage}
+            onRate={handleRateApp}
+            onShare={handleShareApp}
+            router={router}
+          />
+
+          {/* Invite Friends */}
+          <div className="bg-[#141414] border border-[#1E1E1E] rounded-2xl p-4 mt-6">
+            <p className="text-white font-semibold text-sm mb-1">
+              🎁 Invite Friends
+            </p>
+            <p className="text-[#9CA3AF] text-xs mb-3">
+              Your code:{' '}
+              <span className="text-[#7C3AED] font-mono">{referralCode}</span>
+            </p>
+            <div className="flex gap-2">
               <button
-                onClick={submitRating}
-                disabled={ratingValue === 0}
-                className={`flex-1 h-12 rounded-xl text-white text-sm font-semibold transition-all duration-150 active:scale-95 ${ratingValue > 0 ? 'bg-[#7C3AED]' : 'bg-[#1E293B] text-[#9CA3AF]'}`}
+                onClick={handleCopyReferral}
+                className="flex-1 h-10 bg-[#1A1A1A] border border-[#2D2D2D] rounded-xl text-white text-xs font-medium active:opacity-80"
               >
-                Submit Rating
+                📋 Copy
+              </button>
+              <button
+                onClick={handleShareReferral}
+                className="flex-1 h-10 bg-[#7C3AED] rounded-xl text-white text-xs font-medium active:opacity-80"
+              >
+                📤 Share
               </button>
             </div>
           </div>
-        </div>
-      )}
 
-      {/* Edit Profile Modal */}
-      {showEdit && (
-        <div className="fixed inset-0 z-50 flex items-end">
-          <div className="absolute inset-0 bg-black/80" onClick={() => setShowEdit(false)} />
-          <div className="relative w-full bg-[#1A1A2E] border-t border-[#1E293B] rounded-t-3xl p-5 z-10">
-            <div className="w-10 h-1 bg-[#1E293B] rounded-full mx-auto mb-5" />
-            <h3 className="text-white font-bold text-base mb-5">Edit Profile</h3>
-            <div className="space-y-3 mb-5">
-              <div>
-                <p className="text-[#9CA3AF] text-xs mb-1.5">Display Name</p>
-                <input
-                  value={editName}
-                  onChange={e => setEditName(e.target.value)}
-                  className="w-full bg-[#1A1A2E] border border-[#1E293B] rounded-xl h-12 px-4 text-white text-sm outline-none focus:border-[#7C3AED] transition-colors duration-200"
-                />
-              </div>
-              <div>
-                <p className="text-[#9CA3AF] text-xs mb-1.5">Username</p>
-                <div className="flex items-center bg-[#1A1A2E] border border-[#1E293B] rounded-xl h-12 px-4 focus-within:border-[#7C3AED] transition-colors duration-200">
-                  <span className="text-[#9CA3AF] text-sm mr-1">@</span>
-                  <input
-                    value={editHandle}
-                    onChange={e => setEditHandle(e.target.value)}
-                    className="flex-1 bg-transparent text-white text-sm outline-none"
-                  />
-                </div>
-              </div>
-            </div>
-            <div className="flex gap-3">
-              <button onClick={() => setShowEdit(false)} className="flex-1 h-12 rounded-xl border border-[#1E293B] text-[#9CA3AF] text-sm font-medium">Cancel</button>
-              <button onClick={saveEdit} className="flex-1 h-12 rounded-xl bg-[#7C3AED] text-white text-sm font-semibold active:scale-95 transition-transform duration-150">Save</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Guest Upgrade Modal */}
-      {showUpgrade && (
-        <div className="fixed inset-0 z-50 flex items-end">
-          <div className="absolute inset-0 bg-black/80" onClick={() => { setShowUpgrade(false); setUpgradeError('') }} />
-          <div className="relative w-full bg-[#1A1A2E] border-t border-[#1E293B] rounded-t-3xl p-5 z-10 max-h-[90vh] overflow-y-auto">
-            <div className="w-10 h-1 bg-[#1E293B] rounded-full mx-auto mb-5" />
-            <div className="text-center mb-5">
-              <div className="w-14 h-14 rounded-2xl mx-auto mb-3 flex items-center justify-center"
-                style={{ background: 'linear-gradient(135deg, #7C3AED, #4F46E5)' }}
-              >
-                <Zap size={24} className="text-white" />
-              </div>
-              <h3 className="text-white font-bold text-lg">Upgrade Account</h3>
-              <p className="text-[#9CA3AF] text-xs mt-1">
-                তোমার data সুরক্ষিত রাখতে account যুক্ত করো
-              </p>
-            </div>
-
-            {upgradeError && (
-              <div className="bg-red-900/30 border border-red-700/50 rounded-xl px-4 py-3 mb-4">
-                <p className="text-red-400 text-sm text-center">{upgradeError}</p>
-              </div>
-            )}
-
-            {/* Google upgrade */}
-            <button
-              onClick={handleUpgradeGoogle}
-              disabled={upgradeLoading}
-              className="w-full h-12 bg-white rounded-xl text-black text-sm font-semibold flex items-center justify-center gap-3 disabled:opacity-50 active:scale-[0.97] transition-transform mb-3"
-            >
-              {upgradeLoading ? (
-                <div className="w-5 h-5 border-2 border-black border-t-transparent rounded-full animate-spin" />
-              ) : (
-                <>
-                  <svg width="18" height="18" viewBox="0 0 24 24">
-                    <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
-                    <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
-                    <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
-                    <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
-                  </svg>
-                  Google দিয়ে Upgrade
-                </>
-              )}
-            </button>
-
-            {/* Divider */}
-            <div className="flex items-center gap-3 my-4">
-              <div className="flex-1 h-px bg-[#1E293B]" />
-              <span className="text-[#4B5563] text-xs">অথবা</span>
-              <div className="flex-1 h-px bg-[#1E293B]" />
-            </div>
-
-            {/* Email upgrade form */}
-            <div className="space-y-3">
-              <input
-                type="text"
-                value={upgradeName}
-                onChange={e => setUpgradeName(e.target.value)}
-                placeholder="তোমার নাম"
-                className="w-full h-11 bg-[#0F0F0F] border border-[#2D2D2D] rounded-xl px-4 text-white text-sm outline-none focus:border-[#7C3AED] placeholder-[#4B5563] transition-colors"
-              />
-              <input
-                type="email"
-                value={upgradeEmail}
-                onChange={e => setUpgradeEmail(e.target.value)}
-                placeholder="your@email.com"
-                className="w-full h-11 bg-[#0F0F0F] border border-[#2D2D2D] rounded-xl px-4 text-white text-sm outline-none focus:border-[#7C3AED] placeholder-[#4B5563] transition-colors"
-              />
-              <input
-                type="password"
-                value={upgradePassword}
-                onChange={e => setUpgradePassword(e.target.value)}
-                placeholder="Password (কমপক্ষে ৬ character)"
-                className="w-full h-11 bg-[#0F0F0F] border border-[#2D2D2D] rounded-xl px-4 text-white text-sm outline-none focus:border-[#7C3AED] placeholder-[#4B5563] transition-colors"
-              />
+          {/* Account */}
+          <div className="mt-6">
+            <p className="text-white font-semibold text-sm mb-3">Account</p>
+            <div className="bg-[#141414] border border-[#1E1E1E] rounded-2xl overflow-hidden mb-3">
               <button
-                onClick={handleUpgradeEmail}
-                disabled={upgradeLoading}
-                className="w-full h-12 bg-[#7C3AED] rounded-xl text-white font-semibold text-sm disabled:opacity-50 active:opacity-80 flex items-center justify-center gap-2 transition-opacity"
+                onClick={handleResetPassword}
+                className="w-full flex items-center gap-3 px-4 min-h-[52px] active:bg-[#1A1A1A]"
               >
-                {upgradeLoading ? (
-                  <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                ) : (
-                  'Email দিয়ে Upgrade'
-                )}
+                <span className="text-lg">🔐</span>
+                <span className="flex-1 text-left text-white text-sm">
+                  Security &amp; Password
+                </span>
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="#6B7280"
+                  strokeWidth="2"
+                >
+                  <path d="M9 18l6-6-6-6" />
+                </svg>
               </button>
             </div>
 
-            {/* Cancel */}
             <button
-              onClick={() => { setShowUpgrade(false); setUpgradeError('') }}
-              className="w-full h-11 mt-3 rounded-xl text-[#9CA3AF] text-sm font-medium"
+              onClick={() => setShowLogoutConfirm(true)}
+              className="w-full h-12 bg-red-900/20 border border-red-700/40 rounded-xl text-red-400 font-semibold text-sm active:opacity-80"
             >
-              পরে করবো
+              Sign Out
             </button>
           </div>
+
+          <p className="text-center text-[#4B5563] text-xs mt-8">
+            Play Nexa v{appVersion} • Made with ❤️
+          </p>
         </div>
+      )}
+
+      {/* Logout Confirm Modal */}
+      {showLogoutConfirm && (
+        <>
+          <div
+            className="fixed inset-0 z-[60] bg-black/70"
+            onClick={() => setShowLogoutConfirm(false)}
+          />
+          <div className="fixed bottom-0 left-0 right-0 z-[61] bg-[#141414] rounded-t-2xl p-6 pb-10 border-t border-[#1E1E1E]">
+            <div className="w-10 h-1 bg-[#2D2D2D] rounded-full mx-auto mb-5" />
+            <p className="text-white font-bold text-base mb-2 text-center">
+              Sign out from Play Nexa?
+            </p>
+            <p className="text-[#9CA3AF] text-sm text-center mb-6">
+              তোমার data save থাকবে, পরে আবার sign in করতে পারবে
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowLogoutConfirm(false)}
+                className="flex-1 h-12 bg-[#1A1A1A] border border-[#2D2D2D] rounded-xl text-white text-sm font-medium active:opacity-80"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSignOut}
+                className="flex-1 h-12 bg-red-700 rounded-xl text-white text-sm font-semibold active:opacity-80"
+              >
+                Sign Out
+              </button>
+            </div>
+          </div>
+        </>
       )}
     </div>
-  )
+  );
 }
 
-function ProfileSkeleton() {
+// ---------------------------------------------------------------------------
+// Reusable Quick Settings section.
+// ---------------------------------------------------------------------------
+function QuickSettingsSection({
+  darkMode,
+  onToggleDark,
+  notifEnabled,
+  onToggleNotif,
+  language,
+  onToggleLanguage,
+  onRate,
+  onShare,
+  router,
+}: QuickSettingsProps) {
   return (
-    <div className="min-h-screen bg-[#0D0D0D] pb-24 px-4 pt-16">
-      <div className="space-y-4">
-        <div className="bg-[#1A1A2E] rounded-2xl p-5 flex flex-col items-center gap-3">
-          <div className="w-20 h-20 rounded-full bg-[#1E293B] animate-pulse" />
-          <div className="h-5 w-32 bg-[#1E293B] rounded animate-pulse" />
-          <div className="h-4 w-24 bg-[#1E293B] rounded animate-pulse" />
+    <div>
+      <p className="text-white font-semibold text-sm mb-3">Quick Settings</p>
+      <div className="bg-[#141414] border border-[#1E1E1E] rounded-2xl overflow-hidden">
+        {/* Dark Mode */}
+        <div className="flex items-center gap-3 px-4 min-h-[52px] border-b border-[#1E1E1E]">
+          <span className="text-lg">🌙</span>
+          <span className="flex-1 text-white text-sm">Dark Mode</span>
+          <Toggle checked={darkMode} onChange={onToggleDark} />
         </div>
-        <div className="bg-[#1A1A2E] rounded-2xl p-4 h-24 animate-pulse" />
+
+        {/* Notifications */}
+        <div className="flex items-center gap-3 px-4 min-h-[52px] border-b border-[#1E1E1E]">
+          <span className="text-lg">🔔</span>
+          <span className="flex-1 text-white text-sm">Notifications</span>
+          <Toggle checked={notifEnabled} onChange={onToggleNotif} />
+        </div>
+
+        {/* Language */}
+        <button
+          onClick={onToggleLanguage}
+          className="w-full flex items-center gap-3 px-4 min-h-[52px] border-b border-[#1E1E1E] active:bg-[#1A1A1A]"
+        >
+          <span className="text-lg">🌐</span>
+          <span className="flex-1 text-left text-white text-sm">Language</span>
+          <span className="text-[#7C3AED] text-xs font-semibold">
+            {language === 'bn' ? 'বাংলা' : 'English'}
+          </span>
+        </button>
+
+        {/* Help & Support */}
+        <button
+          onClick={() => router.push('/help')}
+          className="w-full flex items-center gap-3 px-4 min-h-[52px] border-b border-[#1E1E1E] active:bg-[#1A1A1A]"
+        >
+          <span className="text-lg">❓</span>
+          <span className="flex-1 text-left text-white text-sm">
+            Help &amp; Support
+          </span>
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="#6B7280"
+            strokeWidth="2"
+          >
+            <path d="M9 18l6-6-6-6" />
+          </svg>
+        </button>
+
+        {/* Rate */}
+        <button
+          onClick={onRate}
+          className="w-full flex items-center gap-3 px-4 min-h-[52px] border-b border-[#1E1E1E] active:bg-[#1A1A1A]"
+        >
+          <span className="text-lg">⭐</span>
+          <span className="flex-1 text-left text-white text-sm">
+            Rate Play Nexa
+          </span>
+        </button>
+
+        {/* Share */}
+        <button
+          onClick={onShare}
+          className="w-full flex items-center gap-3 px-4 min-h-[52px] active:bg-[#1A1A1A]"
+        >
+          <span className="text-lg">📤</span>
+          <span className="flex-1 text-left text-white text-sm">Share App</span>
+        </button>
       </div>
     </div>
-  )
+  );
 }
 
-function Toggle({ value, onChange }: { value: boolean; onChange: (v: boolean) => void }) {
+function Toggle({
+  checked,
+  onChange,
+}: {
+  checked: boolean;
+  onChange: () => void;
+}) {
   return (
     <button
-      onClick={() => onChange(!value)}
-      className={`w-12 h-6 rounded-full relative transition-colors duration-200 ${value ? 'bg-[#7C3AED]' : 'bg-[#1E293B]'}`}
+      onClick={onChange}
+      role="switch"
+      aria-checked={checked}
+      className={`w-11 h-6 rounded-full relative transition-colors duration-200 ${
+        checked ? 'bg-[#7C3AED]' : 'bg-[#2D2D2D]'
+      }`}
     >
-      <div className={`absolute top-0.5 w-5 h-5 rounded-full bg-white transition-transform duration-200 ${value ? 'translate-x-6' : 'translate-x-0.5'}`} />
+      <div
+        className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-all duration-200 ${
+          checked ? 'left-5' : 'left-0.5'
+        }`}
+      />
     </button>
-  )
+  );
 }

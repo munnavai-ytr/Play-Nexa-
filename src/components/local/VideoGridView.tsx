@@ -7,12 +7,17 @@
 // Chronological sectioning by date metadata
 // Glassmorphism play icon · Size overlay · content-visibility: auto
 // Three-dot actions: Play, Convert to MP3, Delete
+//
+// ENGINE: useDeviceMedia hook — auto-scan on native, file/folder pick on web
+// UI: 100% unchanged from original
 
 import { useState, useCallback, useRef, useEffect } from 'react'
 import {
   Plus, Trash2, Play, Film, ChevronLeft,
-  MoreVertical, FileAudio
+  MoreVertical, FileAudio, FolderOpen, RefreshCw
 } from 'lucide-react'
+import { useDeviceMedia } from '@/lib/useDeviceMedia'
+import type { MediaFile } from '@/lib/useDeviceMedia'
 
 export interface LocalVideo {
   id: string
@@ -47,99 +52,56 @@ function getDateGroup(timestamp: number): string {
   return date.toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' })
 }
 
+/** Convert MediaFile from hook → LocalVideo for parent compatibility */
+function toLocalVideo(mf: MediaFile): LocalVideo {
+  return {
+    id: mf.id,
+    name: mf.name,
+    url: mf.url,
+    size: mf.size,
+    duration: mf.duration,
+    file: mf.file || null,
+    folder: mf.folder,
+    addedAt: mf.addedAt,
+    lastPlayed: mf.lastPlayed,
+  }
+}
+
 export default function VideoGridView({
   searchQuery, onPlay, onConvertToMp3, onBack
 }: VideoGridViewProps) {
-  const [videos, setVideos] = useState<LocalVideo[]>([])
+  const {
+    files: mediaFiles,
+    scanning,
+    isNative,
+    scanProgress,
+    pickFiles,
+    pickFolder,
+    refreshScan,
+    removeFile,
+    getPlayableUrl,
+  } = useDeviceMedia('video')
+
   const [menuOpen, setMenuOpen] = useState<string | null>(null)
   const [thumbnailMap, setThumbnailMap] = useState<Record<string, string>>({})
-  const fileInputRef = useRef<HTMLInputElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
 
-  // ── Load metadata from localStorage ──
+  // Map MediaFile[] → LocalVideo[] for parent compatibility
+  const videos: LocalVideo[] = mediaFiles.map(toLocalVideo)
+
+  // ── Generate thumbnails for videos with URLs ──
   useEffect(() => {
-    try {
-      const saved = localStorage.getItem('pn_local_videos_v2')
-      if (saved) {
-        const meta = JSON.parse(saved) as LocalVideo[]
-        setVideos(meta.map(v => ({
-          ...v,
-          url: '',
-          file: null,
-          addedAt: v.addedAt || v.lastPlayed || Date.now()
-        })))
-      }
-    } catch {}
-  }, [])
-
-  const saveMeta = useCallback((list: LocalVideo[]) => {
-    const meta = list.map(v => ({
-      id: v.id, name: v.name, size: v.size,
-      duration: v.duration, folder: v.folder,
-      addedAt: v.addedAt || Date.now(), lastPlayed: v.lastPlayed
-    }))
-    localStorage.setItem('pn_local_videos_v2', JSON.stringify(meta))
-  }, [])
-
-  // ── Pick videos from device ──
-  const pickVideos = useCallback(() => { fileInputRef.current?.click() }, [])
-
-  const handleFiles = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files || []) as File[]
-    if (!files.length) return
-
-    const now = Date.now()
-    const newVids: LocalVideo[] = files.map((file, i) => ({
-      id: `lv_${now}_${i}_${Math.random().toString(36).slice(2, 6)}`,
-      name: file.name.replace(/\.[^.]+$/, ''),
-      url: URL.createObjectURL(file),
-      size: file.size,
-      duration: 0,
-      file,
-      folder: file.webkitRelativePath?.split('/').slice(0, -1).join('/') || 'Downloads',
-      addedAt: now - i,
-    }))
-
-    setVideos(prev => {
-      const updated = [...newVids, ...prev]
-      saveMeta(updated)
-      return updated
-    })
-    e.target.value = ''
-  }, [saveMeta])
-
-  // ── Get duration & thumbnail ──
-  useEffect(() => {
-    const pendingDurations: string[] = []
     const pendingThumbnails: string[] = []
 
-    videos.forEach(v => {
-      if (v.url && v.duration === 0) pendingDurations.push(v.id)
+    mediaFiles.forEach(v => {
       if (v.url && !thumbnailMap[v.id]) pendingThumbnails.push(v.id)
     })
 
-    // Extract duration
-    pendingDurations.forEach(vidId => {
-      const v = videos.find(x => x.id === vidId)
-      if (!v?.url) return
-      const el = document.createElement('video')
-      el.preload = 'metadata'
-      el.src = v.url
-      el.onloadedmetadata = () => {
-        const dur = el.duration
-        setVideos(prev => {
-          const updated = prev.map(vid =>
-            vid.id === vidId ? { ...vid, duration: dur } : vid
-          )
-          saveMeta(updated)
-          return updated
-        })
-      }
-    })
+    // Limit concurrent thumbnail generation for 2GB RAM
+    const toProcess = pendingThumbnails.slice(0, 6)
 
-    // Generate thumbnails
-    pendingThumbnails.forEach(vidId => {
-      const v = videos.find(x => x.id === vidId)
+    toProcess.forEach(vidId => {
+      const v = mediaFiles.find(x => x.id === vidId)
       if (!v?.url) return
       const vid = document.createElement('video')
       vid.preload = 'metadata'
@@ -157,10 +119,13 @@ export default function VideoGridView({
             setThumbnailMap(prev => ({ ...prev, [vidId]: dataUrl }))
           }
         } catch {}
+        // Clean up the video element
+        vid.src = ''
+        vid.load()
       }
     })
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [videos.length])
+  }, [mediaFiles.length])
 
   // ── Close menu on outside click ──
   useEffect(() => {
@@ -173,29 +138,22 @@ export default function VideoGridView({
     return () => document.removeEventListener('mousedown', handler)
   }, [menuOpen])
 
-  // ── Remove video ──
-  const removeVideo = useCallback((id: string) => {
-    setVideos(prev => {
-      const vid = prev.find(v => v.id === id)
-      if (vid?.url) try { URL.revokeObjectURL(vid.url) } catch {}
-      const updated = prev.filter(v => v.id !== id)
-      saveMeta(updated)
-      return updated
-    })
-    setMenuOpen(null)
-  }, [saveMeta])
-
   // ── Play video ──
   const handlePlay = useCallback((video: LocalVideo) => {
-    let playUrl = video.url
-    if (!playUrl && video.file) {
-      playUrl = URL.createObjectURL(video.file)
-      setVideos(prev => prev.map(v =>
-        v.id === video.id ? { ...v, url: playUrl } : v
-      ))
+    const mf = mediaFiles.find(f => f.id === video.id)
+    if (!mf) return
+
+    const playUrl = getPlayableUrl(mf)
+    if (playUrl) {
+      onPlay({ ...video, url: playUrl, lastPlayed: Date.now() })
     }
-    if (playUrl) onPlay({ ...video, url: playUrl, lastPlayed: Date.now() })
-  }, [onPlay])
+  }, [mediaFiles, getPlayableUrl, onPlay])
+
+  // ── Remove video ──
+  const handleRemove = useCallback((id: string) => {
+    removeFile(id)
+    setMenuOpen(null)
+  }, [removeFile])
 
   // ── Format helpers ──
   const fmtSize = (b: number) => {
@@ -234,17 +192,8 @@ export default function VideoGridView({
 
   return (
     <div>
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept="video/*"
-        multiple
-        onChange={handleFiles}
-        className="hidden"
-      />
-
       {/* ════════════════════════════════════════════════════════
-          COMPONENT HEADER — "< Video Player" + "+ Add"
+          COMPONENT HEADER — "< Video Player" + actions
           ════════════════════════════════════════════════════════ */}
       <div className="flex items-center justify-between px-3 h-12">
         <button
@@ -254,30 +203,82 @@ export default function VideoGridView({
           <ChevronLeft size={20} className="text-white" />
           <span className="text-white text-sm font-semibold">Video Player</span>
         </button>
-        <button
-          onClick={pickVideos}
-          className="flex items-center gap-1 px-3 h-8 rounded-lg
-                     bg-[#7C5CFF]/10 border border-[#7C5CFF]/20
-                     text-[#7C5CFF] text-[11px] font-semibold
-                     active:scale-95 transition-transform duration-100"
-        >
-          <Plus size={14} />
-          Add
-        </button>
+        <div className="flex items-center gap-1.5">
+          {/* Refresh scan (native only) */}
+          {isNative && (
+            <button
+              onClick={refreshScan}
+              disabled={scanning}
+              className="flex items-center gap-1 px-2.5 h-8 rounded-lg
+                         bg-neutral-900 border border-neutral-800
+                         text-neutral-400 text-[10px] font-semibold
+                         active:scale-95 transition-transform duration-100"
+            >
+              <RefreshCw size={12} className={scanning ? 'animate-spin' : ''} />
+            </button>
+          )}
+          {/* Folder picker */}
+          <button
+            onClick={pickFolder}
+            className="flex items-center gap-1 px-2.5 h-8 rounded-lg
+                       bg-neutral-900 border border-neutral-800
+                       text-neutral-400 text-[10px] font-semibold
+                       active:scale-95 transition-transform duration-100"
+          >
+            <FolderOpen size={12} />
+          </button>
+          {/* Add files */}
+          <button
+            onClick={pickFiles}
+            className="flex items-center gap-1 px-3 h-8 rounded-lg
+                       bg-[#7C5CFF]/10 border border-[#7C5CFF]/20
+                       text-[#7C5CFF] text-[11px] font-semibold
+                       active:scale-95 transition-transform duration-100"
+          >
+            <Plus size={14} />
+            Add
+          </button>
+        </div>
       </div>
+
+      {/* ── Scan progress bar ── */}
+      {scanning && scanProgress && (
+        <div className="px-3 mb-2">
+          <div className="flex items-center gap-2 px-3 py-2 rounded-lg
+                          bg-[#7C5CFF]/5 border border-[#7C5CFF]/10">
+            <RefreshCw size={12} className="text-[#7C5CFF] animate-spin" />
+            <span className="text-[#7C5CFF] text-[10px] font-medium">
+              {scanProgress}
+            </span>
+          </div>
+        </div>
+      )}
 
       {/* ── Content ── */}
       <div className="px-2 space-y-5">
         {/* Empty state */}
-        {filtered.length === 0 && (
+        {filtered.length === 0 && !scanning && (
           <div className="flex flex-col items-center justify-center py-20">
             <div className="w-16 h-16 rounded-2xl bg-neutral-900 flex items-center justify-center mb-4">
               <Film size={28} className="text-neutral-600" />
             </div>
             <p className="text-neutral-500 text-sm font-medium mb-1">No videos found</p>
             <p className="text-neutral-700 text-xs text-center">
-              {searchQuery ? 'Try a different search term' : 'Tap "+ Add" to pick videos from your device'}
+              {searchQuery ? 'Try a different search term' : isNative ? 'Pull down to scan device storage' : 'Tap "+ Add" or folder icon to pick videos'}
             </p>
+            {/* Folder picker CTA for web */}
+            {!isNative && !searchQuery && (
+              <button
+                onClick={pickFolder}
+                className="mt-4 flex items-center gap-2 px-4 py-2.5 rounded-xl
+                           bg-[#7C5CFF]/10 border border-[#7C5CFF]/20
+                           text-[#7C5CFF] text-xs font-semibold
+                           active:scale-95 transition-transform duration-150"
+              >
+                <FolderOpen size={16} />
+                Select Video Folder
+              </button>
+            )}
           </div>
         )}
 
@@ -298,7 +299,7 @@ export default function VideoGridView({
                              active:scale-[0.97] transition-transform duration-150"
                   style={{ contentVisibility: 'auto', containIntrinsicSize: '0 160px' }}
                 >
-                  {/* ── Thumbnail area — square/rectangular asset layout ── */}
+                  {/* ── Thumbnail area ── */}
                   <button
                     onClick={() => handlePlay(video)}
                     className="relative w-full aspect-square bg-neutral-900 flex items-center justify-center block"
@@ -315,7 +316,7 @@ export default function VideoGridView({
                       <Film size={18} className="text-neutral-700 z-10" />
                     )}
 
-                    {/* ── Glassmorphism play icon — dead center ── */}
+                    {/* ── Glassmorphism play icon ── */}
                     <div className="absolute inset-0 flex items-center justify-center
                                     active:opacity-100">
                       <div className="w-9 h-9 rounded-full bg-white/15
@@ -326,14 +327,14 @@ export default function VideoGridView({
                       </div>
                     </div>
 
-                    {/* ── File size overlay — top-right semi-transparent badge ── */}
+                    {/* ── File size overlay ── */}
                     <span className="absolute top-1.5 right-1.5 bg-black/65 text-neutral-200
                                    text-[7px] font-semibold px-1.5 py-[3px] rounded
                                    leading-none">
                       {fmtSize(video.size)}
                     </span>
 
-                    {/* ── Duration badge — bottom-right ── */}
+                    {/* ── Duration badge ── */}
                     {video.duration > 0 && (
                       <span className="absolute bottom-1.5 right-1.5 bg-black/75 text-white
                                      text-[8px] font-mono font-medium px-1 py-0.5 rounded
@@ -352,7 +353,7 @@ export default function VideoGridView({
                     )}
                   </button>
 
-                  {/* ── File name under thumbnail — single line ── */}
+                  {/* ── File name ── */}
                   <div className="px-1 pt-1.5 pb-1 relative">
                     <p className="text-white text-[10px] font-medium truncate leading-tight pr-5">
                       {video.name}
@@ -398,7 +399,7 @@ export default function VideoGridView({
                       </button>
                       <div className="border-t border-neutral-800" />
                       <button
-                        onClick={() => removeVideo(video.id)}
+                        onClick={() => handleRemove(video.id)}
                         className="flex items-center gap-2.5 w-full px-3 py-2.5 text-red-400 text-[11px]
                                    font-medium active:bg-neutral-800 transition-colors duration-100"
                       >

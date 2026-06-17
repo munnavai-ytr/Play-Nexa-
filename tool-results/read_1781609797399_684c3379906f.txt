@@ -1,0 +1,893 @@
+     1→'use client';
+     2→
+     3→// ── Play Nexa Video Library ──────────────────────────────────
+     4→// AMOLED dark theme: base #0A0A0A, surface #141414, accent #7C3AED
+     5→// No backdrop-blur · Tailwind only · Max transition 200ms · 44px touch targets
+     6→// content-visibility: auto on scrollable lists · pn_ prefix localStorage
+     7→
+     8→import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
+     9→import {
+    10→  ArrowLeft,
+    11→  Search,
+    12→  MoreVertical,
+    13→  Play,
+    14→  Grid3X3,
+    15→  List,
+    16→  FolderOpen,
+    17→  Clock,
+    18→  Download,
+    19→  X,
+    20→  Loader2,
+    21→  Film,
+    22→  Trash2,
+    23→  Share2,
+    24→  Info,
+    25→  RotateCcw,
+    26→  RefreshCw,
+    27→  Plus,
+    28→  Pencil,
+    29→  ListPlus,
+    30→  PlayCircle,
+    31→} from 'lucide-react';
+    32→import type { VideoFile } from '@/lib/mediaUtils';
+    33→import {
+    34→  formatDuration,
+    35→  formatFileSize,
+    36→  generateVideoThumbnail,
+    37→  lsGet,
+    38→  lsSet,
+    39→} from '@/lib/mediaUtils';
+    40→import { useMediaLibrary } from '@/hooks/useMediaLibrary';
+    41→import type { VideoViewMode } from '@/hooks/useMediaLibrary';
+    42→
+    43→// ══════════════════════════════════════════════════════════════
+    44→// PROPS
+    45→// ══════════════════════════════════════════════════════════════
+    46→
+    47→interface VideoLibraryProps {
+    48→  onVideoSelect: (video: VideoFile) => void;
+    49→  onBack: () => void;
+    50→}
+    51→
+    52→// ══════════════════════════════════════════════════════════════
+    53→// TAB DEFINITIONS
+    54→// ══════════════════════════════════════════════════════════════
+    55→
+    56→type TabKey = 'all' | 'folders' | 'recent' | 'downloads';
+    57→
+    58→interface TabDef {
+    59→  key: TabKey;
+    60→  label: string;
+    61→  icon: React.ReactNode;
+    62→}
+    63→
+    64→const TABS: TabDef[] = [
+    65→  { key: 'all', label: 'All Videos', icon: <Film size={14} /> },
+    66→  { key: 'folders', label: 'Folders', icon: <FolderOpen size={14} /> },
+    67→  { key: 'recent', label: 'Recent', icon: <Clock size={14} /> },
+    68→  { key: 'downloads', label: 'Downloads', icon: <Download size={14} /> },
+    69→];
+    70→
+    71→// ══════════════════════════════════════════════════════════════
+    72→// BOTTOM SHEET OPTION
+    73→// ══════════════════════════════════════════════════════════════
+    74→
+    75→interface SheetOption {
+    76→  icon: React.ReactNode;
+    77→  label: string;
+    78→  action: () => void;
+    79→  danger?: boolean;
+    80→}
+    81→
+    82→// ══════════════════════════════════════════════════════════════
+    83→// FOLDER TYPE
+    84→// ══════════════════════════════════════════════════════════════
+    85→
+    86→interface VideoFolder {
+    87→  name: string;
+    88→  path: string;
+    89→  count: number;
+    90→}
+    91→
+    92→// ══════════════════════════════════════════════════════════════
+    93→// HISTORY ENTRY
+    94→// ══════════════════════════════════════════════════════════════
+    95→
+    96→interface HistoryEntry {
+    97→  id: string;
+    98→  name: string;
+    99→  position: number;
+   100→  timestamp: number;
+   101→}
+   102→
+   103→// ══════════════════════════════════════════════════════════════
+   104→// COMPONENT
+   105→// ══════════════════════════════════════════════════════════════
+   106→
+   107→export default function VideoLibrary({ onVideoSelect, onBack }: VideoLibraryProps) {
+   108→  const { videos, scanning, videoView, scanVideoFiles, setVideoView, saveVideoPosition, getVideoPosition } = useMediaLibrary();
+   109→
+   110→  // ── State ──
+   111→  const [activeTab, setActiveTab] = useState<TabKey>('all');
+   112→  const [searchOpen, setSearchOpen] = useState(false);
+   113→  const [searchQuery, setSearchQuery] = useState('');
+   114→  const [selectedVideo, setSelectedVideo] = useState<VideoFile | null>(null);
+   115→  const [sheetOpen, setSheetOpen] = useState(false);
+   116→  const searchInputRef = useRef<HTMLInputElement>(null);
+   117→
+   118→  // ── Thumbnail cache ──
+   119→  const [thumbnails, setThumbnails] = useState<Record<string, string>>({});
+   120→  const thumbnailQueueRef = useRef<Set<string>>(new Set());
+   121→  const isGeneratingRef = useRef(false);
+   122→
+   123→  // ── Video history for recent tab (derived from localStorage + videos) ──
+   124→  const historyEntries = useMemo((): HistoryEntry[] => {
+   125→    try {
+   126→      const raw = localStorage.getItem('pn_video_history');
+   127→      if (!raw) return [];
+   128→      const parsed = JSON.parse(raw) as Record<string, { position: number; updatedAt: number }>;
+   129→      return Object.entries(parsed)
+   130→        .map(([id, data]) => {
+   131→          const video = videos.find((v) => v.id === id);
+   132→          return {
+   133→            id,
+   134→            name: video?.name || id,
+   135→            position: data.position,
+   136→            timestamp: data.updatedAt,
+   137→          };
+   138→        })
+   139→        .sort((a, b) => b.timestamp - a.timestamp);
+   140→    } catch {
+   141→      return [];
+   142→    }
+   143→  }, [videos]);
+   144→
+   145→  // ── Scan on mount ──
+   146→  useEffect(() => {
+   147→    scanVideoFiles();
+   148→  }, [scanVideoFiles]);
+   149→
+   150→  // ── Focus search input when opened ──
+   151→  useEffect(() => {
+   152→    if (searchOpen && searchInputRef.current) {
+   153→      setTimeout(() => searchInputRef.current?.focus(), 100);
+   154→    }
+   155→  }, [searchOpen]);
+   156→
+   157→  // ── Thumbnail generation queue ──
+   158→  const processThumbnailQueue = useCallback(async () => {
+   159→    if (isGeneratingRef.current) return;
+   160→    isGeneratingRef.current = true;
+   161→
+   162→    while (thumbnailQueueRef.current.size > 0) {
+   163→      const videoId = thumbnailQueueRef.current.values().next().value;
+   164→      if (!videoId) break;
+   165→      thumbnailQueueRef.current.delete(videoId);
+   166→
+   167→      const video = videos.find((v) => v.id === videoId);
+   168→      if (!video || thumbnails[videoId]) continue;
+   169→
+   170→      try {
+   171→        const thumb = await generateVideoThumbnail(video.url || video.path);
+   172→        setThumbnails((prev) => ({ ...prev, [videoId]: thumb }));
+   173→      } catch {
+   174→        // Thumbnail generation failed — use placeholder
+   175→        setThumbnails((prev) => ({ ...prev, [videoId]: '' }));
+   176→      }
+   177→    }
+   178→
+   179→    isGeneratingRef.current = false;
+   180→  }, [videos, thumbnails]);
+   181→
+   182→  const enqueueThumbnail = useCallback(
+   183→    (videoId: string) => {
+   184→      if (thumbnails[videoId] !== undefined) return;
+   185→      thumbnailQueueRef.current.add(videoId);
+   186→      processThumbnailQueue();
+   187→    },
+   188→    [thumbnails, processThumbnailQueue]
+   189→  );
+   190→
+   191→  // ── Filtered videos ──
+   192→  const filteredVideos = useMemo(() => {
+   193→    let list = videos;
+   194→
+   195→    if (searchQuery.trim()) {
+   196→      const q = searchQuery.toLowerCase();
+   197→      list = list.filter(
+   198→        (v) =>
+   199→          v.name.toLowerCase().includes(q) ||
+   200→          v.format.toLowerCase().includes(q)
+   201→      );
+   202→    }
+   203→
+   204→    // Tab-specific filtering
+   205→    if (activeTab === 'recent') {
+   206→      // Show videos that have history entries
+   207→      const historyIds = new Set(historyEntries.map((h) => h.id));
+   208→      list = list.filter((v) => historyIds.has(v.id));
+   209→      // Sort by most recent
+   210→      list.sort((a, b) => {
+   211→        const aTime = historyEntries.find((h) => h.id === a.id)?.timestamp || 0;
+   212→        const bTime = historyEntries.find((h) => h.id === b.id)?.timestamp || 0;
+   213→        return bTime - aTime;
+   214→      });
+   215→    }
+   216→
+   217→    return list;
+   218→  }, [videos, searchQuery, activeTab, historyEntries]);
+   219→
+   220→  // ── Folders ──
+   221→  const folders = useMemo(() => {
+   222→    const folderMap = new Map<string, VideoFolder>();
+   223→    for (const v of videos) {
+   224→      const parts = v.path.split('/');
+   225→      const folderName = parts.length > 1 ? parts[parts.length - 2] : 'Root';
+   226→      const folderPath = parts.slice(0, -1).join('/');
+   227→      const existing = folderMap.get(folderPath);
+   228→      if (existing) {
+   229→        existing.count++;
+   230→      } else {
+   231→        folderMap.set(folderPath, { name: folderName, path: folderPath, count: 1 });
+   232→      }
+   233→    }
+   234→    return Array.from(folderMap.values()).sort((a, b) => a.name.localeCompare(b.name));
+   235→  }, [videos]);
+   236→
+   237→  // ── Video select handler ──
+   238→  const handleVideoSelect = useCallback(
+   239→    (video: VideoFile) => {
+   240→      onVideoSelect(video);
+   241→    },
+   242→    [onVideoSelect]
+   243→  );
+   244→
+   245→  // ── Video options sheet ──
+   246→  const openSheet = useCallback((video: VideoFile, e?: React.MouseEvent) => {
+   247→    e?.stopPropagation();
+   248→    setSelectedVideo(video);
+   249→    setSheetOpen(true);
+   250→  }, []);
+   251→
+   252→  const closeSheet = useCallback(() => {
+   253→    setSheetOpen(false);
+   254→    setSelectedVideo(null);
+   255→  }, []);
+   256→
+   257→  // ── Sheet options ──
+   258→  const sheetOptions: SheetOption[] = useMemo(() => {
+   259→    if (!selectedVideo) return [];
+   260→    return [
+   261→      {
+   262→        icon: <Play size={18} />,
+   263→        label: 'Play',
+   264→        action: () => {
+   265→          handleVideoSelect(selectedVideo);
+   266→          closeSheet();
+   267→        },
+   268→      },
+   269→      {
+   270→        icon: <PlayCircle size={18} />,
+   271→        label: 'Play Next',
+   272→        action: closeSheet,
+   273→      },
+   274→      {
+   275→        icon: <ListPlus size={18} />,
+   276→        label: 'Add to Queue',
+   277→        action: closeSheet,
+   278→      },
+   279→      {
+   280→        icon: <Pencil size={18} />,
+   281→        label: 'Rename',
+   282→        action: closeSheet,
+   283→      },
+   284→      {
+   285→        icon: <Info size={18} />,
+   286→        label: 'Info',
+   287→        action: closeSheet,
+   288→      },
+   289→      {
+   290→        icon: <Share2 size={18} />,
+   291→        label: 'Share',
+   292→        action: closeSheet,
+   293→      },
+   294→      {
+   295→        icon: <Trash2 size={18} />,
+   296→        label: 'Delete',
+   297→        action: closeSheet,
+   298→        danger: true,
+   299→      },
+   300→    ];
+   301→  }, [selectedVideo, handleVideoSelect, closeSheet]);
+   302→
+   303→  // ── Get resolution string ──
+   304→  const getResolution = (video: VideoFile): string => {
+   305→    if (video.width && video.height) {
+   306→      if (video.width >= 3840) return '4K';
+   307→      if (video.width >= 1920) return '1080p';
+   308→      if (video.width >= 1280) return '720p';
+   309→      if (video.width >= 854) return '480p';
+   310→      return `${video.width}×${video.height}`;
+   311→    }
+   312→    return '';
+   313→  };
+   314→
+   315→  // ── Get resume position for a video ──
+   316→  const getResumeInfo = useCallback(
+   317→    (videoId: string): HistoryEntry | undefined => {
+   318→      return historyEntries.find((h) => h.id === videoId);
+   319→    },
+   320→    [historyEntries]
+   321→  );
+   322→
+   323→  // ══════════════════════════════════════════════════════════════
+   324→  // RENDER
+   325→  // ══════════════════════════════════════════════════════════════
+   326→
+   327→  return (
+   328→    <div className="flex flex-col h-full" style={{ backgroundColor: '#0A0A0A' }}>
+   329→      {/* ════════════════════════════════════════════════════════ */}
+   330→      {/* HEADER */}
+   331→      {/* ════════════════════════════════════════════════════════ */}
+   332→      <header
+   333→        className="flex items-center justify-between px-2 shrink-0"
+   334→        style={{ height: 56, backgroundColor: '#0A0A0A' }}
+   335→      >
+   336→        {/* Left: back */}
+   337→        <button
+   338→          onClick={onBack}
+   339→          className="flex items-center justify-center rounded-full hover:bg-white/10 active:scale-90"
+   340→          style={{ width: 44, height: 44, minWidth: 44, minHeight: 44, transition: 'transform 100ms' }}
+   341→          aria-label="Go back"
+   342→        >
+   343→          <ArrowLeft size={22} className="text-white" />
+   344→        </button>
+   345→
+   346→        {/* Center: title */}
+   347→        <h1 className="text-white font-bold text-lg select-none">Video Player</h1>
+   348→
+   349→        {/* Right: search, grid/list, menu */}
+   350→        <div className="flex items-center gap-1">
+   351→          <button
+   352→            onClick={() => setSearchOpen((v) => !v)}
+   353→            className="flex items-center justify-center rounded-full hover:bg-white/10 active:scale-90"
+   354→            style={{ width: 44, height: 44, minWidth: 44, minHeight: 44, transition: 'transform 100ms' }}
+   355→            aria-label="Search"
+   356→          >
+   357→            <Search size={20} className="text-white" />
+   358→          </button>
+   359→
+   360→          <button
+   361→            onClick={() => setVideoView(videoView === 'grid' ? 'list' : 'grid')}
+   362→            className="flex items-center justify-center rounded-full hover:bg-white/10 active:scale-90"
+   363→            style={{ width: 44, height: 44, minWidth: 44, minHeight: 44, transition: 'transform 100ms' }}
+   364→            aria-label={videoView === 'grid' ? 'List view' : 'Grid view'}
+   365→          >
+   366→            {videoView === 'grid' ? (
+   367→              <List size={20} className="text-white" />
+   368→            ) : (
+   369→              <Grid3X3 size={20} className="text-white" />
+   370→            )}
+   371→          </button>
+   372→
+   373→          <button
+   374→            onClick={() => scanVideoFiles(true)}
+   375→            className="flex items-center justify-center rounded-full hover:bg-white/10 active:scale-90"
+   376→            style={{ width: 44, height: 44, minWidth: 44, minHeight: 44, transition: 'transform 100ms' }}
+   377→            aria-label="Refresh"
+   378→          >
+   379→            <RefreshCw
+   380→              size={20}
+   381→              className="text-white"
+   382→              style={{
+   383→                animation: scanning ? 'spin 1s linear infinite' : undefined,
+   384→              }}
+   385→            />
+   386→          </button>
+   387→        </div>
+   388→      </header>
+   389→
+   390→      {/* ════════════════════════════════════════════════════════ */}
+   391→      {/* SEARCH BAR */}
+   392→      {/* ════════════════════════════════════════════════════════ */}
+   393→      {searchOpen && (
+   394→        <div
+   395→          className="flex items-center gap-2 px-4 py-2 shrink-0"
+   396→          style={{ backgroundColor: '#0A0A0A' }}
+   397→        >
+   398→          <div
+   399→            className="flex items-center gap-2 flex-1 rounded-xl px-3"
+   400→            style={{ backgroundColor: '#141414', height: 44, border: '1px solid #1F1F1F' }}
+   401→          >
+   402→            <Search size={16} className="text-[#9CA3AF] shrink-0" />
+   403→            <input
+   404→              ref={searchInputRef}
+   405→              type="text"
+   406→              value={searchQuery}
+   407→              onChange={(e) => setSearchQuery(e.target.value)}
+   408→              placeholder="Search videos..."
+   409→              className="bg-transparent text-white text-sm outline-none flex-1 placeholder-[#9CA3AF]"
+   410→            />
+   411→            {searchQuery && (
+   412→              <button
+   413→                onClick={() => setSearchQuery('')}
+   414→                className="flex items-center justify-center"
+   415→                style={{ width: 28, height: 28 }}
+   416→                aria-label="Clear search"
+   417→              >
+   418→                <X size={14} className="text-[#9CA3AF]" />
+   419→              </button>
+   420→            )}
+   421→          </div>
+   422→        </div>
+   423→      )}
+   424→
+   425→      {/* ════════════════════════════════════════════════════════ */}
+   426→      {/* TAB ROW */}
+   427→      {/* ════════════════════════════════════════════════════════ */}
+   428→      <div
+   429→        className="flex items-center gap-2 px-4 py-2 overflow-x-auto shrink-0"
+   430→        style={{ backgroundColor: '#0A0A0A', scrollbarWidth: 'none' }}
+   431→      >
+   432→        {TABS.map((tab) => (
+   433→          <button
+   434→            key={tab.key}
+   435→            onClick={() => setActiveTab(tab.key)}
+   436→            className="flex items-center gap-1.5 rounded-full px-4 py-2 text-sm font-medium whitespace-nowrap"
+   437→            style={{
+   438→              minHeight: 44,
+   439→              backgroundColor: activeTab === tab.key ? '#7C3AED' : 'transparent',
+   440→              color: activeTab === tab.key ? '#FFFFFF' : '#9CA3AF',
+   441→              border: activeTab === tab.key ? 'none' : '1px solid #252525',
+   442→              transition: 'background 150ms, color 150ms, border-color 150ms',
+   443→            }}
+   444→          >
+   445→            {tab.icon}
+   446→            {tab.label}
+   447→          </button>
+   448→        ))}
+   449→      </div>
+   450→
+   451→      {/* ════════════════════════════════════════════════════════ */}
+   452→      {/* CONTENT AREA */}
+   453→      {/* ════════════════════════════════════════════════════════ */}
+   454→      <div className="flex-1 overflow-y-auto" style={{ contentVisibility: 'auto' }}>
+   455→        {/* ── SCANNING INDICATOR ── */}
+   456→        {scanning && (
+   457→          <div className="flex items-center justify-center gap-2 py-4">
+   458→            <Loader2 size={18} className="text-[#7C3AED] animate-spin" />
+   459→            <span className="text-[#9CA3AF] text-sm">Scanning for videos...</span>
+   460→          </div>
+   461→        )}
+   462→
+   463→        {/* ── EMPTY STATE ── */}
+   464→        {!scanning && filteredVideos.length === 0 && activeTab !== 'folders' && (
+   465→          <div className="flex flex-col items-center justify-center py-16 gap-3">
+   466→            <Film size={48} className="text-[#1F1F1F]" />
+   467→            <p className="text-[#9CA3AF] text-sm">
+   468→              {searchQuery ? 'No videos found' : 'No videos on device'}
+   469→            </p>
+   470→            {!searchQuery && (
+   471→              <button
+   472→                onClick={() => scanVideoFiles(true)}
+   473→                className="flex items-center gap-2 rounded-xl px-4 text-sm font-medium text-white"
+   474→                style={{
+   475→                  height: 44,
+   476→                  minHeight: 44,
+   477→                  backgroundColor: '#7C3AED',
+   478→                  transition: 'background 150ms',
+   479→                }}
+   480→              >
+   481→                <RefreshCw size={16} />
+   482→                Scan Again
+   483→              </button>
+   484→            )}
+   485→          </div>
+   486→        )}
+   487→
+   488→        {/* ════════════════════════════════════════════════════ */}
+   489→        {/* ALL VIDEOS / RECENT / DOWNLOADS TABS */}
+   490→        {/* ════════════════════════════════════════════════════ */}
+   491→        {(activeTab === 'all' || activeTab === 'recent' || activeTab === 'downloads') && (
+   492→          <>
+   493→            {videoView === 'grid' ? (
+   494→              /* ── GRID VIEW ── */
+   495→              <div
+   496→                className="grid grid-cols-2 gap-3 p-4"
+   497→                style={{ contentVisibility: 'auto' }}
+   498→              >
+   499→                {filteredVideos.map((video) => {
+   500→                  const thumb = thumbnails[video.id];
+   501→                  const resume = getResumeInfo(video.id);
+   502→                  const resolution = getResolution(video);
+   503→
+   504→                  return (
+   505→                    <VideoGridCard
+   506→                      key={video.id}
+   507→                      video={video}
+   508→                      thumbnail={thumb}
+   509→                      resolution={resolution}
+   510→                      resume={resume}
+   511→                      onThumbnailNeeded={enqueueThumbnail}
+   512→                      onSelect={handleVideoSelect}
+   513→                      onMenu={openSheet}
+   514→                    />
+   515→                  );
+   516→                })}
+   517→              </div>
+   518→            ) : (
+   519→              /* ── LIST VIEW ── */
+   520→              <div
+   521→                className="flex flex-col"
+   522→                style={{ contentVisibility: 'auto' }}
+   523→              >
+   524→                {filteredVideos.map((video) => {
+   525→                  const thumb = thumbnails[video.id];
+   526→                  const resume = getResumeInfo(video.id);
+   527→                  const resolution = getResolution(video);
+   528→
+   529→                  return (
+   530→                    <VideoListRow
+   531→                      key={video.id}
+   532→                      video={video}
+   533→                      thumbnail={thumb}
+   534→                      resolution={resolution}
+   535→                      resume={resume}
+   536→                      onThumbnailNeeded={enqueueThumbnail}
+   537→                      onSelect={handleVideoSelect}
+   538→                      onMenu={openSheet}
+   539→                    />
+   540→                  );
+   541→                })}
+   542→              </div>
+   543→            )}
+   544→          </>
+   545→        )}
+   546→
+   547→        {/* ════════════════════════════════════════════════════ */}
+   548→        {/* FOLDERS TAB */}
+   549→        {/* ════════════════════════════════════════════════════ */}
+   550→        {activeTab === 'folders' && (
+   551→          <div className="flex flex-col p-4 gap-2" style={{ contentVisibility: 'auto' }}>
+   552→            {folders.length === 0 && !scanning && (
+   553→              <div className="flex flex-col items-center justify-center py-16 gap-3">
+   554→                <FolderOpen size={48} className="text-[#1F1F1F]" />
+   555→                <p className="text-[#9CA3AF] text-sm">No folders found</p>
+   556→              </div>
+   557→            )}
+   558→            {folders.map((folder) => (
+   559→              <button
+   560→                key={folder.path}
+   561→                className="flex items-center gap-3 rounded-xl px-4 w-full text-left"
+   562→                style={{
+   563→                  height: 56,
+   564→                  minHeight: 44,
+   565→                  backgroundColor: '#141414',
+   566→                  border: '1px solid #1F1F1F',
+   567→                  transition: 'background 150ms',
+   568→                }}
+   569→              >
+   570→                <FolderOpen size={22} className="text-[#7C3AED] shrink-0" />
+   571→                <div className="flex-1 min-w-0">
+   572→                  <p className="text-white text-sm font-medium truncate">{folder.name}</p>
+   573→                  <p className="text-[#9CA3AF] text-xs">{folder.count} video{folder.count !== 1 ? 's' : ''}</p>
+   574→                </div>
+   575→              </button>
+   576→            ))}
+   577→          </div>
+   578→        )}
+   579→      </div>
+   580→
+   581→      {/* ════════════════════════════════════════════════════════ */}
+   582→      {/* VIDEO OPTIONS BOTTOM SHEET */}
+   583→      {/* ════════════════════════════════════════════════════════ */}
+   584→      {sheetOpen && selectedVideo && (
+   585→        <div className="fixed inset-0 z-50 flex items-end justify-center">
+   586→          <div
+   587→            className="absolute inset-0 bg-black/50"
+   588→            onClick={closeSheet}
+   589→          />
+   590→          <div
+   591→            className="relative w-full max-w-lg rounded-t-2xl z-10"
+   592→            style={{ backgroundColor: '#141414', borderTop: '1px solid #1F1F1F' }}
+   593→          >
+   594→            {/* Video info header */}
+   595→            <div className="flex items-center gap-3 px-4 py-3" style={{ borderBottom: '1px solid #1F1F1F' }}>
+   596→              <div
+   597→                className="rounded-lg overflow-hidden shrink-0 flex items-center justify-center"
+   598→                style={{
+   599→                  width: 48,
+   600→                  height: 48,
+   601→                  backgroundColor: '#0A0A0A',
+   602→                }}
+   603→              >
+   604→                <Film size={20} className="text-[#7C3AED]" />
+   605→              </div>
+   606→              <div className="flex-1 min-w-0">
+   607→                <p className="text-white text-sm font-medium truncate">{selectedVideo.name}</p>
+   608→                <p className="text-[#9CA3AF] text-xs">
+   609→                  {selectedVideo.format.toUpperCase()} • {formatFileSize(selectedVideo.size)}
+   610→                </p>
+   611→              </div>
+   612→              <button
+   613→                onClick={closeSheet}
+   614→                className="flex items-center justify-center rounded-full hover:bg-white/10"
+   615→                style={{ width: 44, height: 44, minWidth: 44, minHeight: 44 }}
+   616→                aria-label="Close"
+   617→              >
+   618→                <X size={20} className="text-white" />
+   619→              </button>
+   620→            </div>
+   621→
+   622→            {/* Options */}
+   623→            <div className="py-2">
+   624→              {sheetOptions.map((opt) => (
+   625→                <button
+   626→                  key={opt.label}
+   627→                  onClick={opt.action}
+   628→                  className="w-full flex items-center gap-3 px-4 py-3 hover:bg-[#1F1F1F] active:bg-[#2A2A2A]"
+   629→                  style={{ minHeight: 44, transition: 'background 150ms' }}
+   630→                >
+   631→                  <span className={opt.danger ? 'text-red-500' : 'text-[#9CA3AF]'}>{opt.icon}</span>
+   632→                  <span className={`text-sm ${opt.danger ? 'text-red-500' : 'text-white'}`}>
+   633→                    {opt.label}
+   634→                  </span>
+   635→                </button>
+   636→              ))}
+   637→            </div>
+   638→          </div>
+   639→        </div>
+   640→      )}
+   641→
+   642→      {/* ── Spin animation for refresh ── */}
+   643→      <style dangerouslySetInnerHTML={{ __html: `
+   644→        @keyframes spin {
+   645→          from { transform: rotate(0deg); }
+   646→          to { transform: rotate(360deg); }
+   647→        }
+   648→      `}} />
+   649→    </div>
+   650→  );
+   651→}
+   652→
+   653→// ══════════════════════════════════════════════════════════════
+   654→// GRID CARD SUBCOMPONENT
+   655→// ══════════════════════════════════════════════════════════════
+   656→
+   657→interface VideoGridCardProps {
+   658→  video: VideoFile;
+   659→  thumbnail: string | undefined;
+   660→  resolution: string;
+   661→  resume: HistoryEntry | undefined;
+   662→  onThumbnailNeeded: (id: string) => void;
+   663→  onSelect: (video: VideoFile) => void;
+   664→  onMenu: (video: VideoFile, e?: React.MouseEvent) => void;
+   665→}
+   666→
+   667→function VideoGridCard({
+   668→  video,
+   669→  thumbnail,
+   670→  resolution,
+   671→  resume,
+   672→  onThumbnailNeeded,
+   673→  onSelect,
+   674→  onMenu,
+   675→}: VideoGridCardProps) {
+   676→  const cardRef = useRef<HTMLDivElement>(null);
+   677→  const observedRef = useRef(false);
+   678→
+   679→  // ── Intersection Observer for lazy thumbnail generation ──
+   680→  useEffect(() => {
+   681→    if (observedRef.current) return;
+   682→    const el = cardRef.current;
+   683→    if (!el) return;
+   684→
+   685→    const observer = new IntersectionObserver(
+   686→      (entries) => {
+   687→        if (entries[0].isIntersecting) {
+   688→          onThumbnailNeeded(video.id);
+   689→          observer.disconnect();
+   690→          observedRef.current = true;
+   691→        }
+   692→      },
+   693→      { threshold: 0.1 }
+   694→    );
+   695→
+   696→    observer.observe(el);
+   697→    return () => observer.disconnect();
+   698→  }, [video.id, onThumbnailNeeded]);
+   699→
+   700→  return (
+   701→    <div
+   702→      ref={cardRef}
+   703→      className="rounded-xl overflow-hidden cursor-pointer active:scale-[0.97]"
+   704→      style={{
+   705→        backgroundColor: '#141414',
+   706→        border: '1px solid #1F1F1F',
+   707→        transition: 'transform 100ms',
+   708→      }}
+   709→      onClick={() => onSelect(video)}
+   710→    >
+   711→      {/* Thumbnail */}
+   712→      <div className="relative" style={{ aspectRatio: '16/9' }}>
+   713→        {thumbnail ? (
+   714→          <img
+   715→            src={thumbnail}
+   716→            alt={video.name}
+   717→            className="w-full h-full object-cover"
+   718→            loading="lazy"
+   719→          />
+   720→        ) : (
+   721→          <div
+   722→            className="w-full h-full flex items-center justify-center"
+   723→            style={{ backgroundColor: '#0A0A0A' }}
+   724→          >
+   725→            <Film size={24} className="text-[#1F1F1F]" />
+   726→          </div>
+   727→        )}
+   728→
+   729→        {/* Format badge (top-left) */}
+   730→        <div
+   731→          className="absolute top-2 left-2 text-white text-xs px-2 rounded"
+   732→          style={{ backgroundColor: 'rgba(0,0,0,0.7)' }}
+   733→        >
+   734→          {video.format.toUpperCase()}
+   735→        </div>
+   736→
+   737→        {/* Duration badge (bottom-right) */}
+   738→        {video.duration > 0 && (
+   739→          <div
+   740→            className="absolute bottom-2 right-2 text-white text-xs px-2 rounded"
+   741→            style={{ backgroundColor: 'rgba(0,0,0,0.7)' }}
+   742→          >
+   743→            {formatDuration(video.duration)}
+   744→          </div>
+   745→        )}
+   746→
+   747→        {/* Resume badge */}
+   748→        {resume && resume.position > 5 && (
+   749→          <div
+   750→            className="absolute bottom-2 left-2 text-xs px-2 rounded font-medium"
+   751→            style={{ backgroundColor: 'rgba(0,0,0,0.7)', color: '#06B6D4' }}
+   752→          >
+   753→            Resume from {formatDuration(resume.position)}
+   754→          </div>
+   755→        )}
+   756→
+   757→        {/* Play circle center */}
+   758→        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+   759→          <div
+   760→            className="flex items-center justify-center rounded-full"
+   761→            style={{
+   762→              width: 50,
+   763→              height: 50,
+   764→              backgroundColor: 'rgba(0,0,0,0.5)',
+   765→            }}
+   766→          >
+   767→            <Play size={22} className="text-white ml-1" />
+   768→          </div>
+   769→        </div>
+   770→      </div>
+   771→
+   772→      {/* Info */}
+   773→      <div className="p-2.5">
+   774→        <p className="text-white text-[13px] font-medium truncate">{video.name}</p>
+   775→        <p className="text-[#9CA3AF] text-[11px] truncate mt-0.5">
+   776→          {video.format.toUpperCase()}
+   777→          {resolution && ` • ${resolution}`}
+   778→          {` • ${formatFileSize(video.size)}`}
+   779→        </p>
+   780→      </div>
+   781→    </div>
+   782→  );
+   783→}
+   784→
+   785→// ══════════════════════════════════════════════════════════════
+   786→// LIST ROW SUBCOMPONENT
+   787→// ══════════════════════════════════════════════════════════════
+   788→
+   789→interface VideoListRowProps {
+   790→  video: VideoFile;
+   791→  thumbnail: string | undefined;
+   792→  resolution: string;
+   793→  resume: HistoryEntry | undefined;
+   794→  onThumbnailNeeded: (id: string) => void;
+   795→  onSelect: (video: VideoFile) => void;
+   796→  onMenu: (video: VideoFile, e?: React.MouseEvent) => void;
+   797→}
+   798→
+   799→function VideoListRow({
+   800→  video,
+   801→  thumbnail,
+   802→  resolution,
+   803→  resume,
+   804→  onThumbnailNeeded,
+   805→  onSelect,
+   806→  onMenu,
+   807→}: VideoListRowProps) {
+   808→  const rowRef = useRef<HTMLDivElement>(null);
+   809→  const observedRef = useRef(false);
+   810→
+   811→  // ── Intersection Observer for lazy thumbnail ──
+   812→  useEffect(() => {
+   813→    if (observedRef.current) return;
+   814→    const el = rowRef.current;
+   815→    if (!el) return;
+   816→
+   817→    const observer = new IntersectionObserver(
+   818→      (entries) => {
+   819→        if (entries[0].isIntersecting) {
+   820→          onThumbnailNeeded(video.id);
+   821→          observer.disconnect();
+   822→          observedRef.current = true;
+   823→        }
+   824→      },
+   825→      { threshold: 0.1 }
+   826→    );
+   827→
+   828→    observer.observe(el);
+   829→    return () => observer.disconnect();
+   830→  }, [video.id, onThumbnailNeeded]);
+   831→
+   832→  return (
+   833→    <div
+   834→      ref={rowRef}
+   835→      className="flex items-center gap-3 px-4 cursor-pointer hover:bg-[#141414] active:bg-[#1A1A1A]"
+   836→      style={{
+   837→        height: 72,
+   838→        minHeight: 72,
+   839→        transition: 'background 150ms',
+   840→      }}
+   841→      onClick={() => onSelect(video)}
+   842→    >
+   843→      {/* Thumbnail */}
+   844→      <div
+   845→        className="rounded-lg overflow-hidden shrink-0"
+   846→        style={{ width: 96, height: 54 }}
+   847→      >
+   848→        {thumbnail ? (
+   849→          <img
+   850→            src={thumbnail}
+   851→            alt={video.name}
+   852→            className="w-full h-full object-cover"
+   853→            loading="lazy"
+   854→          />
+   855→        ) : (
+   856→          <div
+   857→            className="w-full h-full flex items-center justify-center"
+   858→            style={{ backgroundColor: '#141414' }}
+   859→          >
+   860→            <Film size={18} className="text-[#1F1F1F]" />
+   861→          </div>
+   862→        )}
+   863→      </div>
+   864→
+   865→      {/* Info */}
+   866→      <div className="flex-1 min-w-0">
+   867→        <p className="text-white text-sm font-medium truncate">{video.name}</p>
+   868→        <p className="text-[#9CA3AF] text-xs truncate mt-0.5">
+   869→          {video.format.toUpperCase()}
+   870→          {resolution && ` • ${resolution}`}
+   871→          {` • ${formatFileSize(video.size)}`}
+   872→          {video.duration > 0 && ` • ${formatDuration(video.duration)}`}
+   873→        </p>
+   874→        {resume && resume.position > 5 && (
+   875→          <p className="text-xs mt-0.5 font-medium" style={{ color: '#06B6D4' }}>
+   876→            Resume from {formatDuration(resume.position)}
+   877→          </p>
+   878→        )}
+   879→      </div>
+   880→
+   881→      {/* Menu button */}
+   882→      <button
+   883→        onClick={(e) => onMenu(video, e)}
+   884→        className="flex items-center justify-center rounded-full hover:bg-white/10 shrink-0"
+   885→        style={{ width: 44, height: 44, minWidth: 44, minHeight: 44, transition: 'transform 100ms' }}
+   886→        aria-label="Video options"
+   887→      >
+   888→        <MoreVertical size={18} className="text-[#9CA3AF]" />
+   889→      </button>
+   890→    </div>
+   891→  );
+   892→}
+   893→

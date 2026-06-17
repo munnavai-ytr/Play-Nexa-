@@ -39,6 +39,7 @@ import {
 } from '@/lib/mediaUtils';
 import { useMediaLibrary } from '@/hooks/useMediaLibrary';
 import type { VideoViewMode } from '@/hooks/useMediaLibrary';
+import FileImportPreviewModal from '@/components/local/FileImportPreviewModal';
 
 // ══════════════════════════════════════════════════════════════
 // PROPS
@@ -105,7 +106,7 @@ interface HistoryEntry {
 // ══════════════════════════════════════════════════════════════
 
 export default function VideoLibrary({ onVideoSelect, onBack }: VideoLibraryProps) {
-  const { videos, scanning, videoView, scanVideoFiles, setVideoView, saveVideoPosition, getVideoPosition } = useMediaLibrary();
+  const { videos, scanning, videoView, scanVideoFiles, setVideoView, saveVideoPosition, getVideoPosition, isNative, pickVideoFiles, pickVideoFolder, pendingImport, confirmImport, cancelImport } = useMediaLibrary();
 
   // ── State ──
   const [activeTab, setActiveTab] = useState<TabKey>('all');
@@ -465,22 +466,56 @@ export default function VideoLibrary({ onVideoSelect, onBack }: VideoLibraryProp
           <div className="flex flex-col items-center justify-center py-16 gap-3">
             <Film size={48} className="text-[#1F1F1F]" />
             <p className="text-[#9CA3AF] text-sm">
-              {searchQuery ? 'No videos found' : 'No videos on device'}
+              {searchQuery ? 'No videos found' : isNative ? 'No videos on device' : 'No videos loaded yet'}
             </p>
             {!searchQuery && (
-              <button
-                onClick={() => scanVideoFiles(true)}
-                className="flex items-center gap-2 rounded-xl px-4 text-sm font-medium text-white"
-                style={{
-                  height: 44,
-                  minHeight: 44,
-                  backgroundColor: '#7C3AED',
-                  transition: 'background 150ms',
-                }}
-              >
-                <RefreshCw size={16} />
-                Scan Again
-              </button>
+              <>
+                {isNative ? (
+                  <button
+                    onClick={() => scanVideoFiles(true)}
+                    className="flex items-center gap-2 rounded-xl px-4 text-sm font-medium text-white"
+                    style={{
+                      height: 44,
+                      minHeight: 44,
+                      backgroundColor: '#7C3AED',
+                      transition: 'background 150ms',
+                    }}
+                  >
+                    <RefreshCw size={16} />
+                    Scan Again
+                  </button>
+                ) : (
+                  <div className="flex flex-col items-center gap-2 mt-1">
+                    <button
+                      onClick={pickVideoFiles}
+                      className="flex items-center gap-2 rounded-xl px-5 text-sm font-semibold text-white"
+                      style={{
+                        height: 44,
+                        minHeight: 44,
+                        backgroundColor: '#7C3AED',
+                        transition: 'background 150ms',
+                      }}
+                    >
+                      <Plus size={16} />
+                      Select Video Files
+                    </button>
+                    <button
+                      onClick={pickVideoFolder}
+                      className="flex items-center gap-2 rounded-xl px-4 text-xs font-medium text-[#7C3AED]"
+                      style={{
+                        height: 36,
+                        minHeight: 36,
+                        backgroundColor: 'transparent',
+                        border: '1px solid rgba(124, 58, 237, 0.3)',
+                        transition: 'border-color 150ms',
+                      }}
+                    >
+                      <FolderOpen size={14} />
+                      Or Select a Folder
+                    </button>
+                  </div>
+                )}
+              </>
             )}
           </div>
         )}
@@ -637,6 +672,20 @@ export default function VideoLibrary({ onVideoSelect, onBack }: VideoLibraryProp
             </div>
           </div>
         </div>
+      )}
+
+      {/* ════════════════════════════════════════════════════════
+          FILE IMPORT PREVIEW MODAL
+          Opens when user picks files via web file picker
+          Shows all selected videos with thumbnails → "Import All" commits
+          ════════════════════════════════════════════════════════ */}
+      {pendingImport && pendingImport.type === 'video' && (
+        <FileImportPreviewModal
+          files={pendingImport.files}
+          type="video"
+          onConfirm={confirmImport}
+          onCancel={cancelImport}
+        />
       )}
 
       {/* ── Spin animation for refresh ── */}

@@ -39,7 +39,7 @@ export default function VideoPlayer({ src, title, onClose }: VideoPlayerProps) {
     value: number
   } | null>(null)
 
-  const hideTimer = useRef<ReturnType<typeof setTimeout>>()
+  const hideTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
   const touchStart = useRef<{ y: number; x: number; val: number } | null>(null)
 
   // ── Format time ──
@@ -187,9 +187,14 @@ export default function VideoPlayer({ src, title, onClose }: VideoPlayerProps) {
     }
   }, [src])
 
-  // Cleanup timer
+  // Cleanup timer + video element on unmount
   useEffect(() => {
-    return () => { if (hideTimer.current) clearTimeout(hideTimer.current) }
+    return () => {
+      if (hideTimer.current) clearTimeout(hideTimer.current)
+      // Free video element resources
+      const v = videoRef.current
+      if (v) { v.pause(); v.src = ''; v.load() }
+    }
   }, [])
 
   const progress = duration > 0 ? (currentTime / duration) * 100 : 0

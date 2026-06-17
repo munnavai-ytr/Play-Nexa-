@@ -1,0 +1,1295 @@
+     1→// ── Play Nexa Device Music Explorer & Player ────────────────────────
+     2→// Real native Android storage scanner via @capacitor/filesystem
+     3→// Web browser fallback: HTML5 <input type="file" accept="audio/*">
+     4→// Premium AMOLED dark audio player with full controls
+     5→// Operates INDEPENDENTLY — never conflicts with Movie Hub or YT Music
+     6→// NO mock data, NO hardcoded audio paths, NO fake setTimeout
+     7→// 2GB RAM safe · 44px touch targets · Capacitor 6.x compatible
+     8→
+     9→'use client'
+    10→
+    11→import {
+    12→  useState,
+    13→  useCallback,
+    14→  useRef,
+    15→  useEffect,
+    16→  useMemo,
+    17→} from 'react'
+    18→import {
+    19→  Music,
+    20→  Play,
+    21→  Pause,
+    22→  SkipBack,
+    23→  SkipForward,
+    24→  Search,
+    25→  X,
+    26→  FolderOpen,
+    27→  RefreshCw,
+    28→  Headphones,
+    29→  ChevronRight,
+    30→  Volume2,
+    31→  VolumeX,
+    32→  Repeat,
+    33→  Repeat1,
+    34→  Shuffle,
+    35→  Trash2,
+    36→  MoreVertical,
+    37→  Smartphone,
+    38→  HardDrive,
+    39→} from 'lucide-react'
+    40→
+    41→// ═══════════════════════════════════════════════════════════════
+    42→// TYPES
+    43→// ═══════════════════════════════════════════════════════════════
+    44→
+    45→export interface DeviceAudioTrack {
+    46→  id: string
+    47→  name: string          // Display title (filename without extension)
+    48→  path: string          // Native file URI or blob URL
+    49→  url: string           // Playback-ready URL (converted for Capacitor or objectURL)
+    50→  size: number
+    51→  duration: number
+    52→  format: string        // 'mp3' | 'wav' | 'm4a' | 'aac' | 'flac' | 'ogg' | 'opus'
+    53→  source: 'native' | 'browser'
+    54→  folder: string        // Parent directory name
+    55→  addedAt: number
+    56→  file?: File           // Only available for browser-uploaded tracks
+    57→}
+    58→
+    59→type RepeatMode = 'off' | 'one' | 'all'
+    60→type SortOrder = 'name' | 'date' | 'size'
+    61→
+    62→// ═══════════════════════════════════════════════════════════════
+    63→// CONSTANTS
+    64→// ═══════════════════════════════════════════════════════════════
+    65→
+    66→const AUDIO_EXTENSIONS = new Set(['mp3', 'wav', 'm4a', 'aac', 'flac', 'ogg', 'opus'])
+    67→
+    68→const NATIVE_SCAN_DIRS = [
+    69→  '/storage/emulated/0/Music',
+    70→  '/storage/emulated/0/Download',
+    71→  '/storage/emulated/0/Downloads',
+    72→  '/storage/emulated/0/Audio',
+    73→  '/storage/emulated/0/Recordings',
+    74→  '/storage/emulated/0/Android/media',
+    75→]
+    76→
+    77→const LS_KEY_TRACKS = 'pn_device_tracks_v3'
+    78→const LS_KEY_VOLUME = 'pn_device_music_volume'
+    79→const LS_KEY_REPEAT = 'pn_device_music_repeat'
+    80→const LS_KEY_SHUFFLE = 'pn_device_music_shuffle'
+    81→
+    82→// ═══════════════════════════════════════════════════════════════
+    83→// HELPERS
+    84→// ═══════════════════════════════════════════════════════════════
+    85→
+    86→function isNativePlatform(): boolean {
+    87→  if (typeof window === 'undefined') return false
+    88→  const w = window as any
+    89→  if (w.Capacitor?.isNativePlatform?.()) return true
+    90→  if (w.Capacitor?.getPlatform?.() === 'android') return true
+    91→  return false
+    92→}
+    93→
+    94→function convertFileSrc(filePath: string): string {
+    95→  try {
+    96→    const { Capacitor } = require('@capacitor/core')
+    97→    return Capacitor.convertFileSrc(filePath)
+    98→  } catch {
+    99→    return filePath
+   100→  }
+   101→}
+   102→
+   103→function generateId(): string {
+   104→  return `dat_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+   105→}
+   106→
+   107→function formatDuration(seconds: number): string {
+   108→  if (!Number.isFinite(seconds) || seconds < 0) return '0:00'
+   109→  const h = Math.floor(seconds / 3600)
+   110→  const m = Math.floor((seconds % 3600) / 60)
+   111→  const s = Math.floor(seconds % 60)
+   112→  if (h > 0) return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`
+   113→  return `${m}:${s.toString().padStart(2, '0')}`
+   114→}
+   115→
+   116→function formatFileSize(bytes: number): string {
+   117→  if (!Number.isFinite(bytes) || bytes < 0) return '0 B'
+   118→  if (bytes >= 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024 / 1024).toFixed(1)} GB`
+   119→  if (bytes >= 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(0)} MB`
+   120→  if (bytes >= 1024) return `${(bytes / 1024).toFixed(0)} KB`
+   121→  return `${bytes} B`
+   122→}
+   123→
+   124→function getFileExtension(filename: string): string {
+   125→  const match = filename.toLowerCase().match(/\.([^.]+)$/)
+   126→  return match ? match[1] : ''
+   127→}
+   128→
+   129→function isAudioFile(filename: string): boolean {
+   130→  return AUDIO_EXTENSIONS.has(getFileExtension(filename))
+   131→}
+   132→
+   133→function extractFolder(filePath: string): string {
+   134→  const parts = filePath.replace(/\\/g, '/').split('/')
+   135→  return parts.length > 1 ? parts[parts.length - 2] : 'Root'
+   136→}
+   137→
+   138→function cleanTrackName(filename: string): string {
+   139→  return filename.replace(/\.[^.]+$/, '').replace(/_/g, ' ').replace(/\s+/g, ' ').trim()
+   140→}
+   141→
+   142→function lsGet<T>(key: string, fallback: T): T {
+   143→  try {
+   144→    const raw = localStorage.getItem(key)
+   145→    return raw !== null ? JSON.parse(raw) as T : fallback
+   146→  } catch { return fallback }
+   147→}
+   148→
+   149→function lsSet(key: string, value: any): void {
+   150→  try { localStorage.setItem(key, JSON.stringify(value)) } catch { /* quota */ }
+   151→}
+   152→
+   153→// ═══════════════════════════════════════════════════════════════
+   154→// NATIVE DEVICE SCANNER
+   155→// ═══════════════════════════════════════════════════════════════
+   156→
+   157→async function scanNativeDirectory(dirPath: string): Promise<DeviceAudioTrack[]> {
+   158→  const { Filesystem } = require('@capacitor/filesystem')
+   159→  const tracks: DeviceAudioTrack[] = []
+   160→
+   161→  try {
+   162→    const result = await Filesystem.readdir({
+   163→      path: dirPath,
+   164→      directory: undefined as any,
+   165→    })
+   166→
+   167→    for (const entry of result.files) {
+   168→      if (entry.type === 'file' && isAudioFile(entry.name)) {
+   169→        const fullPath = `${dirPath}/${entry.name}`
+   170→        const ext = getFileExtension(entry.name)
+   171→        const size = (entry as any).size || 0
+   172→
+   173→        tracks.push({
+   174→          id: generateId(),
+   175→          name: cleanTrackName(entry.name),
+   176→          path: fullPath,
+   177→          url: convertFileSrc(fullPath),
+   178→          size,
+   179→          duration: 0,
+   180→          format: ext,
+   181→          source: 'native',
+   182→          folder: extractFolder(fullPath),
+   183→          addedAt: Date.now(),
+   184→        })
+   185→      } else if (entry.type === 'directory' && !entry.name.startsWith('.')) {
+   186→        // Recurse one level deep into subdirectories
+   187→        try {
+   188→          const subPath = `${dirPath}/${entry.name}`
+   189→          const subResult = await Filesystem.readdir({
+   190→            path: subPath,
+   191→            directory: undefined as any,
+   192→          })
+   193→          for (const subEntry of subResult.files) {
+   194→            if (subEntry.type === 'file' && isAudioFile(subEntry.name)) {
+   195→              const fullPath = `${subPath}/${subEntry.name}`
+   196→              const ext = getFileExtension(subEntry.name)
+   197→              const size = (subEntry as any).size || 0
+   198→
+   199→              tracks.push({
+   200→                id: generateId(),
+   201→                name: cleanTrackName(subEntry.name),
+   202→                path: fullPath,
+   203→                url: convertFileSrc(fullPath),
+   204→                size,
+   205→                duration: 0,
+   206→                format: ext,
+   207→                source: 'native',
+   208→                folder: entry.name,
+   209→                addedAt: Date.now(),
+   210→              })
+   211→            }
+   212→          }
+   213→        } catch {
+   214→          // Subdirectory permission denied — skip silently
+   215→        }
+   216→      }
+   217→    }
+   218→  } catch {
+   219→    // Directory doesn't exist or permission denied — skip
+   220→  }
+   221→
+   222→  return tracks
+   223→}
+   224→
+   225→async function scanDeviceAudio(): Promise<DeviceAudioTrack[]> {
+   226→  if (!isNativePlatform()) return []
+   227→
+   228→  const allTracks: DeviceAudioTrack[] = []
+   229→  const seenPaths = new Set<string>()
+   230→
+   231→  // Scan all known audio directories in parallel
+   232→  const results = await Promise.allSettled(
+   233→    NATIVE_SCAN_DIRS.map(dir => scanNativeDirectory(dir))
+   234→  )
+   235→
+   236→  for (const result of results) {
+   237→    if (result.status === 'fulfilled') {
+   238→      for (const track of result.value) {
+   239→        if (!seenPaths.has(track.path)) {
+   240→          seenPaths.add(track.path)
+   241→          allTracks.push(track)
+   242→        }
+   243→      }
+   244→    }
+   245→  }
+   246→
+   247→  return allTracks
+   248→}
+   249→
+   250→// ═══════════════════════════════════════════════════════════════
+   251→// SEEK BAR COMPONENT
+   252→// ═══════════════════════════════════════════════════════════════
+   253→
+   254→function SeekBar({
+   255→  currentTime,
+   256→  duration,
+   257→  onSeek,
+   258→}: {
+   259→  currentTime: number
+   260→  duration: number
+   261→  onSeek: (seconds: number) => void
+   262→}) {
+   263→  const barRef = useRef<HTMLDivElement>(null)
+   264→  const percent = duration > 0 ? (currentTime / duration) * 100 : 0
+   265→
+   266→  const handleInteraction = useCallback((clientX: number) => {
+   267→    const bar = barRef.current
+   268→    if (!bar || duration <= 0) return
+   269→    const rect = bar.getBoundingClientRect()
+   270→    const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width))
+   271→    onSeek(ratio * duration)
+   272→  }, [duration, onSeek])
+   273→
+   274→  const handlePointerDown = useCallback((e: React.PointerEvent) => {
+   275→    handleInteraction(e.clientX)
+   276→    const onMove = (ev: PointerEvent) => handleInteraction(ev.clientX)
+   277→    const onUp = () => {
+   278→      window.removeEventListener('pointermove', onMove)
+   279→      window.removeEventListener('pointerup', onUp)
+   280→    }
+   281→    window.addEventListener('pointermove', onMove)
+   282→    window.addEventListener('pointerup', onUp)
+   283→  }, [handleInteraction])
+   284→
+   285→  return (
+   286→    <div className="w-full">
+   287→      <div
+   288→        ref={barRef}
+   289→        className="relative w-full h-6 flex items-center touch-none cursor-pointer"
+   290→        onPointerDown={handlePointerDown}
+   291→      >
+   292→        {/* Track background */}
+   293→        <div className="absolute left-0 right-0 h-1 bg-[#2D2D44] rounded-full" />
+   294→        {/* Progress fill */}
+   295→        <div
+   296→          className="absolute left-0 h-1 rounded-full"
+   297→          style={{
+   298→            width: `${percent}%`,
+   299→            background: 'linear-gradient(90deg, #7C3AED, #06B6D4)',
+   300→          }}
+   301→        />
+   302→        {/* Thumb */}
+   303→        <div
+   304→          className="absolute w-3.5 h-3.5 rounded-full bg-[#7C3AED] shadow-lg"
+   305→          style={{
+   306→            left: `${percent}%`,
+   307→            transform: 'translate(-50%, 0)',
+   308→            boxShadow: '0 0 8px rgba(124, 58, 237, 0.5)',
+   309→          }}
+   310→        />
+   311→      </div>
+   312→      <div className="flex justify-between mt-0.5 px-0.5">
+   313→        <span className="text-[10px] text-[#9CA3AF] tabular-nums">
+   314→          {formatDuration(currentTime)}
+   315→        </span>
+   316→        <span className="text-[10px] text-[#9CA3AF] tabular-nums">
+   317→          {formatDuration(duration)}
+   318→        </span>
+   319→      </div>
+   320→    </div>
+   321→  )
+   322→}
+   323→
+   324→// ═══════════════════════════════════════════════════════════════
+   325→// FORMAT BADGE
+   326→// ═══════════════════════════════════════════════════════════════
+   327→
+   328→const FORMAT_COLORS: Record<string, string> = {
+   329→  mp3: '#22C55E',
+   330→  wav: '#3B82F6',
+   331→  m4a: '#F59E0B',
+   332→  aac: '#EF4444',
+   333→  flac: '#8B5CF6',
+   334→  ogg: '#EC4899',
+   335→  opus: '#06B6D4',
+   336→}
+   337→
+   338→function FormatBadge({ format }: { format: string }) {
+   339→  const color = FORMAT_COLORS[format] || '#7C3AED'
+   340→  return (
+   341→    <span
+   342→      className="text-[8px] font-bold rounded px-1.5 py-0.5 uppercase"
+   343→      style={{
+   344→        background: `${color}18`,
+   345→        color,
+   346→        border: `1px solid ${color}44`,
+   347→      }}
+   348→    >
+   349→      {format}
+   350→    </span>
+   351→  )
+   352→}
+   353→
+   354→// ═══════════════════════════════════════════════════════════════
+   355→// MAIN COMPONENT
+   356→// ═══════════════════════════════════════════════════════════════
+   357→
+   358→export default function DeviceMusicExplorer() {
+   359→  // ── Track state ──
+   360→  const [tracks, setTracks] = useState<DeviceAudioTrack[]>([])
+   361→  const [searchQuery, setSearchQuery] = useState('')
+   362→  const [sortOrder, setSortOrder] = useState<SortOrder>('name')
+   363→  const [isNative, setIsNative] = useState(false)
+   364→  const [scanning, setScanning] = useState(false)
+   365→  const [scanError, setScanError] = useState<string | null>(null)
+   366→
+   367→  // ── Player state ──
+   368→  const [currentTrack, setCurrentTrack] = useState<DeviceAudioTrack | null>(null)
+   369→  const [isPlaying, setIsPlaying] = useState(false)
+   370→  const [currentTime, setCurrentTime] = useState(0)
+   371→  const [duration, setDuration] = useState(0)
+   372→  const [volume, setVolume] = useState(() => lsGet<number>(LS_KEY_VOLUME, 1))
+   373→  const [repeatMode, setRepeatMode] = useState<RepeatMode>(() => lsGet<RepeatMode>(LS_KEY_REPEAT, 'off'))
+   374→  const [isShuffle, setIsShuffle] = useState(() => lsGet<boolean>(LS_KEY_SHUFFLE, false))
+   375→  const [menuOpenId, setMenuOpenId] = useState<string | null>(null)
+   376→
+   377→  // ── Refs ──
+   378→  const audioRef = useRef<HTMLAudioElement | null>(null)
+   379→  const fileInputRef = useRef<HTMLInputElement>(null)
+   380→  const menuRef = useRef<HTMLDivElement>(null)
+   381→  const playlistRef = useRef<DeviceAudioTrack[]>([])
+   382→  const currentTrackRef = useRef<DeviceAudioTrack | null>(null)
+   383→  const repeatRef = useRef<RepeatMode>('off')
+   384→  const shuffleRef = useRef(false)
+   385→  const playRef = useRef<(track: DeviceAudioTrack) => void>(() => {})
+   386→
+   387→  // ── Create single Audio element ONCE ──
+   388→  if (!audioRef.current && typeof window !== 'undefined') {
+   389→    audioRef.current = new Audio()
+   390→    audioRef.current.preload = 'metadata'
+   391→  }
+   392→
+   393→  // ── Keep refs in sync ──
+   394→  useEffect(() => { playlistRef.current = tracks }, [tracks])
+   395→  useEffect(() => { currentTrackRef.current = currentTrack }, [currentTrack])
+   396→  useEffect(() => { repeatRef.current = repeatMode }, [repeatMode])
+   397→  useEffect(() => { shuffleRef.current = isShuffle }, [isShuffle])
+   398→
+   399→  // ── Audio event listeners ──
+   400→  useEffect(() => {
+   401→    const audio = audioRef.current
+   402→    if (!audio) return
+   403→
+   404→    const onTimeUpdate = () => {
+   405→      setCurrentTime(audio.currentTime)
+   406→    }
+   407→
+   408→    const onDurationChange = () => {
+   409→      const d = audio.duration
+   410→      if (Number.isFinite(d)) setDuration(d)
+   411→    }
+   412→
+   413→    const onEnded = () => {
+   414→      handleTrackEnd()
+   415→    }
+   416→
+   417→    const onError = () => {
+   418→      setIsPlaying(false)
+   419→    }
+   420→
+   421→    audio.addEventListener('timeupdate', onTimeUpdate)
+   422→    audio.addEventListener('durationchange', onDurationChange)
+   423→    audio.addEventListener('ended', onEnded)
+   424→    audio.addEventListener('error', onError)
+   425→
+   426→    return () => {
+   427→      audio.removeEventListener('timeupdate', onTimeUpdate)
+   428→      audio.removeEventListener('durationchange', onDurationChange)
+   429→      audio.removeEventListener('ended', onEnded)
+   430→      audio.removeEventListener('error', onError)
+   431→    }
+   432→  // eslint-disable-next-line react-hooks/exhaustive-deps
+   433→  }, [])
+   434→
+   435→  // ── Sync volume to audio element ──
+   436→  useEffect(() => {
+   437→    if (audioRef.current) audioRef.current.volume = volume
+   438→    lsSet(LS_KEY_VOLUME, volume)
+   439→  }, [volume])
+   440→
+   441→  // ── Sync repeat/shuffle to localStorage ──
+   442→  useEffect(() => { lsSet(LS_KEY_REPEAT, repeatMode) }, [repeatMode])
+   443→  useEffect(() => { lsSet(LS_KEY_SHUFFLE, isShuffle) }, [isShuffle])
+   444→
+   445→  // ── Close context menu on outside click ──
+   446→  useEffect(() => {
+   447→    const handler = (e: MouseEvent) => {
+   448→      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+   449→        setMenuOpenId(null)
+   450→      }
+   451→    }
+   452→    if (menuOpenId) document.addEventListener('mousedown', handler)
+   453→    return () => document.removeEventListener('mousedown', handler)
+   454→  }, [menuOpenId])
+   455→
+   456→  // ═══════════════════════════════════════════════════════════════
+   457→  // NATIVE SCANNING
+   458→  // ═══════════════════════════════════════════════════════════════
+   459→
+   460→  useEffect(() => {
+   461→    const native = isNativePlatform()
+   462→    setIsNative(native)
+   463→
+   464→    if (native) {
+   465→      // Auto-scan on native platform
+   466→      handleScanDevice()
+   467→    } else {
+   468→      // Browser: restore metadata from localStorage
+   469→      const saved = lsGet<DeviceAudioTrack[]>(LS_KEY_TRACKS, [])
+   470→      if (saved.length > 0) {
+   471→        setTracks(saved.map(t => ({
+   472→          ...t,
+   473→          url: '',       // Blob URLs don't persist — must re-upload
+   474→          file: undefined,
+   475→        })))
+   476→      }
+   477→    }
+   478→  // eslint-disable-next-line react-hooks/exhaustive-deps
+   479→  }, [])
+   480→
+   481→  const handleScanDevice = useCallback(async () => {
+   482→    setScanning(true)
+   483→    setScanError(null)
+   484→
+   485→    try {
+   486→      const nativeTracks = await scanDeviceAudio()
+   487→      if (nativeTracks.length > 0) {
+   488→        setTracks(nativeTracks)
+   489→        lsSet(LS_KEY_TRACKS, nativeTracks.map(t => ({
+   490→          id: t.id, name: t.name, path: t.path, size: t.size,
+   491→          duration: t.duration, format: t.format, source: t.source,
+   492→          folder: t.folder, addedAt: t.addedAt,
+   493→        })))
+   494→      } else {
+   495→        setScanError('No audio files found. Make sure MP3/WAV/M4A files exist in Music or Download folders.')
+   496→      }
+   497→    } catch (err: any) {
+   498→      setScanError(err?.message || 'Failed to scan device storage. Check storage permissions.')
+   499→    } finally {
+   500→      setScanning(false)
+   501→    }
+   502→  }, [])
+   503→
+   504→  // ═══════════════════════════════════════════════════════════════
+   505→  // BROWSER FILE UPLOAD
+   506→  // ═══════════════════════════════════════════════════════════════
+   507→
+   508→  const handleFileUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+   509→    const files = Array.from(e.target.files || [])
+   510→    if (!files.length) return
+   511→
+   512→    const now = Date.now()
+   513→    const newTracks: DeviceAudioTrack[] = files
+   514→      .filter(f => isAudioFile(f.name))
+   515→      .map((file, i) => {
+   516→        const ext = getFileExtension(file.name)
+   517→        const blobUrl = URL.createObjectURL(file)
+   518→        return {
+   519→          id: generateId(),
+   520→          name: cleanTrackName(file.name),
+   521→          path: file.name,
+   522→          url: blobUrl,
+   523→          size: file.size,
+   524→          duration: 0,
+   525→          format: ext,
+   526→          source: 'browser' as const,
+   527→          folder: 'Uploads',
+   528→          addedAt: now - i,
+   529→          file,
+   530→        }
+   531→      })
+   532→
+   533→    setTracks(prev => {
+   534→      const updated = [...newTracks, ...prev]
+   535→      lsSet(LS_KEY_TRACKS, updated.map(t => ({
+   536→        id: t.id, name: t.name, path: t.path, size: t.size,
+   537→        duration: t.duration, format: t.format, source: t.source,
+   538→        folder: t.folder, addedAt: t.addedAt,
+   539→      })))
+   540→      return updated
+   541→    })
+   542→
+   543→    // Extract durations asynchronously
+   544→    newTracks.forEach(track => {
+   545→      if (track.url && track.duration === 0) {
+   546→        const el = document.createElement('audio')
+   547→        el.preload = 'metadata'
+   548→        el.src = track.url
+   549→        el.onloadedmetadata = () => {
+   550→          const dur = el.duration
+   551→          setTracks(prev => prev.map(t =>
+   552→            t.id === track.id ? { ...t, duration: Number.isFinite(dur) ? dur : 0 } : t
+   553→          ))
+   554→        }
+   555→      }
+   556→    })
+   557→
+   558→    e.target.value = ''
+   559→  }, [])
+   560→
+   561→  // ═══════════════════════════════════════════════════════════════
+   562→  // PLAYBACK ENGINE
+   563→  // ═══════════════════════════════════════════════════════════════
+   564→
+   565→  const playTrack = useCallback((track: DeviceAudioTrack) => {
+   566→    const audio = audioRef.current
+   567→    if (!audio) return
+   568→
+   569→    // Pause current
+   570→    audio.pause()
+   571→
+   572→    // Resolve playback URL
+   573→    let playUrl = track.url
+   574→    if (!playUrl && track.file) {
+   575→      playUrl = URL.createObjectURL(track.file)
+   576→      setTracks(prev => prev.map(t =>
+   577→        t.id === track.id ? { ...t, url: playUrl } : t
+   578→      ))
+   579→    }
+   580→    if (!playUrl && track.source === 'native') {
+   581→      playUrl = convertFileSrc(track.path)
+   582→    }
+   583→
+   584→    if (!playUrl) return
+   585→
+   586→    audio.src = playUrl
+   587→    audio.volume = volume
+   588→    audio.load()
+   589→    audio.play().catch(() => setIsPlaying(false))
+   590→
+   591→    setCurrentTrack(track)
+   592→    setCurrentTime(0)
+   593→    setDuration(track.duration || 0)
+   594→    setIsPlaying(true)
+   595→
+   596→    // Update Media Session
+   597→    if ('mediaSession' in navigator) {
+   598→      try {
+   599→        navigator.mediaSession.metadata = new MediaMetadata({
+   600→          title: track.name,
+   601→          artist: track.folder,
+   602→          artwork: [{ src: '/icons/music-default.png', sizes: '512x512', type: 'image/png' }],
+   603→        })
+   604→        navigator.mediaSession.setActionHandler('play', () => {
+   605→          audio.play().catch(() => {})
+   606→          setIsPlaying(true)
+   607→          navigator.mediaSession.playbackState = 'playing'
+   608→        })
+   609→        navigator.mediaSession.setActionHandler('pause', () => {
+   610→          audio.pause()
+   611→          setIsPlaying(false)
+   612→          navigator.mediaSession.playbackState = 'paused'
+   613→        })
+   614→        navigator.mediaSession.setActionHandler('previoustrack', () => playPrevious())
+   615→        navigator.mediaSession.setActionHandler('nexttrack', () => playNext())
+   616→      } catch { /* MediaSession not available */ }
+   617→    }
+   618→  // eslint-disable-next-line react-hooks/exhaustive-deps
+   619→  }, [volume])
+   620→
+   621→  // Keep playRef in sync
+   622→  useEffect(() => { playRef.current = playTrack }, [playTrack])
+   623→
+   624→  const pauseTrack = useCallback(() => {
+   625→    const audio = audioRef.current
+   626→    if (audio) audio.pause()
+   627→    setIsPlaying(false)
+   628→    if ('mediaSession' in navigator) {
+   629→      try { navigator.mediaSession.playbackState = 'paused' } catch {}
+   630→    }
+   631→  }, [])
+   632→
+   633→  const resumeTrack = useCallback(() => {
+   634→    const audio = audioRef.current
+   635→    if (audio && currentTrackRef.current) {
+   636→      audio.play().catch(() => setIsPlaying(false))
+   637→      setIsPlaying(true)
+   638→      if ('mediaSession' in navigator) {
+   639→        try { navigator.mediaSession.playbackState = 'playing' } catch {}
+   640→      }
+   641→    }
+   642→  }, [])
+   643→
+   644→  const togglePlayPause = useCallback(() => {
+   645→    if (isPlaying) pauseTrack()
+   646→    else resumeTrack()
+   647→  }, [isPlaying, pauseTrack, resumeTrack])
+   648→
+   649→  const seekTo = useCallback((seconds: number) => {
+   650→    const audio = audioRef.current
+   651→    if (audio && Number.isFinite(seconds)) {
+   652→      audio.currentTime = Math.max(0, Math.min(seconds, audio.duration || 0))
+   653→      setCurrentTime(audio.currentTime)
+   654→    }
+   655→  }, [])
+   656→
+   657→  const getCurrentIndex = useCallback((): number => {
+   658→    if (!currentTrackRef.current) return -1
+   659→    return playlistRef.current.findIndex(t => t.id === currentTrackRef.current!.id)
+   660→  }, [])
+   661→
+   662→  const playNext = useCallback(() => {
+   663→    const list = playlistRef.current
+   664→    if (list.length === 0) return
+   665→
+   666→    const currentIdx = getCurrentIndex()
+   667→
+   668→    let nextIdx: number
+   669→    if (shuffleRef.current) {
+   670→      if (list.length === 1) { nextIdx = 0 }
+   671→      else {
+   672→        nextIdx = Math.floor(Math.random() * list.length)
+   673→        let attempt = 0
+   674→        while (nextIdx === currentIdx && attempt < 10) {
+   675→          nextIdx = Math.floor(Math.random() * list.length)
+   676→          attempt++
+   677→        }
+   678→      }
+   679→    } else {
+   680→      if (currentIdx < list.length - 1) {
+   681→        nextIdx = currentIdx + 1
+   682→      } else if (repeatRef.current === 'all') {
+   683→        nextIdx = 0
+   684→      } else {
+   685→        // Last song, repeat off
+   686→        pauseTrack()
+   687→        return
+   688→      }
+   689→    }
+   690→
+   691→    playRef.current(list[nextIdx])
+   692→  }, [getCurrentIndex, pauseTrack])
+   693→
+   694→  const playPrevious = useCallback(() => {
+   695→    const audio = audioRef.current
+   696→    if (audio && audio.currentTime > 3) {
+   697→      audio.currentTime = 0
+   698→      setCurrentTime(0)
+   699→      return
+   700→    }
+   701→
+   702→    const list = playlistRef.current
+   703→    if (list.length === 0) return
+   704→
+   705→    const currentIdx = getCurrentIndex()
+   706→
+   707→    let prevIdx: number
+   708→    if (shuffleRef.current) {
+   709→      if (list.length === 1) { prevIdx = 0 }
+   710→      else {
+   711→        prevIdx = Math.floor(Math.random() * list.length)
+   712→        let attempt = 0
+   713→        while (prevIdx === currentIdx && attempt < 10) {
+   714→          prevIdx = Math.floor(Math.random() * list.length)
+   715→          attempt++
+   716→        }
+   717→      }
+   718→    } else {
+   719→      if (currentIdx > 0) {
+   720→        prevIdx = currentIdx - 1
+   721→      } else if (repeatRef.current === 'all') {
+   722→        prevIdx = list.length - 1
+   723→      } else {
+   724→        if (audio) audio.currentTime = 0
+   725→        setCurrentTime(0)
+   726→        return
+   727→      }
+   728→    }
+   729→
+   730→    playRef.current(list[prevIdx])
+   731→  }, [getCurrentIndex])
+   732→
+   733→  const handleTrackEnd = useCallback(() => {
+   734→    const mode = repeatRef.current
+   735→    const audio = audioRef.current
+   736→    if (!audio) return
+   737→
+   738→    if (mode === 'one') {
+   739→      audio.currentTime = 0
+   740→      audio.play().catch(() => setIsPlaying(false))
+   741→      return
+   742→    }
+   743→
+   744→    const list = playlistRef.current
+   745→    if (list.length === 0) {
+   746→      setIsPlaying(false)
+   747→      return
+   748→    }
+   749→
+   750→    const currentIdx = list.findIndex(t => t.id === currentTrackRef.current?.id)
+   751→
+   752→    let nextIdx: number
+   753→    if (shuffleRef.current) {
+   754→      if (list.length === 1) {
+   755→        audio.currentTime = 0
+   756→        audio.play().catch(() => setIsPlaying(false))
+   757→        return
+   758→      }
+   759→      nextIdx = Math.floor(Math.random() * list.length)
+   760→      let attempt = 0
+   761→      while (nextIdx === currentIdx && attempt < 10) {
+   762→        nextIdx = Math.floor(Math.random() * list.length)
+   763→        attempt++
+   764→      }
+   765→    } else if (mode === 'all') {
+   766→      nextIdx = currentIdx < list.length - 1 ? currentIdx + 1 : 0
+   767→    } else {
+   768→      if (currentIdx < list.length - 1) {
+   769→        nextIdx = currentIdx + 1
+   770→      } else {
+   771→        setIsPlaying(false)
+   772→        setCurrentTime(0)
+   773→        return
+   774→      }
+   775→    }
+   776→
+   777→    playRef.current(list[nextIdx])
+   778→  // eslint-disable-next-line react-hooks/exhaustive-deps
+   779→  }, [])
+   780→
+   781→  // ── Remove track ──
+   782→  const removeTrack = useCallback((id: string) => {
+   783→    setTracks(prev => {
+   784→      const track = prev.find(t => t.id === id)
+   785→      if (track?.url && track.source === 'browser') {
+   786→        try { URL.revokeObjectURL(track.url) } catch {}
+   787→      }
+   788→      const updated = prev.filter(t => t.id !== id)
+   789→      lsSet(LS_KEY_TRACKS, updated.map(t => ({
+   790→        id: t.id, name: t.name, path: t.path, size: t.size,
+   791→        duration: t.duration, format: t.format, source: t.source,
+   792→        folder: t.folder, addedAt: t.addedAt,
+   793→      })))
+   794→      return updated
+   795→    })
+   796→    setMenuOpenId(null)
+   797→  }, [])
+   798→
+   799→  // ── Cycle repeat mode ──
+   800→  const cycleRepeat = useCallback(() => {
+   801→    setRepeatMode(prev => {
+   802→      if (prev === 'off') return 'one'
+   803→      if (prev === 'one') return 'all'
+   804→      return 'off'
+   805→    })
+   806→  }, [])
+   807→
+   808→  // ═══════════════════════════════════════════════════════════════
+   809→  // DERIVED: filtered + sorted tracks
+   810→  // ═══════════════════════════════════════════════════════════════
+   811→
+   812→  const displayedTracks = useMemo(() => {
+   813→    let list = tracks
+   814→
+   815→    // Search filter
+   816→    if (searchQuery.trim()) {
+   817→      const q = searchQuery.toLowerCase()
+   818→      list = list.filter(t =>
+   819→        t.name.toLowerCase().includes(q) ||
+   820→        t.folder.toLowerCase().includes(q) ||
+   821→        t.format.toLowerCase().includes(q)
+   822→      )
+   823→    }
+   824→
+   825→    // Sort
+   826→    const sorted = [...list].sort((a, b) => {
+   827→      switch (sortOrder) {
+   828→        case 'name': return a.name.localeCompare(b.name)
+   829→        case 'date': return b.addedAt - a.addedAt
+   830→        case 'size': return b.size - a.size
+   831→        default: return 0
+   832→      }
+   833→    })
+   834→
+   835→    return sorted
+   836→  }, [tracks, searchQuery, sortOrder])
+   837→
+   838→  // ── Folder grouping ──
+   839→  const folderGroups = useMemo(() => {
+   840→    const groups: Record<string, DeviceAudioTrack[]> = {}
+   841→    for (const track of displayedTracks) {
+   842→      const folder = track.folder || 'Unknown'
+   843→      if (!groups[folder]) groups[folder] = []
+   844→      groups[folder].push(track)
+   845→    }
+   846→    return Object.entries(groups).sort(([a], [b]) => a.localeCompare(b))
+   847→  }, [displayedTracks])
+   848→
+   849→  // ═══════════════════════════════════════════════════════════════
+   850→  // RENDER
+   851→  // ═══════════════════════════════════════════════════════════════
+   852→
+   853→  return (
+   854→    <div className="min-h-screen bg-[#050510] pb-28 relative">
+   855→      {/* Hidden file input for browser uploads */}
+   856→      <input
+   857→        ref={fileInputRef}
+   858→        type="file"
+   859→        accept="audio/*,.mp3,.wav,.m4a,.aac,.flac,.ogg,.opus"
+   860→        multiple
+   861→        onChange={handleFileUpload}
+   862→        className="hidden"
+   863→      />
+   864→
+   865→      {/* ═════════════════════════════════════════════════════════
+   866→          STICKY HEADER
+   867→          ═════════════════════════════════════════════════════════ */}
+   868→      <header className="sticky top-0 z-50 bg-[#050510]/95 border-b border-[#1A1A2E] px-4 h-14 flex items-center justify-between">
+   869→        <div className="flex items-center gap-2">
+   870→          <Music className="w-5 h-5 text-[#7C3AED]" />
+   871→          <h1 className="text-lg font-bold text-white">Device Music</h1>
+   872→        </div>
+   873→        <div className="flex items-center gap-2">
+   874→          <span className="text-[9px] font-medium text-[#9CA3AF] bg-[#1A1A2E] border border-[#2D2D44] rounded-full px-2 py-0.5">
+   875→            {tracks.length} {tracks.length === 1 ? 'track' : 'tracks'}
+   876→          </span>
+   877→        </div>
+   878→      </header>
+   879→
+   880→      {/* ═════════════════════════════════════════════════════════
+   881→          SOURCE BADGE (Native / Browser)
+   882→          ═════════════════════════════════════════════════════════ */}
+   883→      <div className="px-4 pt-3 pb-1">
+   884→        <div className="flex items-center gap-2">
+   885→          {isNative ? (
+   886→            <div className="flex items-center gap-1.5 bg-[#22C55E]/10 border border-[#22C55E]/25 rounded-full px-3 py-1.5">
+   887→              <Smartphone size={12} className="text-[#22C55E]" />
+   888→              <span className="text-[10px] font-semibold text-[#22C55E]">Native Storage</span>
+   889→            </div>
+   890→          ) : (
+   891→            <div className="flex items-center gap-1.5 bg-[#3B82F6]/10 border border-[#3B82F6]/25 rounded-full px-3 py-1.5">
+   892→              <HardDrive size={12} className="text-[#3B82F6]" />
+   893→              <span className="text-[10px] font-semibold text-[#3B82F6]">Browser Upload</span>
+   894→            </div>
+   895→          )}
+   896→        </div>
+   897→      </div>
+   898→
+   899→      {/* ═════════════════════════════════════════════════════════
+   900→          ACTION BAR: Scan / Upload / Sort
+   901→          ═════════════════════════════════════════════════════════ */}
+   902→      <div className="px-4 pt-2 pb-1">
+   903→        <div className="flex items-center gap-2">
+   904→          {isNative ? (
+   905→            <button
+   906→              onClick={handleScanDevice}
+   907→              disabled={scanning}
+   908→              className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-[#7C3AED]/10 border border-[#7C3AED]/25 text-[#7C3AED] text-xs font-semibold active:scale-95 transition-all duration-150 min-h-[44px] disabled:opacity-40"
+   909→            >
+   910→              <RefreshCw size={14} className={scanning ? 'animate-spin' : ''} />
+   911→              {scanning ? 'Scanning...' : 'Scan Device'}
+   912→            </button>
+   913→          ) : (
+   914→            <button
+   915→              onClick={() => fileInputRef.current?.click()}
+   916→              className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-[#7C3AED]/10 border border-[#7C3AED]/25 text-[#7C3AED] text-xs font-semibold active:scale-95 transition-all duration-150 min-h-[44px]"
+   917→            >
+   918→              <FolderOpen size={14} />
+   919→              Upload Audio
+   920→            </button>
+   921→          )}
+   922→
+   923→          {/* Sort dropdown */}
+   924→          <select
+   925→            value={sortOrder}
+   926→            onChange={(e) => setSortOrder(e.target.value as SortOrder)}
+   927→            className="bg-[#1A1A2E] border border-[#2D2D44] text-[#9CA3AF] text-[10px] rounded-lg px-2.5 py-2 outline-none focus:border-[#7C3AED] min-h-[44px] cursor-pointer"
+   928→          >
+   929→            <option value="name">A-Z</option>
+   930→            <option value="date">Recent</option>
+   931→            <option value="size">Size</option>
+   932→          </select>
+   933→        </div>
+   934→      </div>
+   935→
+   936→      {/* ═════════════════════════════════════════════════════════
+   937→          SEARCH BAR
+   938→          ═════════════════════════════════════════════════════════ */}
+   939→      <div className="px-4 pt-2 pb-2">
+   940→        <div className="relative">
+   941→          <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#4B5563]" size={14} />
+   942→          <input
+   943→            type="text"
+   944→            value={searchQuery}
+   945→            onChange={(e) => setSearchQuery(e.target.value)}
+   946→            placeholder="Search tracks, folders, formats..."
+   947→            className="w-full bg-[#1A1A2E] border border-[#2D2D44] rounded-xl pl-10 pr-4 py-2.5 text-white text-xs placeholder-[#4B5563] focus:outline-none focus:border-[#7C3AED] transition-colors min-h-[44px]"
+   948→            maxLength={100}
+   949→          />
+   950→          {searchQuery && (
+   951→            <button
+   952→              onClick={() => setSearchQuery('')}
+   953→              className="absolute right-3 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full bg-[#2D2D44] flex items-center justify-center"
+   954→            >
+   955→              <X size={10} className="text-white" />
+   956→            </button>
+   957→          )}
+   958→        </div>
+   959→      </div>
+   960→
+   961→      {/* ═════════════════════════════════════════════════════════
+   962→          SCAN ERROR
+   963→          ═════════════════════════════════════════════════════════ */}
+   964→      {scanError && (
+   965→        <div className="mx-4 mb-3 bg-red-500/10 border border-red-500/25 rounded-xl p-3">
+   966→          <p className="text-red-400 text-xs font-medium">{scanError}</p>
+   967→        </div>
+   968→      )}
+   969→
+   970→      {/* ═════════════════════════════════════════════════════════
+   971→          SCANNING SKELETON
+   972→          ═════════════════════════════════════════════════════════ */}
+   973→      {scanning && (
+   974→        <div className="px-4 py-8 flex flex-col items-center">
+   975→          <div className="w-10 h-10 border-2 border-[#7C3AED]/30 border-t-[#7C3AED] rounded-full animate-spin mb-3" />
+   976→          <p className="text-[#9CA3AF] text-xs">Scanning device storage...</p>
+   977→        </div>
+   978→      )}
+   979→
+   980→      {/* ═════════════════════════════════════════════════════════
+   981→          EMPTY STATE
+   982→          ═════════════════════════════════════════════════════════ */}
+   983→      {!scanning && displayedTracks.length === 0 && (
+   984→        <div className="flex flex-col items-center justify-center py-16 px-4">
+   985→          <div className="w-20 h-20 rounded-2xl bg-[#1A1A2E] flex items-center justify-center mb-4">
+   986→            <Music size={32} className="text-[#4B5563]" />
+   987→          </div>
+   988→          <p className="text-white font-semibold mb-1">
+   989→            {searchQuery ? 'No matches found' : 'No audio files yet'}
+   990→          </p>
+   991→          <p className="text-[#9CA3AF] text-sm text-center max-w-[260px] mb-4">
+   992→            {searchQuery
+   993→              ? 'Try a different search term.'
+   994→              : isNative
+   995→                ? 'Tap "Scan Device" to find MP3, WAV, and M4A files on your phone.'
+   996→                : 'Upload audio files from your computer to start playing.'}
+   997→          </p>
+   998→          {isNative ? (
+   999→            <button
+  1000→              onClick={handleScanDevice}
+  1001→              className="px-6 py-3 rounded-xl bg-[#7C3AED] text-white text-sm font-semibold active:scale-95 transition-transform duration-150 min-h-[44px]"
+  1002→            >
+  1003→              Scan Device
+  1004→            </button>
+  1005→          ) : (
+  1006→            <button
+  1007→              onClick={() => fileInputRef.current?.click()}
+  1008→              className="px-6 py-3 rounded-xl bg-[#7C3AED] text-white text-sm font-semibold active:scale-95 transition-transform duration-150 min-h-[44px]"
+  1009→            >
+  1010→              Upload Audio Files
+  1011→            </button>
+  1012→          )}
+  1013→        </div>
+  1014→      )}
+  1015→
+  1016→      {/* ═════════════════════════════════════════════════════════
+  1017→          TRACK LIST (grouped by folder)
+  1018→          ═════════════════════════════════════════════════════════ */}
+  1019→      {!scanning && displayedTracks.length > 0 && (
+  1020→        <div className="px-3 space-y-4">
+  1021→          {folderGroups.map(([folder, folderTracks]) => (
+  1022→            <div key={folder}>
+  1023→              {/* Folder header */}
+  1024→              <div className="flex items-center gap-2 px-1 mb-2">
+  1025→                <FolderOpen size={12} className="text-[#7C3AED]" />
+  1026→                <p className="text-[#9CA3AF] text-[11px] font-semibold tracking-wide uppercase">
+  1027→                  {folder}
+  1028→                </p>
+  1029→                <span className="text-[#4B5563] text-[10px]">
+  1030→                  ({folderTracks.length})
+  1031→                </span>
+  1032→              </div>
+  1033→
+  1034→              {/* Track rows */}
+  1035→              <div className="space-y-0.5">
+  1036→                {folderTracks.map(track => {
+  1037→                  const isCurrent = currentTrack?.id === track.id
+  1038→                  const isCurrentPlaying = isCurrent && isPlaying
+  1039→
+  1040→                  return (
+  1041→                    <div
+  1042→                      key={track.id}
+  1043→                      className={`relative flex items-center gap-3 px-2.5 py-2.5 rounded-xl transition-all duration-150 ${
+  1044→                        isCurrent
+  1045→                          ? 'bg-[#7C3AED]/8 border border-[#7C3AED]/12'
+  1046→                          : 'active:bg-[#1A1A2E]'
+  1047→                      }`}
+  1048→                    >
+  1049→                      {/* Left: Play/Music icon */}
+  1050→                      <button
+  1051→                        onClick={() => {
+  1052→                          if (isCurrent && isPlaying) pauseTrack()
+  1053→                          else playTrack(track)
+  1054→                        }}
+  1055→                        className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 cursor-pointer active:scale-90 transition-transform duration-100 ${
+  1056→                          isCurrent
+  1057→                            ? 'bg-[#7C3AED] shadow-[0_0_12px_rgba(124,58,237,0.2)]'
+  1058→                            : 'bg-[#1A1A2E]'
+  1059→                        }`}
+  1060→                      >
+  1061→                        {isCurrentPlaying ? (
+  1062→                          <div className="flex items-center gap-[2px]">
+  1063→                            {[1, 2, 3].map(i => (
+  1064→                              <div
+  1065→                                key={i}
+  1066→                                className="w-[2.5px] bg-white rounded-full animate-eq-bar"
+  1067→                                style={{ height: '10px', animationDelay: `${i * 0.15}s` }}
+  1068→                              />
+  1069→                            ))}
+  1070→                          </div>
+  1071→                        ) : isCurrent ? (
+  1072→                          <Pause size={14} className="text-white" fill="white" />
+  1073→                        ) : (
+  1074→                          <Play size={14} className="text-[#9CA3AF] ml-0.5" fill="currentColor" />
+  1075→                        )}
+  1076→                      </button>
+  1077→
+  1078→                      {/* Center: Track info */}
+  1079→                      <div className="flex-1 min-w-0">
+  1080→                        <p className={`text-[13px] font-semibold truncate leading-tight ${
+  1081→                          isCurrent ? 'text-[#7C3AED]' : 'text-white'
+  1082→                        }`}>
+  1083→                          {track.name}
+  1084→                        </p>
+  1085→                        <div className="flex items-center gap-2 mt-0.5">
+  1086→                          <FormatBadge format={track.format} />
+  1087→                          <span className="text-[#4B5563] text-[10px]">
+  1088→                            {formatFileSize(track.size)}
+  1089→                          </span>
+  1090→                          {track.duration > 0 && (
+  1091→                            <>
+  1092→                              <span className="text-[#2D2D44] text-[10px]">·</span>
+  1093→                              <span className="text-[#4B5563] text-[10px]">
+  1094→                                {formatDuration(track.duration)}
+  1095→                              </span>
+  1096→                            </>
+  1097→                          )}
+  1098→                        </div>
+  1099→                      </div>
+  1100→
+  1101→                      {/* Right: Three-dot menu */}
+  1102→                      <button
+  1103→                        onClick={(e) => {
+  1104→                          e.stopPropagation()
+  1105→                          setMenuOpenId(menuOpenId === track.id ? null : track.id)
+  1106→                        }}
+  1107→                        className="p-1.5 active:scale-90 transition-transform duration-100 flex-shrink-0"
+  1108→                      >
+  1109→                        <MoreVertical size={14} className="text-[#4B5563]" />
+  1110→                      </button>
+  1111→
+  1112→                      {/* Context menu */}
+  1113→                      {menuOpenId === track.id && (
+  1114→                        <div
+  1115→                          ref={menuRef}
+  1116→                          className="absolute right-2 top-12 z-30 min-w-[140px] bg-[#1A1A2E] border border-[#2D2D44] rounded-xl overflow-hidden shadow-lg shadow-black/60"
+  1117→                        >
+  1118→                          <button
+  1119→                            onClick={() => {
+  1120→                              playTrack(track)
+  1121→                              setMenuOpenId(null)
+  1122→                            }}
+  1123→                            className="flex items-center gap-2.5 w-full px-3.5 py-2.5 text-white text-[11px] font-medium active:bg-[#2D2D44] transition-colors"
+  1124→                          >
+  1125→                            <Play size={12} className="text-[#7C3AED]" />
+  1126→                            Play
+  1127→                          </button>
+  1128→                          <button
+  1129→                            onClick={() => {
+  1130→                              if (track.url && track.source === 'browser') {
+  1131→                                try { URL.revokeObjectURL(track.url) } catch {}
+  1132→                              }
+  1133→                              playTrack(track)
+  1134→                              setMenuOpenId(null)
+  1135→                            }}
+  1136→                            className="flex items-center gap-2.5 w-full px-3.5 py-2.5 text-white text-[11px] font-medium active:bg-[#2D2D44] transition-colors"
+  1137→                          >
+  1138→                            <RefreshCw size={12} className="text-[#06B6D4]" />
+  1139→                            Replay
+  1140→                          </button>
+  1141→                          <div className="border-t border-[#2D2D44]" />
+  1142→                          <button
+  1143→                            onClick={() => removeTrack(track.id)}
+  1144→                            className="flex items-center gap-2.5 w-full px-3.5 py-2.5 text-red-400 text-[11px] font-medium active:bg-[#2D2D44] transition-colors"
+  1145→                          >
+  1146→                            <Trash2 size={12} />
+  1147→                            Remove
+  1148→                          </button>
+  1149→                        </div>
+  1150→                      )}
+  1151→                    </div>
+  1152→                  )
+  1153→                })}
+  1154→              </div>
+  1155→            </div>
+  1156→          ))}
+  1157→        </div>
+  1158→      )}
+  1159→
+  1160→      {/* ═════════════════════════════════════════════════════════
+  1161→          PROMO BANNER: Online YT Music
+  1162→          ═════════════════════════════════════════════════════════ */}
+  1163→      <div className="px-4 mt-6">
+  1164→        <div className="flex items-center gap-3 p-3 rounded-xl bg-gradient-to-r from-[#7C3AED]/10 to-[#06B6D4]/5 border border-[#7C3AED]/15">
+  1165→          <div className="w-10 h-10 rounded-xl bg-[#7C3AED]/15 flex items-center justify-center flex-shrink-0">
+  1166→            <Headphones size={20} className="text-[#7C3AED]" />
+  1167→          </div>
+  1168→          <div className="flex-1 min-w-0">
+  1169→            <p className="text-white text-xs font-semibold">YT Music Library</p>
+  1170→            <p className="text-[#4B5563] text-[10px] mt-0.5">Stream millions of songs online</p>
+  1171→          </div>
+  1172→          <ChevronRight size={16} className="text-[#4B5563] flex-shrink-0" />
+  1173→        </div>
+  1174→      </div>
+  1175→
+  1176→      {/* ═════════════════════════════════════════════════════════
+  1177→          BOTTOM PLAYER BAR
+  1178→          Shows when a track is loaded — independent from Movie Hub
+  1179→          ═════════════════════════════════════════════════════════ */}
+  1180→      {currentTrack && (
+  1181→        <div className="fixed bottom-16 left-0 right-0 z-[9998] px-2 animate-[slide-up_300ms_ease-out]">
+  1182→          <div className="bg-[#0A0A1A] border border-[#2D2D44] rounded-2xl overflow-hidden shadow-[0_-4px_24px_rgba(0,0,0,0.8)]">
+  1183→            {/* Thin progress bar */}
+  1184→            <div className="h-[2px] bg-[#2D2D44] w-full">
+  1185→              <div
+  1186→                className="h-full transition-all duration-300 ease-linear"
+  1187→                style={{
+  1188→                  width: `${duration > 0 ? (currentTime / duration) * 100 : 0}%`,
+  1189→                  background: 'linear-gradient(90deg, #7C3AED, #06B6D4)',
+  1190→                }}
+  1191→              />
+  1192→            </div>
+  1193→
+  1194→            <div className="flex items-center gap-3 px-3 py-2.5">
+  1195→              {/* Track icon */}
+  1196→              <div className="w-10 h-10 rounded-lg bg-[#7C3AED]/15 flex items-center justify-center flex-shrink-0">
+  1197→                {isPlaying ? (
+  1198→                  <div className="flex items-center gap-[2px]">
+  1199→                    {[1, 2, 3].map(i => (
+  1200→                      <div
+  1201→                        key={i}
+  1202→                        className="w-[2px] bg-[#7C3AED] rounded-full animate-eq-bar"
+  1203→                        style={{ height: '8px', animationDelay: `${i * 0.15}s` }}
+  1204→                      />
+  1205→                    ))}
+  1206→                  </div>
+  1207→                ) : (
+  1208→                  <Music size={16} className="text-[#7C3AED]" />
+  1209→                )}
+  1210→              </div>
+  1211→
+  1212→              {/* Track info */}
+  1213→              <div className="flex-1 min-w-0">
+  1214→                <p className="text-white text-xs font-medium truncate">{currentTrack.name}</p>
+  1215→                <p className="text-[#4B5563] text-[10px]">
+  1216→                  {isPlaying ? formatDuration(currentTime) : 'Paused'} · {currentTrack.format.toUpperCase()}
+  1217→                </p>
+  1218→              </div>
+  1219→
+  1220→              {/* Controls */}
+  1221→              <div className="flex items-center gap-0.5">
+  1222→                <button
+  1223→                  onClick={playPrevious}
+  1224→                  className="w-8 h-8 flex items-center justify-center active:scale-90 transition-transform duration-100"
+  1225→                  aria-label="Previous"
+  1226→                >
+  1227→                  <SkipBack size={14} className="text-[#9CA3AF]" fill="currentColor" />
+  1228→                </button>
+  1229→                <button
+  1230→                  onClick={togglePlayPause}
+  1231→                  className="w-10 h-10 rounded-full bg-[#7C3AED] flex items-center justify-center active:scale-90 transition-transform duration-100"
+  1232→                  aria-label={isPlaying ? 'Pause' : 'Play'}
+  1233→                >
+  1234→                  {isPlaying ? (
+  1235→                    <Pause size={16} className="text-white" fill="white" />
+  1236→                  ) : (
+  1237→                    <Play size={16} className="text-white ml-0.5" fill="white" />
+  1238→                  )}
+  1239→                </button>
+  1240→                <button
+  1241→                  onClick={playNext}
+  1242→                  className="w-8 h-8 flex items-center justify-center active:scale-90 transition-transform duration-100"
+  1243→                  aria-label="Next"
+  1244→                >
+  1245→                  <SkipForward size={14} className="text-[#9CA3AF]" fill="currentColor" />
+  1246→                </button>
+  1247→              </div>
+  1248→            </div>
+  1249→
+  1250→            {/* Seek bar inside player */}
+  1251→            <div className="px-3 pb-2">
+  1252→              <SeekBar
+  1253→                currentTime={currentTime}
+  1254→                duration={duration}
+  1255→                onSeek={seekTo}
+  1256→              />
+  1257→            </div>
+  1258→
+  1259→            {/* Secondary controls row */}
+  1260→            <div className="flex items-center justify-between px-4 pb-2.5">
+  1261→              <button
+  1262→                onClick={() => setIsShuffle(!isShuffle)}
+  1263→                className={`w-8 h-8 flex items-center justify-center rounded-full transition-colors duration-150 ${
+  1264→                  isShuffle ? 'text-[#7C3AED] bg-[#7C3AED]/10' : 'text-[#4B5563]'
+  1265→                }`}
+  1266→                aria-label="Shuffle"
+  1267→              >
+  1268→                <Shuffle size={12} />
+  1269→              </button>
+  1270→
+  1271→              <button
+  1272→                onClick={() => setVolume(volume === 0 ? 1 : 0)}
+  1273→                className="w-8 h-8 flex items-center justify-center text-[#4B5563]"
+  1274→                aria-label={volume === 0 ? 'Unmute' : 'Mute'}
+  1275→              >
+  1276→                {volume === 0 ? <VolumeX size={12} /> : <Volume2 size={12} />}
+  1277→              </button>
+  1278→
+  1279→              <button
+  1280→                onClick={cycleRepeat}
+  1281→                className={`w-8 h-8 flex items-center justify-center rounded-full transition-colors duration-150 ${
+  1282→                  repeatMode !== 'off' ? 'text-[#7C3AED] bg-[#7C3AED]/10' : 'text-[#4B5563]'
+  1283→                }`}
+  1284→                aria-label={`Repeat: ${repeatMode}`}
+  1285→              >
+  1286→                {repeatMode === 'one' ? <Repeat1 size={12} /> : <Repeat size={12} />}
+  1287→              </button>
+  1288→            </div>
+  1289→          </div>
+  1290→        </div>
+  1291→      )}
+  1292→    </div>
+  1293→  )
+  1294→}
+  1295→

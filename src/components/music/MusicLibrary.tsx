@@ -6,6 +6,7 @@ import { useMusicPlayer } from '@/hooks/useMusicPlayer'
 import { formatDuration, formatFileSize, lsGet, lsSet } from '@/lib/mediaUtils'
 import type { Song } from '@/lib/mediaUtils'
 import EqualizerBars from './EqualizerBars'
+import FileImportPreviewModal from '@/components/local/FileImportPreviewModal'
 
 interface MusicLibraryProps {
   onSongSelect: (song: Song) => void
@@ -38,7 +39,7 @@ function stripExtension(name: string): string {
 }
 
 export default function MusicLibrary({ onSongSelect, onBack }: MusicLibraryProps) {
-  const { songs, scanning, musicSort, scanMusicFiles, setMusicSort, sortSongs } = useMediaLibrary()
+  const { songs, scanning, musicSort, scanMusicFiles, setMusicSort, sortSongs, isNative, pickMusicFiles, pickMusicFolder, pendingImport, confirmImport, cancelImport } = useMediaLibrary()
   const { currentSong, isPlaying, play, setPlaylist, playNext: playNextFn, addToPlaylist: addToPlaylistFn } = useMusicPlayer()
 
   const [showSearch, setShowSearch] = useState(false)
@@ -400,15 +401,41 @@ export default function MusicLibrary({ onSongSelect, onBack }: MusicLibraryProps
                   <circle cx="18" cy="16" r="3" />
                 </svg>
                 <p className="text-sm">
-                  {debouncedQuery ? 'No songs found' : 'No music files found'}
+                  {debouncedQuery ? 'No songs found' : isNative ? 'No music files found' : 'No music loaded yet'}
                 </p>
                 {!debouncedQuery && (
-                  <button
-                    onClick={() => scanMusicFiles(true)}
-                    className="mt-3 px-4 py-2 bg-[#7C3AED] text-white text-sm rounded-full music-btn-press"
-                  >
-                    Scan Again
-                  </button>
+                  <>
+                    {isNative ? (
+                      <button
+                        onClick={() => scanMusicFiles(true)}
+                        className="mt-3 px-4 py-2 bg-[#7C3AED] text-white text-sm rounded-full music-btn-press"
+                      >
+                        Scan Again
+                      </button>
+                    ) : (
+                      <div className="flex flex-col items-center gap-2 mt-3">
+                        <button
+                          onClick={pickMusicFiles}
+                          className="flex items-center gap-2 px-5 py-2.5 bg-[#7C3AED] text-white text-sm font-semibold rounded-full music-btn-press"
+                        >
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z" />
+                            <polyline points="13 2 13 9 20 9" />
+                          </svg>
+                          Select Music Files
+                        </button>
+                        <button
+                          onClick={pickMusicFolder}
+                          className="flex items-center gap-2 px-4 py-2 bg-transparent text-[#7C3AED] text-xs font-medium rounded-full border border-[#7C3AED]/30 music-btn-press"
+                        >
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+                          </svg>
+                          Or Select a Folder
+                        </button>
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             )}
@@ -590,6 +617,20 @@ export default function MusicLibrary({ onSongSelect, onBack }: MusicLibraryProps
             setShowOptions(false)
             setSelectedSong(null)
           }}
+        />
+      )}
+
+      {/* ════════════════════════════════════════════════════════
+          FILE IMPORT PREVIEW MODAL
+          Opens when user picks files via web file picker
+          Shows all selected files → "Import All" commits to library
+          ════════════════════════════════════════════════════════ */}
+      {pendingImport && pendingImport.type === 'music' && (
+        <FileImportPreviewModal
+          files={pendingImport.files}
+          type="music"
+          onConfirm={confirmImport}
+          onCancel={cancelImport}
         />
       )}
     </div>

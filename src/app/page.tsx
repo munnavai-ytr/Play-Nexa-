@@ -1,8 +1,15 @@
 'use client'
+import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 
 export default function HomePage() {
   const router = useRouter()
+  const [toast, setToast] = useState('')
+
+  const showToast = (msg: string) => {
+    setToast(msg)
+    setTimeout(() => setToast(''), 2500)
+  }
 
   const features = [
     {
@@ -93,15 +100,15 @@ export default function HomePage() {
           viewBox="0 0 24 24" fill="none"
           stroke="#7C3AED" strokeWidth="2"
           strokeLinecap="round">
-          <rect x="5" y="2" width="14"
-            height="20" rx="2" ry="2"/>
-          <line x1="12" y1="18" x2="12.01"
-            y2="18"/>
+          <rect x="4" y="4" width="7" height="7" rx="1.5"/>
+          <rect x="13" y="4" width="7" height="7" rx="1.5"/>
+          <rect x="4" y="13" width="7" height="7" rx="1.5"/>
+          <rect x="13" y="13" width="7" height="7" rx="1.5"/>
         </svg>
       ),
-      title: 'Platforms',
-      subtitle: 'Streaming Hub',
-      route: '/platforms',
+      title: 'More Tools',
+      subtitle: 'Coming Soon',
+      route: null, // no navigation — shows toast instead
     },
   ]
 
@@ -191,13 +198,20 @@ export default function HomePage() {
         gap-3">
         {features.map((feature) => (
           <button
-            key={feature.route}
-            onClick={() => router.push(feature.route)}
-            className="bg-[#12121C] rounded-2xl
+            key={feature.title}
+            onClick={() => {
+              if (feature.route) {
+                router.push(feature.route)
+              } else {
+                showToast('🚀 More tools coming soon! Stay tuned.')
+              }
+            }}
+            className={`bg-[#12121C] rounded-2xl
               p-5 text-left flex flex-col gap-4
               min-h-[120px] border border-[#1E1E2E]
               active:scale-95 transition-transform
-              duration-150"
+              duration-150
+              ${feature.route ? '' : 'opacity-70'}`}
           >
             <div className="w-11 h-11 rounded-xl
               bg-[#7C3AED]/10 flex items-center
@@ -217,6 +231,17 @@ export default function HomePage() {
           </button>
         ))}
       </div>
+
+      {/* TOAST (for More Tools card) */}
+      {toast && (
+        <div className="fixed bottom-24 left-1/2
+          -translate-x-1/2 z-[70] bg-[#1A1A1A]
+          border border-[#2D2D2D] rounded-full
+          px-5 py-3 shadow-lg">
+          <p className="text-white text-sm
+            whitespace-nowrap">{toast}</p>
+        </div>
+      )}
 
       {/* QUICK TOOLS */}
       <div className="px-5 mt-8">

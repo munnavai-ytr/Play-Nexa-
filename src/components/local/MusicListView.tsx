@@ -6,13 +6,19 @@
 // Online Music promo banner · Square music note icon
 // Bold title · Sub-metadata: [size] • [relative time] · Three-dot menu
 // content-visibility: auto · 60 FPS scroll · 2GB RAM safe
+//
+// ENGINE: useDeviceMedia hook — auto-scan on native, file/folder pick on web
+// UI: 100% unchanged from original
 
 import { useState, useCallback, useRef, useEffect } from 'react'
 import {
   Music, Plus, Play, Pause, Trash2, ChevronLeft,
-  MoreVertical, FileAudio, Headphones, ChevronRight
+  MoreVertical, FileAudio, Headphones, ChevronRight,
+  FolderOpen, RefreshCw
 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
+import { useDeviceMedia } from '@/lib/useDeviceMedia'
+import type { MediaFile } from '@/lib/useDeviceMedia'
 
 export interface LocalTrack {
   id: string
@@ -53,88 +59,42 @@ function timeAgo(timestamp: number): string {
   })
 }
 
+/** Convert MediaFile from hook → LocalTrack for parent compatibility */
+function toLocalTrack(mf: MediaFile): LocalTrack {
+  return {
+    id: mf.id,
+    name: mf.name,
+    url: mf.url,
+    size: mf.size,
+    duration: mf.duration,
+    file: mf.file || null,
+    addedAt: mf.addedAt,
+    lastPlayed: mf.lastPlayed,
+  }
+}
+
 export default function MusicListView({
   searchQuery, currentTrackId, isPlaying,
   onPlay, onPause, onConvertToMp3, onBack
 }: MusicListViewProps) {
   const router = useRouter()
-  const [tracks, setTracks] = useState<LocalTrack[]>([])
+  const {
+    files: mediaFiles,
+    scanning,
+    isNative,
+    scanProgress,
+    pickFiles,
+    pickFolder,
+    refreshScan,
+    removeFile,
+    getPlayableUrl,
+  } = useDeviceMedia('audio')
+
   const [menuOpen, setMenuOpen] = useState<string | null>(null)
-  const fileInputRef = useRef<HTMLInputElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
 
-  // ── Load metadata ──
-  useEffect(() => {
-    try {
-      const saved = localStorage.getItem('pn_local_tracks_v2')
-      if (saved) {
-        const meta = JSON.parse(saved) as LocalTrack[]
-        setTracks(meta.map(t => ({
-          ...t,
-          url: '',
-          file: null,
-          addedAt: t.addedAt || t.lastPlayed || Date.now()
-        })))
-      }
-    } catch {}
-  }, [])
-
-  const saveMeta = useCallback((list: LocalTrack[]) => {
-    const meta = list.map(t => ({
-      id: t.id, name: t.name, size: t.size,
-      duration: t.duration, addedAt: t.addedAt || Date.now(),
-      lastPlayed: t.lastPlayed
-    }))
-    localStorage.setItem('pn_local_tracks_v2', JSON.stringify(meta))
-  }, [])
-
-  // ── Pick audio files ──
-  const pickTracks = useCallback(() => { fileInputRef.current?.click() }, [])
-
-  const handleFiles = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files || []) as File[]
-    if (!files.length) return
-
-    const now = Date.now()
-    const newTracks: LocalTrack[] = files.map((file, i) => ({
-      id: `lt_${now}_${i}_${Math.random().toString(36).slice(2, 6)}`,
-      name: file.name.replace(/\.[^.]+$/, ''),
-      url: URL.createObjectURL(file),
-      size: file.size,
-      duration: 0,
-      file,
-      addedAt: now - i,
-    }))
-
-    setTracks(prev => {
-      const updated = [...newTracks, ...prev]
-      saveMeta(updated)
-      return updated
-    })
-    e.target.value = ''
-  }, [saveMeta])
-
-  // ── Get duration ──
-  useEffect(() => {
-    tracks.forEach(t => {
-      if (t.url && t.duration === 0) {
-        const el = document.createElement('audio')
-        el.preload = 'metadata'
-        el.src = t.url
-        el.onloadedmetadata = () => {
-          const dur = el.duration
-          setTracks(prev => {
-            const updated = prev.map(tr =>
-              tr.id === t.id ? { ...tr, duration: dur } : tr
-            )
-            saveMeta(updated)
-            return updated
-          })
-        }
-      }
-    })
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tracks.length])
+  // Map MediaFile[] → LocalTrack[] for parent compatibility
+  const tracks: LocalTrack[] = mediaFiles.map(toLocalTrack)
 
   // ── Close menu on outside click ──
   useEffect(() => {
@@ -147,29 +107,22 @@ export default function MusicListView({
     return () => document.removeEventListener('mousedown', handler)
   }, [menuOpen])
 
-  // ── Remove track ──
-  const removeTrack = useCallback((id: string) => {
-    setTracks(prev => {
-      const track = prev.find(t => t.id === id)
-      if (track?.url) try { URL.revokeObjectURL(track.url) } catch {}
-      const updated = prev.filter(t => t.id !== id)
-      saveMeta(updated)
-      return updated
-    })
-    setMenuOpen(null)
-  }, [saveMeta])
-
   // ── Play / Pause ──
   const handlePlay = useCallback((track: LocalTrack) => {
-    let playUrl = track.url
-    if (!playUrl && track.file) {
-      playUrl = URL.createObjectURL(track.file)
-      setTracks(prev => prev.map(t =>
-        t.id === track.id ? { ...t, url: playUrl } : t
-      ))
+    const mf = mediaFiles.find(f => f.id === track.id)
+    if (!mf) return
+
+    const playUrl = getPlayableUrl(mf)
+    if (playUrl) {
+      onPlay({ ...track, url: playUrl, lastPlayed: Date.now() })
     }
-    if (playUrl) onPlay({ ...track, url: playUrl, lastPlayed: Date.now() })
-  }, [onPlay])
+  }, [mediaFiles, getPlayableUrl, onPlay])
+
+  // ── Remove track ──
+  const handleRemove = useCallback((id: string) => {
+    removeFile(id)
+    setMenuOpen(null)
+  }, [removeFile])
 
   // ── Format helpers ──
   const fmtSize = (b: number) => {
@@ -185,17 +138,8 @@ export default function MusicListView({
 
   return (
     <div>
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept="audio/*"
-        multiple
-        onChange={handleFiles}
-        className="hidden"
-      />
-
       {/* ════════════════════════════════════════════════════════
-          COMPONENT HEADER — "< Music Player" + "+ Add"
+          COMPONENT HEADER — "< Music Player" + actions
           ════════════════════════════════════════════════════════ */}
       <div className="flex items-center justify-between px-3 h-12">
         <button
@@ -205,17 +149,56 @@ export default function MusicListView({
           <ChevronLeft size={20} className="text-white" />
           <span className="text-white text-sm font-semibold">Music Player</span>
         </button>
-        <button
-          onClick={pickTracks}
-          className="flex items-center gap-1 px-3 h-8 rounded-lg
-                     bg-[#7C5CFF]/10 border border-[#7C5CFF]/20
-                     text-[#7C5CFF] text-[11px] font-semibold
-                     active:scale-95 transition-transform duration-100"
-        >
-          <Plus size={14} />
-          Add
-        </button>
+        <div className="flex items-center gap-1.5">
+          {/* Refresh scan (native only) */}
+          {isNative && (
+            <button
+              onClick={refreshScan}
+              disabled={scanning}
+              className="flex items-center gap-1 px-2.5 h-8 rounded-lg
+                         bg-neutral-900 border border-neutral-800
+                         text-neutral-400 text-[10px] font-semibold
+                         active:scale-95 transition-transform duration-100"
+            >
+              <RefreshCw size={12} className={scanning ? 'animate-spin' : ''} />
+            </button>
+          )}
+          {/* Folder picker */}
+          <button
+            onClick={pickFolder}
+            className="flex items-center gap-1 px-2.5 h-8 rounded-lg
+                       bg-neutral-900 border border-neutral-800
+                       text-neutral-400 text-[10px] font-semibold
+                       active:scale-95 transition-transform duration-100"
+          >
+            <FolderOpen size={12} />
+          </button>
+          {/* Add files */}
+          <button
+            onClick={pickFiles}
+            className="flex items-center gap-1 px-3 h-8 rounded-lg
+                       bg-[#7C5CFF]/10 border border-[#7C5CFF]/20
+                       text-[#7C5CFF] text-[11px] font-semibold
+                       active:scale-95 transition-transform duration-100"
+          >
+            <Plus size={14} />
+            Add
+          </button>
+        </div>
       </div>
+
+      {/* ── Scan progress bar ── */}
+      {scanning && scanProgress && (
+        <div className="px-3 mb-2">
+          <div className="flex items-center gap-2 px-3 py-2 rounded-lg
+                          bg-[#7C5CFF]/5 border border-[#7C5CFF]/10">
+            <RefreshCw size={12} className="text-[#7C5CFF] animate-spin" />
+            <span className="text-[#7C5CFF] text-[10px] font-medium">
+              {scanProgress}
+            </span>
+          </div>
+        </div>
+      )}
 
       {/* ════════════════════════════════════════════════════════
           ONLINE MUSIC PROMOTIONAL BANNER
@@ -242,15 +225,28 @@ export default function MusicListView({
       {/* ── Track list content ── */}
       <div className="px-2">
         {/* Empty state */}
-        {filtered.length === 0 && (
+        {filtered.length === 0 && !scanning && (
           <div className="flex flex-col items-center justify-center py-20">
             <div className="w-14 h-14 rounded-2xl bg-neutral-900 flex items-center justify-center mb-4">
               <Music size={24} className="text-neutral-600" />
             </div>
             <p className="text-neutral-500 text-sm font-medium mb-1">No music found</p>
             <p className="text-neutral-700 text-xs text-center">
-              {searchQuery ? 'Try a different search term' : 'Tap "+ Add" to add audio files'}
+              {searchQuery ? 'Try a different search term' : isNative ? 'Pull down to scan device storage' : 'Tap "+ Add" or folder icon to add audio files'}
             </p>
+            {/* Folder picker CTA for web */}
+            {!isNative && !searchQuery && (
+              <button
+                onClick={pickFolder}
+                className="mt-4 flex items-center gap-2 px-4 py-2.5 rounded-xl
+                           bg-[#7C5CFF]/10 border border-[#7C5CFF]/20
+                           text-[#7C5CFF] text-xs font-semibold
+                           active:scale-95 transition-transform duration-150"
+              >
+                <FolderOpen size={16} />
+                Select Music Folder
+              </button>
+            )}
           </div>
         )}
 
@@ -358,7 +354,7 @@ export default function MusicListView({
                     </button>
                     <div className="border-t border-neutral-800" />
                     <button
-                      onClick={() => removeTrack(track.id)}
+                      onClick={() => handleRemove(track.id)}
                       className="flex items-center gap-2.5 w-full px-3.5 py-2.5 text-red-400 text-[11px]
                                  font-medium active:bg-neutral-800 transition-colors duration-100"
                     >

@@ -1,19 +1,19 @@
 'use client'
 
 // ── Play Nexa Media Library Scanner ───────────────────────────
-// Capacitor Filesystem + Web fallback for scanning media files
-// Uses pn_music_ / pn_video_ localStorage prefix
-// 2GB RAM safe · Lazy metadata loading · IntersectionObserver
+// NO mock data · NO hardcoded arrays · NO placeholder URLs
+// Dual-mode engine: Web file picker vs APK native auto-scan
+// URL.createObjectURL with garbage collection for 2GB RAM
 // 3-layer cache: Memory → localStorage (5min TTL) → Fresh scan
 
 import { useState, useCallback, useRef, useEffect } from 'react'
-import { Capacitor } from '@capacitor/core'
 import {
   isNativePlatform,
   getFileExtension,
   extractAudioMetadata,
   lsGet,
   lsSet,
+  generateId,
 } from '@/lib/mediaUtils'
 import type { Song, VideoFile } from '@/lib/mediaUtils'
 
@@ -49,6 +49,40 @@ let videoScanTimestamp: number = 0
 const CACHE_TTL_MS = 5 * 60 * 1000 // 5 minutes
 
 // ══════════════════════════════════════════════════════════════
+// FILE EXTENSION VALIDATION
+// ══════════════════════════════════════════════════════════════
+
+const AUDIO_EXTS = new Set(['mp3', 'wav', 'm4a', 'aac', 'flac', 'ogg', 'opus', 'wma', 'amr'])
+const VIDEO_EXTS = new Set(['mp4', 'mkv', 'avi', 'webm', '3gp', 'mov', 'flv', 'wmv', 'm4v', 'ts', 'mpg', 'mpeg'])
+
+function isValidAudioExt(ext: string): boolean {
+  return AUDIO_EXTS.has(ext.toLowerCase())
+}
+
+function isValidVideoExt(ext: string): boolean {
+  return VIDEO_EXTS.has(ext.toLowerCase())
+}
+
+function stripExtension(filename: string): string {
+  const dot = filename.lastIndexOf('.')
+  return dot >= 0 ? filename.slice(0, dot) : filename
+}
+
+// ══════════════════════════════════════════════════════════════
+// NATIVE PATH → WEB-VIEW URL CONVERSION
+// ══════════════════════════════════════════════════════════════
+
+function convertFileSrc(filePath: string): string {
+  try {
+    const w = window as any
+    if (w.Capacitor?.convertFileSrc) {
+      return w.Capacitor.convertFileSrc(filePath)
+    }
+  } catch {}
+  return filePath
+}
+
+// ══════════════════════════════════════════════════════════════
 // HOOK
 // ══════════════════════════════════════════════════════════════
 
@@ -66,7 +100,56 @@ export function useMediaLibrary() {
     lsGet<VideoViewMode>(VIDEO_VIEW_KEY, 'grid')
   )
 
+  // ── Pending import state — drives the FileImportPreviewModal ──
+  // User picks files → preview modal opens → user clicks "Import All" → files added
+  const [pendingImport, setPendingImport] = useState<{
+    files: File[]
+    type: 'music' | 'video'
+  } | null>(null)
+
   const abortRef = useRef(false)
+
+  // ── Object URL tracking for garbage collection (2GB RAM safe) ──
+  const objectUrlsRef = useRef<Set<string>>(new Set())
+
+  // ── File object storage (survives re-renders) ──
+  const songFileMap = useRef<Map<string, File>>(new Map())
+  const videoFileMap = useRef<Map<string, File>>(new Map())
+
+  // ── Environment detection ──
+  const isNative = typeof window !== 'undefined' && isNativePlatform()
+
+  // ── Register an object URL for later cleanup ──
+  const registerUrl = useCallback((url: string) => {
+    if (url.startsWith('blob:')) {
+      objectUrlsRef.current.add(url)
+    }
+  }, [])
+
+  // ── Revoke a single object URL ──
+  const revokeUrl = useCallback((url: string) => {
+    if (url.startsWith('blob:')) {
+      try { URL.revokeObjectURL(url) } catch {}
+      objectUrlsRef.current.delete(url)
+    }
+  }, [])
+
+  // ── Revoke all object URLs for a list of items ──
+  const revokeUrlsForItems = useCallback((items: { url: string }[]) => {
+    items.forEach(item => revokeUrl(item.url))
+  }, [revokeUrl])
+
+  // ── Cleanup ALL object URLs on unmount ──
+  useEffect(() => {
+    return () => {
+      objectUrlsRef.current.forEach(url => {
+        try { URL.revokeObjectURL(url) } catch {}
+      })
+      objectUrlsRef.current.clear()
+      songFileMap.current.clear()
+      videoFileMap.current.clear()
+    }
+  }, [])
 
   // ── Save sort/view preferences ──
   useEffect(() => {
@@ -170,7 +253,6 @@ export function useMediaLibrary() {
         if (stored && stored.length > 0 && ts) {
           const age = now - parseInt(ts)
           if (age < CACHE_TTL_MS) {
-            // Populate memory cache from localStorage
             musicCacheMemory = stored
             musicScanTimestamp = parseInt(ts)
             setSongs(stored)
@@ -182,7 +264,7 @@ export function useMediaLibrary() {
       }
     }
 
-    // ── Layer 3: Fresh scan ──
+    // ── Layer 3: Fresh scan (native only — web returns empty) ──
     setScanning(true)
     abortRef.current = false
 
@@ -192,7 +274,9 @@ export function useMediaLibrary() {
       if (isNativePlatform()) {
         result = await runMusicScan()
       } else {
-        result = getMockMusicData()
+        // ── WEB MODE: Return empty array — user must pick files manually ──
+        // NO mock data. Real files come from pickMusicFiles() / pickMusicFolder()
+        result = []
       }
 
       // Save to both memory + localStorage caches
@@ -234,7 +318,7 @@ export function useMediaLibrary() {
   // ════════════════════════════════════════════════════════════
 
   async function runMusicScan(): Promise<Song[]> {
-    if (!Capacitor.isNativePlatform()) return []
+    if (!isNativePlatform()) return []
 
     const { Filesystem } = (window as any).Capacitor?.Plugins || {}
     if (!Filesystem) return []
@@ -260,6 +344,7 @@ export function useMediaLibrary() {
           } else if (audioExts.some(ext => nameLower.endsWith(ext))) {
             const nameNoExt = file.name.replace(/\.[^.]+$/, '')
             const parts = nameNoExt.split(' - ')
+            const nativeUrl = convertFileSrc(fullPath)
 
             // Try to extract metadata lazily
             let meta = { title: '', artist: 'Unknown Artist', album: 'Unknown Album', duration: 0, artwork: null as string | null }
@@ -275,7 +360,7 @@ export function useMediaLibrary() {
               name: meta.title || parts[1]?.trim() || parts[0]?.trim() || nameNoExt,
               artist: meta.artist || parts[0]?.trim() || 'Unknown Artist',
               album: meta.album || 'Unknown Album',
-              url: fullPath,
+              url: nativeUrl,
               size: file.size || 0,
               duration: meta.duration,
               cover: meta.artwork,
@@ -311,21 +396,70 @@ export function useMediaLibrary() {
     return unique.sort((a, b) => a.name.localeCompare(b.name))
   }
 
-  // ── Web fallback: mock data for browser testing ──
-  function getMockMusicData(): Song[] {
-    return [
-      { id: 'mock_song_1',  name: 'Midnight Drive',      artist: 'Luna Wave',        album: 'Neon Horizons',    url: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3',  size: 4500000, duration: 221, cover: null, path: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3',  format: 'mp3' },
-      { id: 'mock_song_2',  name: 'Electric Sunset',     artist: 'Kai Zen',           album: 'Chromatic Dreams', url: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3',  size: 5100000, duration: 253, cover: null, path: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3',  format: 'mp3' },
-      { id: 'mock_song_3',  name: 'Fading Echoes',       artist: 'Nova Drift',        album: 'Silent Frequencies', url: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-3.mp3', size: 4800000, duration: 198, cover: null, path: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-3.mp3',  format: 'mp3' },
-      { id: 'mock_song_4',  name: 'Crystal Rain',        artist: 'Aria Bloom',        album: 'Glass Garden',     url: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3',  size: 4700000, duration: 234, cover: null, path: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3',  format: 'mp3' },
-      { id: 'mock_song_5',  name: 'Urban Pulse',         artist: 'Rivet & Stone',     album: 'Concrete Jungle',  url: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-5.mp3',  size: 4900000, duration: 267, cover: null, path: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-5.mp3',  format: 'mp3' },
-      { id: 'mock_song_6',  name: 'Velvet Horizon',      artist: 'Sable Moon',        album: 'Dusk to Dawn',     url: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-6.mp3',  size: 5200000, duration: 289, cover: null, path: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-6.mp3',  format: 'mp3' },
-      { id: 'mock_song_7',  name: 'Starlight Express',   artist: 'Orion Key',         album: 'Cosmic Relay',     url: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-7.mp3',  size: 4400000, duration: 186, cover: null, path: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-7.mp3',  format: 'mp3' },
-      { id: 'mock_song_8',  name: 'Deep Current',        artist: 'Tidal Shift',       album: 'Ocean Floor',      url: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-8.mp3',  size: 5300000, duration: 298, cover: null, path: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-8.mp3',  format: 'mp3' },
-      { id: 'mock_song_9',  name: 'Amber Glow',          artist: 'Haze & Vapor',      album: 'Warm Frequencies', url: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-9.mp3',  size: 4600000, duration: 212, cover: null, path: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-9.mp3',  format: 'mp3' },
-      { id: 'mock_song_10', name: 'Paper Trails',        artist: 'Fable & Ink',       album: 'Written in Sound', url: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-10.mp3', size: 5000000, duration: 245, cover: null, path: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-10.mp3', format: 'mp3' },
-    ]
-  }
+  // ════════════════════════════════════════════════════════════
+  // WEB FILE PICKER — Music Files (opens preview modal)
+  // Picker → user selects → preview modal opens → user clicks Import All
+  // NO metadata extraction here — that happens in background after import
+  // ════════════════════════════════════════════════════════════
+
+  const pickMusicFiles = useCallback(() => {
+    if (isNative) return // Hidden in APK mode — auto-scan handles it
+
+    const input = document.createElement('input')
+    input.type = 'file'
+    input.multiple = true
+    input.accept = 'audio/*'
+
+    input.onchange = (e: Event) => {
+      const target = e.target as HTMLInputElement
+      const fileList = Array.from(target.files || [])
+      if (fileList.length === 0) return
+
+      // Filter to valid audio extensions only
+      const audioFiles = fileList.filter(f => isValidAudioExt(getFileExtension(f.name)))
+      if (audioFiles.length === 0) return
+
+      // Open preview modal — no import yet
+      setPendingImport({ files: audioFiles, type: 'music' })
+    }
+
+    // Append to body for iOS Safari compatibility, then remove
+    document.body.appendChild(input)
+    input.click()
+    document.body.removeChild(input)
+  }, [isNative])
+
+  // ════════════════════════════════════════════════════════════
+  // WEB FOLDER PICKER — Music (opens preview modal)
+  // ════════════════════════════════════════════════════════════
+
+  const pickMusicFolder = useCallback(() => {
+    if (isNative) return
+
+    const input = document.createElement('input')
+    input.type = 'file'
+    input.multiple = true
+    input.accept = 'audio/*'
+    // @ts-ignore — webkitdirectory is non-standard but widely supported
+    input.webkitdirectory = true
+    // @ts-ignore
+    input.directory = true
+
+    input.onchange = (e: Event) => {
+      const target = e.target as HTMLInputElement
+      const fileList = Array.from(target.files || [])
+      if (fileList.length === 0) return
+
+      const audioFiles = fileList.filter(f => isValidAudioExt(getFileExtension(f.name)))
+      if (audioFiles.length === 0) return
+
+      setPendingImport({ files: audioFiles, type: 'music' })
+    }
+
+    document.body.appendChild(input)
+    input.click()
+    document.body.removeChild(input)
+  }, [isNative])
 
   // ════════════════════════════════════════════════════════════
   // SCAN VIDEO FILES — 3-layer cache
@@ -364,7 +498,7 @@ export function useMediaLibrary() {
       }
     }
 
-    // ── Layer 3: Fresh scan ──
+    // ── Layer 3: Fresh scan (native only — web returns empty) ──
     setScanning(true)
     abortRef.current = false
 
@@ -374,7 +508,9 @@ export function useMediaLibrary() {
       if (isNativePlatform()) {
         result = await runVideoScan()
       } else {
-        result = getMockVideoData()
+        // ── WEB MODE: Return empty array — user must pick files manually ──
+        // NO mock data. Real files come from pickVideoFiles() / pickVideoFolder()
+        result = []
       }
 
       // Save to both caches
@@ -415,7 +551,7 @@ export function useMediaLibrary() {
   // ════════════════════════════════════════════════════════════
 
   async function runVideoScan(): Promise<VideoFile[]> {
-    if (!Capacitor.isNativePlatform()) return []
+    if (!isNativePlatform()) return []
 
     const { Filesystem } = (window as any).Capacitor?.Plugins || {}
     if (!Filesystem) return []
@@ -439,11 +575,12 @@ export function useMediaLibrary() {
               await scanDir(fullPath, directory, depth + 1)
             }
           } else if (videoExts.some(ext => nameLower.endsWith(ext))) {
+            const nativeUrl = convertFileSrc(fullPath)
             videoFiles.push({
               id: `vid_${fullPath}`,
               path: fullPath,
               name: file.name.replace(/\.[^.]+$/, ''),
-              url: fullPath,
+              url: nativeUrl,
               size: file.size || 0,
               duration: 0,
               thumbnail: null,
@@ -484,16 +621,121 @@ export function useMediaLibrary() {
     return unique.sort((a, b) => a.name.localeCompare(b.name))
   }
 
-  // ── Web fallback: mock data for browser testing ──
-  function getMockVideoData(): VideoFile[] {
-    return [
-      { id: 'mock_vid_1', name: 'Big Buck Bunny',        path: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4',           url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4',           size: 125000000, duration: 596, thumbnail: null, format: 'mp4', width: 1280, height: 720, lastPlayed: null, progress: 0 },
-      { id: 'mock_vid_2', name: 'Elephants Dream',       path: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4',         url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4',         size: 105000000, duration: 653, thumbnail: null, format: 'mp4', width: 1280, height: 720, lastPlayed: null, progress: 0 },
-      { id: 'mock_vid_3', name: 'For Bigger Blazes',     path: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4',        url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4',        size: 89000000,  duration: 15,  thumbnail: null, format: 'mp4', width: 1280, height: 720, lastPlayed: null, progress: 0 },
-      { id: 'mock_vid_4', name: 'Subaru Outback On Street And Dirt', path: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/SubaruOutbackOnStreetAndDirt.mp4', url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/SubaruOutbackOnStreetAndDirt.mp4', size: 72000000, duration: 15,  thumbnail: null, format: 'mp4', width: 1280, height: 720, lastPlayed: null, progress: 0 },
-      { id: 'mock_vid_5', name: 'Tears of Steel',        path: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4',            url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4',            size: 135000000, duration: 734, thumbnail: null, format: 'mp4', width: 1280, height: 720, lastPlayed: null, progress: 0 },
-    ]
-  }
+  // ════════════════════════════════════════════════════════════
+  // WEB FILE PICKER — Video Files (opens preview modal)
+  // Picker → user selects → preview modal opens → user clicks Import All
+  // ════════════════════════════════════════════════════════════
+
+  const pickVideoFiles = useCallback(() => {
+    if (isNative) return
+
+    const input = document.createElement('input')
+    input.type = 'file'
+    input.multiple = true
+    input.accept = 'video/*'
+
+    input.onchange = (e: Event) => {
+      const target = e.target as HTMLInputElement
+      const fileList = Array.from(target.files || [])
+      if (fileList.length === 0) return
+
+      const videoFiles = fileList.filter(f => isValidVideoExt(getFileExtension(f.name)))
+      if (videoFiles.length === 0) return
+
+      setPendingImport({ files: videoFiles, type: 'video' })
+    }
+
+    document.body.appendChild(input)
+    input.click()
+    document.body.removeChild(input)
+  }, [isNative])
+
+  // ════════════════════════════════════════════════════════════
+  // WEB FOLDER PICKER — Video (opens preview modal)
+  // ════════════════════════════════════════════════════════════
+
+  const pickVideoFolder = useCallback(() => {
+    if (isNative) return
+
+    const input = document.createElement('input')
+    input.type = 'file'
+    input.multiple = true
+    input.accept = 'video/*'
+    // @ts-ignore — webkitdirectory is non-standard but widely supported
+    input.webkitdirectory = true
+    // @ts-ignore
+    input.directory = true
+
+    input.onchange = (e: Event) => {
+      const target = e.target as HTMLInputElement
+      const fileList = Array.from(target.files || [])
+      if (fileList.length === 0) return
+
+      const videoFiles = fileList.filter(f => isValidVideoExt(getFileExtension(f.name)))
+      if (videoFiles.length === 0) return
+
+      setPendingImport({ files: videoFiles, type: 'video' })
+    }
+
+    document.body.appendChild(input)
+    input.click()
+    document.body.removeChild(input)
+  }, [isNative])
+
+  // ════════════════════════════════════════════════════════════
+  // GET PLAYABLE URL — Re-create object URL from stored File if needed
+  // ════════════════════════════════════════════════════════════
+
+  const getPlayableSongUrl = useCallback((song: Song): string | null => {
+    if (song.url) return song.url
+
+    // Try to re-create from stored File
+    const file = song.file || songFileMap.current.get(song.id)
+    if (file) {
+      const objectUrl = URL.createObjectURL(file)
+      registerUrl(objectUrl)
+      // Update song in state
+      setSongs(prev => prev.map(s =>
+        s.id === song.id ? { ...s, url: objectUrl, file } : s
+      ))
+      return objectUrl
+    }
+
+    // Native path: re-convert
+    if (isNative && song.path) {
+      const nativeUrl = convertFileSrc(song.path)
+      setSongs(prev => prev.map(s =>
+        s.id === song.id ? { ...s, url: nativeUrl } : s
+      ))
+      return nativeUrl
+    }
+
+    return null
+  }, [isNative, registerUrl])
+
+  const getPlayableVideoUrl = useCallback((video: VideoFile): string | null => {
+    if (video.url) return video.url
+
+    const file = video.file || videoFileMap.current.get(video.id)
+    if (file) {
+      const objectUrl = URL.createObjectURL(file)
+      registerUrl(objectUrl)
+      setVideos(prev => prev.map(v =>
+        v.id === video.id ? { ...v, url: objectUrl, file } : v
+      ))
+      return objectUrl
+    }
+
+    if (isNative && video.path) {
+      const nativeUrl = convertFileSrc(video.path)
+      setVideos(prev => prev.map(v =>
+        v.id === video.id ? { ...v, url: nativeUrl } : v
+      ))
+      return nativeUrl
+    }
+
+    return null
+  }, [isNative, registerUrl])
 
   // ════════════════════════════════════════════════════════════
   // VIDEO HISTORY — save/restore watch positions
@@ -543,14 +785,13 @@ export function useMediaLibrary() {
   )
 
   // ════════════════════════════════════════════════════════════
-  // ADD SINGLE FILES (from file picker)
+  // ADD / REMOVE — with URL cleanup
   // ════════════════════════════════════════════════════════════
 
   const addSong = useCallback((song: Song) => {
     setSongs((prev) => {
       const updated = [...prev, song]
-      lsSet(MUSIC_SCAN_CACHE, updated)
-      // Update memory cache too
+      lsSet(MUSIC_SCAN_CACHE, updated.map(s => ({ ...s, url: '', file: undefined })))
       musicCacheMemory = updated
       return updated
     })
@@ -559,7 +800,7 @@ export function useMediaLibrary() {
   const addVideo = useCallback((video: VideoFile) => {
     setVideos((prev) => {
       const updated = [...prev, video]
-      lsSet(VIDEO_SCAN_CACHE, updated)
+      lsSet(VIDEO_SCAN_CACHE, updated.map(v => ({ ...v, url: '', file: undefined, thumbnail: null })))
       videoCacheMemory = updated
       return updated
     })
@@ -567,21 +808,27 @@ export function useMediaLibrary() {
 
   const removeSong = useCallback((id: string) => {
     setSongs((prev) => {
+      const song = prev.find((s) => s.id === id)
+      if (song?.url) revokeUrl(song.url)
+      songFileMap.current.delete(id)
       const updated = prev.filter((s) => s.id !== id)
-      lsSet(MUSIC_SCAN_CACHE, updated)
+      lsSet(MUSIC_SCAN_CACHE, updated.map(s => ({ ...s, url: '', file: undefined })))
       musicCacheMemory = updated
       return updated
     })
-  }, [])
+  }, [revokeUrl])
 
   const removeVideo = useCallback((id: string) => {
     setVideos((prev) => {
+      const video = prev.find((v) => v.id === id)
+      if (video?.url) revokeUrl(video.url)
+      videoFileMap.current.delete(id)
       const updated = prev.filter((v) => v.id !== id)
-      lsSet(VIDEO_SCAN_CACHE, updated)
+      lsSet(VIDEO_SCAN_CACHE, updated.map(v => ({ ...v, url: '', file: undefined, thumbnail: null })))
       videoCacheMemory = updated
       return updated
     })
-  }, [])
+  }, [revokeUrl])
 
   const abortScan = useCallback(() => {
     abortRef.current = true
@@ -599,6 +846,252 @@ export function useMediaLibrary() {
     }
   }, [])
 
+  // ── Background duration extractor for songs ──
+  // Uses lightweight <audio> element, no jsmediatags (which can hang on slow imports)
+  const extractSongDurationInBackground = useCallback((songId: string, file: File) => {
+    try {
+      const audio = document.createElement('audio')
+      audio.preload = 'metadata'
+      const url = URL.createObjectURL(file)
+      audio.src = url
+
+      const cleanup = () => {
+        try {
+          audio.removeAttribute('src')
+          audio.load()
+          URL.revokeObjectURL(url)
+        } catch {}
+      }
+
+      audio.onloadedmetadata = () => {
+        const duration = audio.duration
+        if (Number.isFinite(duration) && duration > 0) {
+          setSongs(prev => {
+            const updated = prev.map(s =>
+              s.id === songId ? { ...s, duration } : s
+            )
+            // Update memory cache too
+            if (musicCacheMemory) {
+              musicCacheMemory = musicCacheMemory.map(s =>
+                s.id === songId ? { ...s, duration } : s
+              )
+            }
+            try {
+              lsSet(MUSIC_SCAN_CACHE, updated.map(s => ({ ...s, url: '', file: undefined })))
+            } catch {}
+            return updated
+          })
+        }
+        cleanup()
+      }
+
+      audio.onerror = () => cleanup()
+
+      // Timeout after 5 seconds — don't leak audio elements
+      setTimeout(() => {
+        if (audio.readyState === 0) cleanup()
+      }, 5000)
+    } catch {
+      // Background extraction failed — leave duration as 0
+    }
+  }, [])
+
+  // ── Background metadata extractor for videos ──
+  // Extracts duration, width, height (no thumbnail — that's done lazily in UI)
+  const extractVideoMetadataInBackground = useCallback((videoId: string, file: File) => {
+    try {
+      const video = document.createElement('video')
+      video.preload = 'metadata'
+      const url = URL.createObjectURL(file)
+      video.src = url
+
+      const cleanup = () => {
+        try {
+          video.removeAttribute('src')
+          video.load()
+          URL.revokeObjectURL(url)
+        } catch {}
+      }
+
+      video.onloadedmetadata = () => {
+        const duration = video.duration
+        const width = video.videoWidth || 0
+        const height = video.videoHeight || 0
+
+        if (Number.isFinite(duration) || width > 0) {
+          setVideos(prev => {
+            const updated = prev.map(v =>
+              v.id === videoId
+                ? {
+                    ...v,
+                    duration: Number.isFinite(duration) ? duration : 0,
+                    width,
+                    height,
+                  }
+                : v
+            )
+            if (videoCacheMemory) {
+              videoCacheMemory = videoCacheMemory.map(v =>
+                v.id === videoId
+                  ? {
+                      ...v,
+                      duration: Number.isFinite(duration) ? duration : 0,
+                      width,
+                      height,
+                    }
+                  : v
+              )
+            }
+            try {
+              lsSet(VIDEO_SCAN_CACHE, updated.map(v => ({ ...v, url: '', file: undefined, thumbnail: null })))
+            } catch {}
+            return updated
+          })
+        }
+        cleanup()
+      }
+
+      video.onerror = () => cleanup()
+
+      setTimeout(() => {
+        if (video.readyState === 0) cleanup()
+      }, 5000)
+    } catch {
+      // Background extraction failed
+    }
+  }, [])
+
+
+
+  // ════════════════════════════════════════════════════════════
+  // CONFIRM IMPORT — called when user clicks "Import All" in preview modal
+  // Adds ALL pending files INSTANTLY with placeholder metadata
+  // Metadata (duration, artist, album) extracted in BACKGROUND afterwards
+  // ════════════════════════════════════════════════════════════
+
+  const confirmImport = useCallback(() => {
+    if (!pendingImport) return
+
+    const { files, type } = pendingImport
+    const now = Date.now()
+
+    if (type === 'music') {
+      // ── Add all music files INSTANTLY with placeholder metadata ──
+      const newSongs: Song[] = files.map(file => {
+        const ext = getFileExtension(file.name)
+        const objectUrl = URL.createObjectURL(file)
+        registerUrl(objectUrl)
+
+        // Parse filename for "Artist - Title" pattern (synchronous, no await)
+        const nameNoExt = stripExtension(file.name)
+        const nameClean = nameNoExt.replace(/_/g, ' ').replace(/\s+/g, ' ').trim()
+        let artist = 'Unknown Artist'
+        let title = nameClean
+        if (nameClean.includes(' - ')) {
+          const parts = nameClean.split(' - ')
+          artist = parts[0].trim()
+          title = parts.slice(1).join(' - ').trim() || nameClean
+        }
+
+        const id = generateId('song')
+        songFileMap.current.set(id, file)
+
+        return {
+          id,
+          name: title,
+          artist,
+          album: 'Unknown Album',
+          url: objectUrl,
+          size: file.size,
+          duration: 0, // Will be filled by background extractor
+          cover: null,
+          path: file.webkitRelativePath || file.name,
+          format: ext,
+          file,
+        }
+      })
+
+      setSongs(prev => {
+        const existingKeys = new Set(prev.map(s => `${s.name}_${s.size}`))
+        const unique = newSongs.filter(s => !existingKeys.has(`${s.name}_${s.size}`))
+        const updated = [...unique, ...prev]
+        musicCacheMemory = updated
+        musicScanTimestamp = now
+        try {
+          lsSet(MUSIC_SCAN_CACHE, updated.map(s => ({ ...s, url: '', file: undefined })))
+          lsSet(MUSIC_SCAN_TS, String(now))
+        } catch {}
+        return updated
+      })
+
+      // ── Background: extract duration for each song, one at a time ──
+      // Use setTimeout chunking — yields to UI thread between each file (2GB RAM safe)
+      newSongs.forEach((song, idx) => {
+        setTimeout(() => {
+          extractSongDurationInBackground(song.id, song.file!)
+        }, idx * 50) // 50ms gap = ~20 files/sec, no UI blocking
+      })
+    } else {
+      // ── Add all video files INSTANTLY ──
+      const newVideos: VideoFile[] = files.map(file => {
+        const ext = getFileExtension(file.name)
+        const objectUrl = URL.createObjectURL(file)
+        registerUrl(objectUrl)
+
+        const id = generateId('vid')
+        videoFileMap.current.set(id, file)
+
+        const folder = file.webkitRelativePath
+          ? file.webkitRelativePath.split('/').slice(0, -1).join('/')
+          : 'Browser'
+
+        return {
+          id,
+          name: stripExtension(file.name),
+          url: objectUrl,
+          size: file.size,
+          duration: 0,
+          thumbnail: null,
+          path: folder,
+          format: ext,
+          width: 0,
+          height: 0,
+          lastPlayed: null,
+          progress: 0,
+          file,
+        }
+      })
+
+      setVideos(prev => {
+        const existingKeys = new Set(prev.map(v => `${v.name}_${v.size}`))
+        const unique = newVideos.filter(v => !existingKeys.has(`${v.name}_${v.size}`))
+        const updated = [...unique, ...prev]
+        videoCacheMemory = updated
+        videoScanTimestamp = now
+        try {
+          lsSet(VIDEO_SCAN_CACHE, updated.map(v => ({ ...v, url: '', file: undefined, thumbnail: null })))
+          lsSet(VIDEO_SCAN_TS, String(now))
+        } catch {}
+        return updated
+      })
+
+      // Background: extract video duration + dimensions, one at a time
+      newVideos.forEach((video, idx) => {
+        setTimeout(() => {
+          extractVideoMetadataInBackground(video.id, video.file!)
+        }, idx * 80) // 80ms gap — videos are heavier than audio
+      })
+    }
+
+    // Clear pending import — closes the preview modal
+    setPendingImport(null)
+  }, [pendingImport, registerUrl, extractSongDurationInBackground, extractVideoMetadataInBackground])
+
+  // ── Cancel import — discard pending files ──
+  const cancelImport = useCallback(() => {
+    setPendingImport(null)
+  }, [])
+
   return {
     songs,
     videos,
@@ -606,6 +1099,7 @@ export function useMediaLibrary() {
     permissionGranted,
     musicSort,
     videoView,
+    isNative,
     scanMusicFiles,
     scanVideoFiles,
     requestMediaPermission,
@@ -621,13 +1115,20 @@ export function useMediaLibrary() {
     getVideoHistory,
     saveVideoPosition,
     getVideoPosition,
+    // Web file pickers — hidden in APK mode
+    pickMusicFiles,
+    pickMusicFolder,
+    pickVideoFiles,
+    pickVideoFolder,
+    // Preview modal + import flow
+    pendingImport,
+    confirmImport,
+    cancelImport,
+    // Playable URL re-creation
+    getPlayableSongUrl,
+    getPlayableVideoUrl,
+    // URL cleanup
+    revokeUrl,
+    revokeUrlsForItems,
   }
-}
-
-// ══════════════════════════════════════════════════════════════
-// HELPER: generateId (local, avoids circular import)
-// ══════════════════════════════════════════════════════════════
-
-function generateId(prefix: string): string {
-  return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
 }

@@ -1,0 +1,682 @@
+     1→     1→"use client"
+     2→     2→import { useState, useEffect } from 'react'
+     3→     3→import { useRouter } from 'next/navigation'
+     4→     4→import {
+     5→     5→  Settings, ChevronRight, Download,
+     6→     6→  Heart, ListMusic, Gamepad2,
+     7→     7→  Moon, Bell, HelpCircle,
+     8→     8→  Star, Share2, Clock, LogIn,
+     9→     9→  Shield, Zap
+    10→    10→} from 'lucide-react'
+    11→    11→import { useProfile } from '@/hooks/useProfile'
+    12→    12→import { useAuth } from '@/hooks/useAuth'
+    13→    13→import { logout, upgradeGuestWithGoogle, upgradeGuestWithEmail } from '@/lib/firebaseAuth'
+    14→    14→import { getSettings, saveSettings } from '@/lib/settings'
+    15→    15→import { applyTheme } from '@/lib/theme'
+    16→    16→
+    17→    17→const AVATAR_COLORS = [
+    18→    18→  '#7C3AED','#06B6D4','#FF6B6B',
+    19→    19→  '#FFD93D','#6BCB77','#FF922B'
+    20→    20→]
+    21→    21→
+    22→    22→export default function ProfilePage() {
+    23→    23→  const router = useRouter()
+    24→    24→  const { profile, loading, updateProfile } = useProfile()
+    25→    25→  const { user, supabaseProfile, isLoading: authLoading, isLoggedIn, isGuest } = useAuth()
+    26→    26→  const [showEdit, setShowEdit]   = useState(false)
+    27→    27→  const [editName, setEditName]   = useState('')
+    28→    28→  const [editHandle, setEditHandle] = useState('')
+    29→    29→  const [darkMode, setDarkMode]   = useState(true)
+    30→    30→  const [showRating, setShowRating] = useState(false)
+    31→    31→  const [ratingValue, setRatingValue] = useState(0)
+    32→    32→  const [ratingDone, setRatingDone] = useState(false)
+    33→    33→  const [shareToast, setShareToast] = useState(false)
+    34→    34→  const [signingOut, setSigningOut] = useState(false)
+    35→    35→  const [showUpgrade, setShowUpgrade] = useState(false)
+    36→    36→  const [upgradeEmail, setUpgradeEmail] = useState('')
+    37→    37→  const [upgradePassword, setUpgradePassword] = useState('')
+    38→    38→  const [upgradeName, setUpgradeName] = useState('')
+    39→    39→  const [upgradeLoading, setUpgradeLoading] = useState(false)
+    40→    40→  const [upgradeError, setUpgradeError] = useState('')
+    41→    41→
+    42→    42→  useEffect(() => {
+    43→    43→    const s = getSettings()
+    44→    44→    setDarkMode(s.theme !== 'amoled')
+    45→    45→    const rated = localStorage.getItem('pn_rated')
+    46→    46→    if (rated) {
+    47→    47→      setRatingValue(parseInt(rated))
+    48→    48→      setRatingDone(true)
+    49→    49→    }
+    50→    50→  }, [])
+    51→    51→
+    52→    52→  // ── Loading state ──
+    53→    53→  if (loading || authLoading) return <ProfileSkeleton />
+    54→    54→
+    55→    55→  // ── Determine display info ──
+    56→    56→  const displayName = isGuest
+    57→    57→    ? 'Guest User'
+    58→    58→    : (user?.displayName || supabaseProfile?.display_name || profile.username)
+    59→    59→  const displayEmail = isGuest
+    60→    60→    ? ''
+    61→    61→    : (user?.email || supabaseProfile?.email || '')
+    62→    62→  const displayCoins = supabaseProfile?.coins || 0
+    63→    63→  const avatarInitial = (displayName || 'U')[0].toUpperCase()
+    64→    64→
+    65→    65→  const openEdit = () => {
+    66→    66→    setEditName(displayName)
+    67→    67→    setEditHandle(profile.handle.replace('@', ''))
+    68→    68→    setShowEdit(true)
+    69→    69→  }
+    70→    70→
+    71→    71→  const saveEdit = () => {
+    72→    72→    if (!editName.trim()) return
+    73→    73→    updateProfile({
+    74→    74→      username: editName.trim(),
+    75→    75→      handle: '@' + editHandle.trim()
+    76→    76→        .replace('@', '')
+    77→    77→        .replace(/\s/g, '_')
+    78→    78→        .toLowerCase()
+    79→    79→    })
+    80→    80→    setShowEdit(false)
+    81→    81→  }
+    82→    82→
+    83→    83→  const handleDarkMode = (val: boolean) => {
+    84→    84→    setDarkMode(val)
+    85→    85→    const theme = val ? 'dark' : 'amoled'
+    86→    86→    saveSettings({ theme })
+    87→    87→    applyTheme(theme)
+    88→    88→  }
+    89→    89→
+    90→    90→  const handleRate = () => {
+    91→    91→    const isStandalone =
+    92→    92→      window.matchMedia('(display-mode: standalone)').matches ||
+    93→    93→      (window.navigator as any).standalone === true
+    94→    94→    const isAndroid = /android/i.test(navigator.userAgent)
+    95→    95→    const PLAY_STORE_URL = 'https://play.google.com/store/apps'
+    96→    96→    if (isStandalone && isAndroid) {
+    97→    97→      window.open(PLAY_STORE_URL, '_blank', 'noopener,noreferrer')
+    98→    98→    } else {
+    99→    99→      setShowRating(true)
+   100→   100→    }
+   101→   101→  }
+   102→   102→
+   103→   103→  const submitRating = () => {
+   104→   104→    if (ratingValue === 0) return
+   105→   105→    localStorage.setItem('pn_rated', String(ratingValue))
+   106→   106→    setRatingDone(true)
+   107→   107→    setShowRating(false)
+   108→   108→  }
+   109→   109→
+   110→   110→  const handleShare = async () => {
+   111→   111→    const shareData = {
+   112→   112→      title: 'Play Nexa App',
+   113→   113→      text: '🎬 Check out Play Nexa — Premium entertainment platform! Watch movies, play games and more!',
+   114→   114→      url: window.location.origin
+   115→   115→    }
+   116→   116→    try {
+   117→   117→      if (navigator.share && navigator.canShare && navigator.canShare(shareData)) {
+   118→   118→        await navigator.share(shareData)
+   119→   119→      } else {
+   120→   120→        await navigator.clipboard.writeText(`${shareData.text}\n${shareData.url}`)
+   121→   121→        setShareToast(true)
+   122→   122→        setTimeout(() => setShareToast(false), 2500)
+   123→   123→      }
+   124→   124→    } catch (err: any) {
+   125→   125→      if (err?.name === 'AbortError') return
+   126→   126→      try {
+   127→   127→        await navigator.clipboard.writeText(window.location.origin)
+   128→   128→        setShareToast(true)
+   129→   129→        setTimeout(() => setShareToast(false), 2500)
+   130→   130→      } catch {}
+   131→   131→    }
+   132→   132→  }
+   133→   133→
+   134→   134→  const handleSignOut = async () => {
+   135→   135→    setSigningOut(true)
+   136→   136→    try {
+   137→   137→      await logout()
+   138→   138→      router.replace('/')
+   139→   139→    } catch {
+   140→   140→      setSigningOut(false)
+   141→   141→    }
+   142→   142→  }
+   143→   143→
+   144→   144→  // ── Guest upgrade handlers ──
+   145→   145→  const handleUpgradeGoogle = async () => {
+   146→   146→    setUpgradeLoading(true)
+   147→   147→    setUpgradeError('')
+   148→   148→    const { user, error } = await upgradeGuestWithGoogle()
+   149→   149→    if (error) {
+   150→   150→      setUpgradeError(error)
+   151→   151→      setUpgradeLoading(false)
+   152→   152→      return
+   153→   153→    }
+   154→   154→    if (user) {
+   155→   155→      setShowUpgrade(false)
+   156→   156→      localStorage.removeItem('pn_guest_mode')
+   157→   157→    }
+   158→   158→    setUpgradeLoading(false)
+   159→   159→  }
+   160→   160→
+   161→   161→  const handleUpgradeEmail = async () => {
+   162→   162→    if (!upgradeEmail.trim() || !upgradePassword.trim() || !upgradeName.trim()) {
+   163→   163→      setUpgradeError('সব তথ্য দাও')
+   164→   164→      return
+   165→   165→    }
+   166→   166→    if (upgradePassword.length < 6) {
+   167→   167→      setUpgradeError('Password কমপক্ষে 6 character হতে হবে')
+   168→   168→      return
+   169→   169→    }
+   170→   170→    setUpgradeLoading(true)
+   171→   171→    setUpgradeError('')
+   172→   172→    const { user, error } = await upgradeGuestWithEmail(
+   173→   173→      upgradeEmail,
+   174→   174→      upgradePassword,
+   175→   175→      upgradeName.trim()
+   176→   176→    )
+   177→   177→    if (error) {
+   178→   178→      setUpgradeError(error)
+   179→   179→      setUpgradeLoading(false)
+   180→   180→      return
+   181→   181→    }
+   182→   182→    if (user) {
+   183→   183→      setShowUpgrade(false)
+   184→   184→      localStorage.removeItem('pn_guest_mode')
+   185→   185→    }
+   186→   186→    setUpgradeLoading(false)
+   187→   187→  }
+   188→   188→
+   189→   189→  const ACTIVITY_ITEMS = [
+   190→   190→    {
+   191→   191→      icon: <Download size={18} className="text-blue-400" />,
+   192→   192→      label: 'Recent Downloads',
+   193→   193→      onTap: () => router.push('/download')
+   194→   194→    },
+   195→   195→    {
+   196→   196→      icon: <Clock size={18} className="text-purple-400" />,
+   197→   197→      label: 'Watch History',
+   198→   198→      onTap: () => router.push('/library')
+   199→   199→    },
+   200→   200→    {
+   201→   201→      icon: <Heart size={18} className="text-red-400" />,
+   202→   202→      label: 'Favorites',
+   203→   203→      onTap: () => router.push('/library?tab=playlists')
+   204→   204→    },
+   205→   205→    {
+   206→   206→      icon: <ListMusic size={18} className="text-green-400" />,
+   207→   207→      label: 'My Playlists',
+   208→   208→      onTap: () => router.push('/library?tab=playlists')
+   209→   209→    },
+   210→   210→    {
+   211→   211→      icon: <Gamepad2 size={18} className="text-yellow-400" />,
+   212→   212→      label: 'Game History',
+   213→   213→      onTap: () => router.push('/games')
+   214→   214→    }
+   215→   215→  ]
+   216→   216→
+   217→   217→  return (
+   218→   218→    <div className="min-h-screen bg-[#0D0D0D] pb-24">
+   219→   219→
+   220→   220→      {/* TopBar */}
+   221→   221→      <div className="sticky top-0 z-50 bg-[#0D0D0D] border-b border-[#1E293B] px-4 h-14 flex items-center justify-between">
+   222→   222→        <h1 className="text-lg font-bold text-white">Profile</h1>
+   223→   223→        <button
+   224→   224→          onClick={() => router.push('/settings')}
+   225→   225→          className="p-2 rounded-full bg-[#1A1A2E] border border-[#1E293B] active:scale-90 transition-transform duration-150"
+   226→   226→        >
+   227→   227→          <Settings size={18} className="text-white" />
+   228→   228→        </button>
+   229→   229→      </div>
+   230→   230→
+   231→   231→      <div className="px-4 pt-4 space-y-4">
+   232→   232→
+   233→   233→        {/* ── NOT LOGGED IN → Login prompt (but app is still usable) ── */}
+   234→   234→        {!isLoggedIn && (
+   235→   235→          <div className="bg-[#1A1A2E] border border-[#1E293B] rounded-2xl p-5 text-center">
+   236→   236→            <div className="w-20 h-20 rounded-full bg-[#0F0F0F] flex items-center justify-center mx-auto mb-4">
+   237→   237→              <LogIn size={32} className="text-[#4B5563]" />
+   238→   238→            </div>
+   239→   239→            <h2 className="text-white font-bold text-xl mb-2">
+   240→   240→              Sign In to Unlock More
+   241→   241→            </h2>
+   242→   242→            <p className="text-[#9CA3AF] text-sm text-center mb-6">
+   243→   243→              তোমার watchlist, history আর liked movies save করতে sign in করো
+   244→   244→            </p>
+   245→   245→            <button
+   246→   246→              onClick={() => router.push('/auth/login')}
+   247→   247→              className="w-full max-w-xs h-12 bg-[#7C3AED] rounded-xl text-white font-semibold active:opacity-80 transition-opacity mx-auto block"
+   248→   248→            >
+   249→   249→              Sign In
+   250→   250→            </button>
+   251→   251→            <button
+   252→   252→              onClick={() => router.push('/auth/signup')}
+   253→   253→              className="w-full max-w-xs h-12 bg-[#1A1A2E] border border-[#2D2D2D] rounded-xl text-white mt-3 active:opacity-80 transition-opacity mx-auto block"
+   254→   254→            >
+   255→   255→              Create Account
+   256→   256→            </button>
+   257→   257→          </div>
+   258→   258→        )}
+   259→   259→
+   260→   260→        {/* ── GUEST USER → Upgrade prompt ── */}
+   261→   261→        {isLoggedIn && isGuest && (
+   262→   262→          <div className="bg-gradient-to-br from-[#7C3AED]/20 to-[#4F46E5]/10 border border-[#7C3AED]/30 rounded-2xl p-5">
+   263→   263→            <div className="flex items-start gap-4">
+   264→   264→              <div className="w-12 h-12 rounded-xl bg-[#7C3AED]/20 flex items-center justify-center flex-shrink-0">
+   265→   265→                <Zap size={22} className="text-[#7C3AED]" />
+   266→   266→              </div>
+   267→   267→              <div className="flex-1">
+   268→   268→                <h3 className="text-white font-bold text-sm mb-1">
+   269→   269→                  Guest Mode এ আছো
+   270→   270→                </h3>
+   271→   271→                <p className="text-[#9CA3AF] text-xs mb-3">
+   272→   272→                  তোমার data সুরক্ষিত রাখতে আর ডিভাইস চেঞ্জ করলেও পাওয়ার জন্য account তৈরি করো
+   273→   273→                </p>
+   274→   274→                <button
+   275→   275→                  onClick={() => setShowUpgrade(true)}
+   276→   276→                  className="h-9 px-5 bg-[#7C3AED] rounded-lg text-white text-xs font-semibold active:opacity-80 transition-opacity"
+   277→   277→                >
+   278→   278→                  Upgrade Account
+   279→   279→                </button>
+   280→   280→              </div>
+   281→   281→            </div>
+   282→   282→          </div>
+   283→   283→        )}
+   284→   284→
+   285→   285→        {/* Avatar + Info Card */}
+   286→   286→        <div className="bg-[#1A1A2E] border border-[#1E293B] rounded-2xl p-5 text-center">
+   287→   287→          {/* Avatar */}
+   288→   288→          {user?.photoURL && !isGuest ? (
+   289→   289→            <img
+   290→   290→              src={user.photoURL}
+   291→   291→              className="w-20 h-20 rounded-full mx-auto mb-3 object-cover"
+   292→   292→              alt="Avatar"
+   293→   293→            />
+   294→   294→          ) : (
+   295→   295→            <div
+   296→   296→              className="w-20 h-20 rounded-full mx-auto mb-3 flex items-center justify-center text-white text-3xl font-bold relative"
+   297→   297→              style={{ background: `linear-gradient(135deg, ${isGuest ? '#4B5563' : profile.avatarColor}, ${isGuest ? '#6B7280' : '#06B6D4'})` }}
+   298→   298→            >
+   299→   299→              {avatarInitial}
+   300→   300→              {isGuest && (
+   301→   301→                <div className="absolute -bottom-1 -right-1 w-7 h-7 rounded-full bg-[#0F0F0F] border-2 border-[#1A1A2E] flex items-center justify-center">
+   302→   302→                  <Shield size={12} className="text-[#9CA3AF]" />
+   303→   303→                </div>
+   304→   304→              )}
+   305→   305→            </div>
+   306→   306→          )}
+   307→   307→
+   308→   308→          {/* Color picker (only when no Google photo and not guest) */}
+   309→   309→          {!user?.photoURL && !isGuest && (
+   310→   310→            <div className="flex justify-center gap-2 mb-3">
+   311→   311→              {AVATAR_COLORS.map(color => (
+   312→   312→                <button
+   313→   313→                  key={color}
+   314→   314→                  onClick={() => updateProfile({ avatarColor: color })}
+   315→   315→                  className="w-6 h-6 rounded-full transition-transform duration-150 active:scale-90"
+   316→   316→                  style={{ backgroundColor: color, outline: profile.avatarColor === color ? '2px solid white' : 'none', outlineOffset: '2px' }}
+   317→   317→                />
+   318→   318→              ))}
+   319→   319→            </div>
+   320→   320→          )}
+   321→   321→
+   322→   322→          <h2 className="text-white font-bold text-xl mb-1">
+   323→   323→            {displayName}
+   324→   324→          </h2>
+   325→   325→          {displayEmail ? (
+   326→   326→            <p className="text-[#9CA3AF] text-sm mb-1">
+   327→   327→              {displayEmail}
+   328→   328→            </p>
+   329→   329→          ) : isGuest ? (
+   330→   330→            <p className="text-[#6B7280] text-xs mb-1">
+   331→   331→              Guest Account
+   332→   332→            </p>
+   333→   333→          ) : null}
+   334→   334→          {!isGuest && (
+   335→   335→            <div className="flex items-center justify-center gap-1 mb-4">
+   336→   336→              <span className="text-[#FFD700] text-xs">🪙</span>
+   337→   337→              <span className="text-[#9CA3AF] text-xs">
+   338→   338→                {displayCoins} coins
+   339→   339→              </span>
+   340→   340→            </div>
+   341→   341→          )}
+   342→   342→
+   343→   343→          {!isGuest && (
+   344→   344→            <button
+   345→   345→              onClick={openEdit}
+   346→   346→              className="px-8 py-2.5 rounded-xl border border-[#7C3AED] text-[#7C3AED] text-sm font-semibold active:scale-95 active:bg-[#7C3AED]/10 transition-all duration-150"
+   347→   347→            >
+   348→   348→              Edit Profile
+   349→   349→            </button>
+   350→   350→          )}
+   351→   351→        </div>
+   352→   352→
+   353→   353→        {/* Real Stats */}
+   354→   354→        <div className="bg-[#1A1A2E] border border-[#1E293B] rounded-2xl p-4">
+   355→   355→          <div className="grid grid-cols-3 gap-4">
+   356→   356→            {[
+   357→   357→              { value: profile.downloadCount, label: 'Downloads', color: '#7C3AED' },
+   358→   358→              { value: profile.savedCount, label: 'Saved', color: '#06B6D4' },
+   359→   359→              { value: profile.playedCount, label: 'Played', color: '#22C55E' }
+   360→   360→            ].map(stat => (
+   361→   361→              <div key={stat.label} className="text-center">
+   362→   362→                <p className="text-2xl font-bold" style={{ color: stat.color }}>{stat.value}</p>
+   363→   363→                <p className="text-[#9CA3AF] text-xs mt-1">{stat.label}</p>
+   364→   364→              </div>
+   365→   365→            ))}
+   366→   366→          </div>
+   367→   367→        </div>
+   368→   368→
+   369→   369→        {/* Activity */}
+   370→   370→        <div>
+   371→   371→          <p className="text-white font-semibold text-sm mb-3">Activity</p>
+   372→   372→          <div className="space-y-2">
+   373→   373→            {ACTIVITY_ITEMS.map(item => (
+   374→   374→              <button
+   375→   375→                key={item.label}
+   376→   376→                onClick={item.onTap}
+   377→   377→                className="w-full flex items-center gap-4 bg-[#1A1A2E] border border-[#1E293B] rounded-2xl p-4 active:scale-95 transition-transform duration-150"
+   378→   378→              >
+   379→   379→                <div className="w-9 h-9 rounded-xl bg-[#1A1A2E] flex items-center justify-center flex-shrink-0">{item.icon}</div>
+   380→   380→                <p className="text-white text-sm font-medium flex-1 text-left">{item.label}</p>
+   381→   381→                <ChevronRight size={16} className="text-[#9CA3AF]" />
+   382→   382→              </button>
+   383→   383→            ))}
+   384→   384→          </div>
+   385→   385→        </div>
+   386→   386→
+   387→   387→        {/* Quick Settings */}
+   388→   388→        <div>
+   389→   389→          <p className="text-white font-semibold text-sm mb-3">Quick Settings</p>
+   390→   390→          <div className="space-y-2">
+   391→   391→            <div className="flex items-center gap-4 bg-[#1A1A2E] border border-[#1E293B] rounded-2xl p-4">
+   392→   392→              <div className="w-9 h-9 rounded-xl bg-[#1A1A2E] flex items-center justify-center">
+   393→   393→                <Moon size={18} className="text-[#7C3AED]" />
+   394→   394→              </div>
+   395→   395→              <p className="text-white text-sm font-medium flex-1">Dark Mode</p>
+   396→   396→              <Toggle value={darkMode} onChange={handleDarkMode} />
+   397→   397→            </div>
+   398→   398→            <div className="flex items-center gap-4 bg-[#1A1A2E] border border-[#1E293B] rounded-2xl p-4">
+   399→   399→              <div className="w-9 h-9 rounded-xl bg-[#1A1A2E] flex items-center justify-center">
+   400→   400→                <Bell size={18} className="text-[#7C3AED]" />
+   401→   401→              </div>
+   402→   402→              <div className="flex-1">
+   403→   403→                <p className="text-white text-sm font-medium">Notifications</p>
+   404→   404→                <p className="text-[#9CA3AF] text-xs mt-0.5">Coming Soon</p>
+   405→   405→              </div>
+   406→   406→              <span className="text-[10px] text-[#7C3AED] bg-[#7C3AED]/10 rounded-full px-2.5 py-1 font-medium">Soon</span>
+   407→   407→            </div>
+   408→   408→          </div>
+   409→   409→        </div>
+   410→   410→
+   411→   411→        {/* More Options */}
+   412→   412→        <div className="space-y-2">
+   413→   413→          <div className="w-full flex items-center gap-4 bg-[#1A1A2E] border border-[#1E293B] rounded-2xl p-4">
+   414→   414→            <div className="w-9 h-9 rounded-xl bg-[#1A1A2E] flex items-center justify-center flex-shrink-0">
+   415→   415→              <HelpCircle size={18} className="text-blue-400" />
+   416→   416→            </div>
+   417→   417→            <div className="flex-1 text-left">
+   418→   418→              <p className="text-white text-sm font-medium">Help & Support</p>
+   419→   419→              <p className="text-[#9CA3AF] text-xs mt-0.5">Coming Soon</p>
+   420→   420→            </div>
+   421→   421→            <span className="text-[10px] text-[#7C3AED] bg-[#7C3AED]/10 rounded-full px-2.5 py-1 font-medium">Soon</span>
+   422→   422→          </div>
+   423→   423→
+   424→   424→          <button
+   425→   425→            onClick={handleRate}
+   426→   426→            className="w-full flex items-center gap-4 bg-[#1A1A2E] border border-[#1E293B] rounded-2xl p-4 active:scale-[0.97] transition-transform duration-150"
+   427→   427→          >
+   428→   428→            <div className="w-9 h-9 rounded-xl bg-[#1A1A2E] flex items-center justify-center flex-shrink-0">
+   429→   429→              <Star size={18} className="text-yellow-400" />
+   430→   430→            </div>
+   431→   431→            <p className="text-white text-sm font-medium flex-1 text-left">
+   432→   432→              {ratingDone ? `Rated ${'⭐'.repeat(ratingValue)}` : 'Rate Play Nexa'}
+   433→   433→            </p>
+   434→   434→            <ChevronRight size={16} className="text-[#9CA3AF]" />
+   435→   435→          </button>
+   436→   436→
+   437→   437→          <button
+   438→   438→            onClick={handleShare}
+   439→   439→            className="w-full flex items-center gap-4 bg-[#1A1A2E] border border-[#1E293B] rounded-2xl p-4 active:scale-[0.97] transition-transform duration-150"
+   440→   440→          >
+   441→   441→            <div className="w-9 h-9 rounded-xl bg-[#1A1A2E] flex items-center justify-center flex-shrink-0">
+   442→   442→              <Share2 size={18} className="text-green-400" />
+   443→   443→            </div>
+   444→   444→            <p className="text-white text-sm font-medium flex-1 text-left">Share App</p>
+   445→   445→            <ChevronRight size={16} className="text-[#9CA3AF]" />
+   446→   446→          </button>
+   447→   447→        </div>
+   448→   448→
+   449→   449→        {/* Sign Out — only when logged in */}
+   450→   450→        {isLoggedIn && (
+   451→   451→          <div className="pb-4">
+   452→   452→            <button
+   453→   453→              onClick={handleSignOut}
+   454→   454→              disabled={signingOut}
+   455→   455→              className="w-full h-12 bg-red-900/30 border border-red-700/50 rounded-xl text-red-400 font-semibold text-sm disabled:opacity-50 active:opacity-80 flex items-center justify-center gap-2 transition-opacity"
+   456→   456→            >
+   457→   457→              {signingOut ? (
+   458→   458→                <div className="w-5 h-5 border-2 border-red-400 border-t-transparent rounded-full animate-spin" />
+   459→   459→              ) : (
+   460→   460→                'Sign Out'
+   461→   461→              )}
+   462→   462→            </button>
+   463→   463→          </div>
+   464→   464→        )}
+   465→   465→      </div>
+   466→   466→
+   467→   467→      {/* Share Toast */}
+   468→   468→      {shareToast && (
+   469→   469→        <div className="fixed top-20 left-4 right-4 z-50 bg-[#7C3AED] rounded-xl p-3 text-center text-white text-sm font-semibold transition-all duration-200">
+   470→   470→          🔗 Link copied to clipboard!
+   471→   471→        </div>
+   472→   472→      )}
+   473→   473→
+   474→   474→      {/* Rating Modal */}
+   475→   475→      {showRating && (
+   476→   476→        <div className="fixed inset-0 z-50 flex items-end">
+   477→   477→          <div className="absolute inset-0 bg-black/80" onClick={() => setShowRating(false)} />
+   478→   478→          <div className="relative w-full bg-[#1A1A2E] border-t border-[#1E293B] rounded-t-3xl p-6 z-10">
+   479→   479→            <div className="w-10 h-1 bg-[#1E293B] rounded-full mx-auto mb-5" />
+   480→   480→            <div className="text-center mb-5">
+   481→   481→              <p className="text-4xl mb-3">⭐</p>
+   482→   482→              <h3 className="text-white font-bold text-lg">Rate Play Nexa</h3>
+   483→   483→              <p className="text-[#9CA3AF] text-sm mt-1">How do you like the app?</p>
+   484→   484→            </div>
+   485→   485→            <div className="flex justify-center gap-3 mb-6">
+   486→   486→              {[1,2,3,4,5].map(star => (
+   487→   487→                <button
+   488→   488→                  key={star}
+   489→   489→                  onClick={() => setRatingValue(star)}
+   490→   490→                  className="text-4xl transition-transform duration-150 active:scale-90"
+   491→   491→                >
+   492→   492→                  {star <= ratingValue ? '⭐' : '☆'}
+   493→   493→                </button>
+   494→   494→              ))}
+   495→   495→            </div>
+   496→   496→            {ratingValue > 0 && (
+   497→   497→              <p className="text-center text-[#9CA3AF] text-sm mb-5">
+   498→   498→                {ratingValue === 5 ? '🎉 Awesome! Thank you!'
+   499→   499→                 : ratingValue === 4 ? '😊 Great! Thanks!'
+   500→   500→                 : ratingValue === 3 ? '🙂 Thanks for feedback!'
+   501→   501→                 : ratingValue === 2 ? '😕 We will improve!'
+   502→   502→                 : '😔 Sorry! We will do better!'}
+   503→   503→              </p>
+   504→   504→            )}
+   505→   505→            <div className="flex gap-3">
+   506→   506→              <button onClick={() => setShowRating(false)} className="flex-1 h-12 rounded-xl border border-[#1E293B] text-[#9CA3AF] text-sm font-medium">Cancel</button>
+   507→   507→              <button
+   508→   508→                onClick={submitRating}
+   509→   509→                disabled={ratingValue === 0}
+   510→   510→                className={`flex-1 h-12 rounded-xl text-white text-sm font-semibold transition-all duration-150 active:scale-95 ${ratingValue > 0 ? 'bg-[#7C3AED]' : 'bg-[#1E293B] text-[#9CA3AF]'}`}
+   511→   511→              >
+   512→   512→                Submit Rating
+   513→   513→              </button>
+   514→   514→            </div>
+   515→   515→          </div>
+   516→   516→        </div>
+   517→   517→      )}
+   518→   518→
+   519→   519→      {/* Edit Profile Modal */}
+   520→   520→      {showEdit && (
+   521→   521→        <div className="fixed inset-0 z-50 flex items-end">
+   522→   522→          <div className="absolute inset-0 bg-black/80" onClick={() => setShowEdit(false)} />
+   523→   523→          <div className="relative w-full bg-[#1A1A2E] border-t border-[#1E293B] rounded-t-3xl p-5 z-10">
+   524→   524→            <div className="w-10 h-1 bg-[#1E293B] rounded-full mx-auto mb-5" />
+   525→   525→            <h3 className="text-white font-bold text-base mb-5">Edit Profile</h3>
+   526→   526→            <div className="space-y-3 mb-5">
+   527→   527→              <div>
+   528→   528→                <p className="text-[#9CA3AF] text-xs mb-1.5">Display Name</p>
+   529→   529→                <input
+   530→   530→                  value={editName}
+   531→   531→                  onChange={e => setEditName(e.target.value)}
+   532→   532→                  className="w-full bg-[#1A1A2E] border border-[#1E293B] rounded-xl h-12 px-4 text-white text-sm outline-none focus:border-[#7C3AED] transition-colors duration-200"
+   533→   533→                />
+   534→   534→              </div>
+   535→   535→              <div>
+   536→   536→                <p className="text-[#9CA3AF] text-xs mb-1.5">Username</p>
+   537→   537→                <div className="flex items-center bg-[#1A1A2E] border border-[#1E293B] rounded-xl h-12 px-4 focus-within:border-[#7C3AED] transition-colors duration-200">
+   538→   538→                  <span className="text-[#9CA3AF] text-sm mr-1">@</span>
+   539→   539→                  <input
+   540→   540→                    value={editHandle}
+   541→   541→                    onChange={e => setEditHandle(e.target.value)}
+   542→   542→                    className="flex-1 bg-transparent text-white text-sm outline-none"
+   543→   543→                  />
+   544→   544→                </div>
+   545→   545→              </div>
+   546→   546→            </div>
+   547→   547→            <div className="flex gap-3">
+   548→   548→              <button onClick={() => setShowEdit(false)} className="flex-1 h-12 rounded-xl border border-[#1E293B] text-[#9CA3AF] text-sm font-medium">Cancel</button>
+   549→   549→              <button onClick={saveEdit} className="flex-1 h-12 rounded-xl bg-[#7C3AED] text-white text-sm font-semibold active:scale-95 transition-transform duration-150">Save</button>
+   550→   550→            </div>
+   551→   551→          </div>
+   552→   552→        </div>
+   553→   553→      )}
+   554→   554→
+   555→   555→      {/* Guest Upgrade Modal */}
+   556→   556→      {showUpgrade && (
+   557→   557→        <div className="fixed inset-0 z-50 flex items-end">
+   558→   558→          <div className="absolute inset-0 bg-black/80" onClick={() => { setShowUpgrade(false); setUpgradeError('') }} />
+   559→   559→          <div className="relative w-full bg-[#1A1A2E] border-t border-[#1E293B] rounded-t-3xl p-5 z-10 max-h-[90vh] overflow-y-auto">
+   560→   560→            <div className="w-10 h-1 bg-[#1E293B] rounded-full mx-auto mb-5" />
+   561→   561→            <div className="text-center mb-5">
+   562→   562→              <div className="w-14 h-14 rounded-2xl mx-auto mb-3 flex items-center justify-center"
+   563→   563→                style={{ background: 'linear-gradient(135deg, #7C3AED, #4F46E5)' }}
+   564→   564→              >
+   565→   565→                <Zap size={24} className="text-white" />
+   566→   566→              </div>
+   567→   567→              <h3 className="text-white font-bold text-lg">Upgrade Account</h3>
+   568→   568→              <p className="text-[#9CA3AF] text-xs mt-1">
+   569→   569→                তোমার data সুরক্ষিত রাখতে account যুক্ত করো
+   570→   570→              </p>
+   571→   571→            </div>
+   572→   572→
+   573→   573→            {upgradeError && (
+   574→   574→              <div className="bg-red-900/30 border border-red-700/50 rounded-xl px-4 py-3 mb-4">
+   575→   575→                <p className="text-red-400 text-sm text-center">{upgradeError}</p>
+   576→   576→              </div>
+   577→   577→            )}
+   578→   578→
+   579→   579→            {/* Google upgrade */}
+   580→   580→            <button
+   581→   581→              onClick={handleUpgradeGoogle}
+   582→   582→              disabled={upgradeLoading}
+   583→   583→              className="w-full h-12 bg-white rounded-xl text-black text-sm font-semibold flex items-center justify-center gap-3 disabled:opacity-50 active:scale-[0.97] transition-transform mb-3"
+   584→   584→            >
+   585→   585→              {upgradeLoading ? (
+   586→   586→                <div className="w-5 h-5 border-2 border-black border-t-transparent rounded-full animate-spin" />
+   587→   587→              ) : (
+   588→   588→                <>
+   589→   589→                  <svg width="18" height="18" viewBox="0 0 24 24">
+   590→   590→                    <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+   591→   591→                    <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+   592→   592→                    <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
+   593→   593→                    <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+   594→   594→                  </svg>
+   595→   595→                  Google দিয়ে Upgrade
+   596→   596→                </>
+   597→   597→              )}
+   598→   598→            </button>
+   599→   599→
+   600→   600→            {/* Divider */}
+   601→   601→            <div className="flex items-center gap-3 my-4">
+   602→   602→              <div className="flex-1 h-px bg-[#1E293B]" />
+   603→   603→              <span className="text-[#4B5563] text-xs">অথবা</span>
+   604→   604→              <div className="flex-1 h-px bg-[#1E293B]" />
+   605→   605→            </div>
+   606→   606→
+   607→   607→            {/* Email upgrade form */}
+   608→   608→            <div className="space-y-3">
+   609→   609→              <input
+   610→   610→                type="text"
+   611→   611→                value={upgradeName}
+   612→   612→                onChange={e => setUpgradeName(e.target.value)}
+   613→   613→                placeholder="তোমার নাম"
+   614→   614→                className="w-full h-11 bg-[#0F0F0F] border border-[#2D2D2D] rounded-xl px-4 text-white text-sm outline-none focus:border-[#7C3AED] placeholder-[#4B5563] transition-colors"
+   615→   615→              />
+   616→   616→              <input
+   617→   617→                type="email"
+   618→   618→                value={upgradeEmail}
+   619→   619→                onChange={e => setUpgradeEmail(e.target.value)}
+   620→   620→                placeholder="your@email.com"
+   621→   621→                className="w-full h-11 bg-[#0F0F0F] border border-[#2D2D2D] rounded-xl px-4 text-white text-sm outline-none focus:border-[#7C3AED] placeholder-[#4B5563] transition-colors"
+   622→   622→              />
+   623→   623→              <input
+   624→   624→                type="password"
+   625→   625→                value={upgradePassword}
+   626→   626→                onChange={e => setUpgradePassword(e.target.value)}
+   627→   627→                placeholder="Password (কমপক্ষে ৬ character)"
+   628→   628→                className="w-full h-11 bg-[#0F0F0F] border border-[#2D2D2D] rounded-xl px-4 text-white text-sm outline-none focus:border-[#7C3AED] placeholder-[#4B5563] transition-colors"
+   629→   629→              />
+   630→   630→              <button
+   631→   631→                onClick={handleUpgradeEmail}
+   632→   632→                disabled={upgradeLoading}
+   633→   633→                className="w-full h-12 bg-[#7C3AED] rounded-xl text-white font-semibold text-sm disabled:opacity-50 active:opacity-80 flex items-center justify-center gap-2 transition-opacity"
+   634→   634→              >
+   635→   635→                {upgradeLoading ? (
+   636→   636→                  <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+   637→   637→                ) : (
+   638→   638→                  'Email দিয়ে Upgrade'
+   639→   639→                )}
+   640→   640→              </button>
+   641→   641→            </div>
+   642→   642→
+   643→   643→            {/* Cancel */}
+   644→   644→            <button
+   645→   645→              onClick={() => { setShowUpgrade(false); setUpgradeError('') }}
+   646→   646→              className="w-full h-11 mt-3 rounded-xl text-[#9CA3AF] text-sm font-medium"
+   647→   647→            >
+   648→   648→              পরে করবো
+   649→   649→            </button>
+   650→   650→          </div>
+   651→   651→        </div>
+   652→   652→      )}
+   653→   653→    </div>
+   654→   654→  )
+   655→   655→}
+   656→   656→
+   657→   657→function ProfileSkeleton() {
+   658→   658→  return (
+   659→   659→    <div className="min-h-screen bg-[#0D0D0D] pb-24 px-4 pt-16">
+   660→   660→      <div className="space-y-4">
+   661→   661→        <div className="bg-[#1A1A2E] rounded-2xl p-5 flex flex-col items-center gap-3">
+   662→   662→          <div className="w-20 h-20 rounded-full bg-[#1E293B] animate-pulse" />
+   663→   663→          <div className="h-5 w-32 bg-[#1E293B] rounded animate-pulse" />
+   664→   664→          <div className="h-4 w-24 bg-[#1E293B] rounded animate-pulse" />
+   665→   665→        </div>
+   666→   666→        <div className="bg-[#1A1A2E] rounded-2xl p-4 h-24 animate-pulse" />
+   667→   667→      </div>
+   668→   668→    </div>
+   669→   669→  )
+   670→   670→}
+   671→   671→
+   672→   672→function Toggle({ value, onChange }: { value: boolean; onChange: (v: boolean) => void }) {
+   673→   673→  return (
+   674→   674→    <button
+   675→   675→      onClick={() => onChange(!value)}
+   676→   676→      className={`w-12 h-6 rounded-full relative transition-colors duration-200 ${value ? 'bg-[#7C3AED]' : 'bg-[#1E293B]'}`}
+   677→   677→    >
+   678→   678→      <div className={`absolute top-0.5 w-5 h-5 rounded-full bg-white transition-transform duration-200 ${value ? 'translate-x-6' : 'translate-x-0.5'}`} />
+   679→   679→    </button>
+   680→   680→  )
+   681→   681→}
+   682→   682→

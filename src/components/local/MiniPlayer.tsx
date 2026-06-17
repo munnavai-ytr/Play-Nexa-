@@ -72,6 +72,14 @@ export default function MiniPlayer({
     onClose()
   }, [onClose])
 
+  // Cleanup audio element on unmount
+  useEffect(() => {
+    return () => {
+      const el = audioRef.current
+      if (el) { el.pause(); el.src = ''; el.load() }
+    }
+  }, [])
+
   return (
     <div className="fixed bottom-16 left-0 right-0 z-[9998] px-2
                     animate-[slide-up_300ms_ease-out]">

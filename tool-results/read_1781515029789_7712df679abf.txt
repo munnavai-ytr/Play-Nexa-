@@ -1,0 +1,737 @@
+     1→// ── Play Nexa Admin — User Manager ────────────────────────────────
+     2→// Full user management: list, search, filter, view details, ban/unban, delete
+     3→// AMOLED dark theme (#000000 base), no backdrop-blur, no styled-jsx
+     4→
+     5→'use client'
+     6→
+     7→import { useState, useEffect, useCallback } from 'react'
+     8→import { useToast } from '@/components/admin/Toast'
+     9→import { logActivity } from '@/lib/adminAuth'
+    10→import ConfirmModal from '@/components/admin/ConfirmModal'
+    11→
+    12→// ── Types ──
+    13→
+    14→interface AdminUser {
+    15→  id: string
+    16→  email: string
+    17→  created_at: string
+    18→  last_sign_in_at: string | null
+    19→  banned_until: string | null
+    20→  user_metadata: { avatar_url?: string; full_name?: string }
+    21→}
+    22→
+    23→interface UserStats {
+    24→  watched: number
+    25→  liked: number
+    26→  watchlist: number
+    27→}
+    28→
+    29→// ── Helpers ──
+    30→
+    31→function formatDate(iso: string | null): string {
+    32→  if (!iso) return '—'
+    33→  try {
+    34→    return new Date(iso).toLocaleDateString('en-US', {
+    35→      month: 'short',
+    36→      day: 'numeric',
+    37→      year: 'numeric',
+    38→    })
+    39→  } catch {
+    40→    return '—'
+    41→  }
+    42→}
+    43→
+    44→function formatDateTime(iso: string | null): string {
+    45→  if (!iso) return 'Never'
+    46→  try {
+    47→    return new Date(iso).toLocaleString('en-US', {
+    48→      month: 'short',
+    49→      day: 'numeric',
+    50→      year: 'numeric',
+    51→      hour: 'numeric',
+    52→      minute: '2-digit',
+    53→    })
+    54→  } catch {
+    55→    return '—'
+    56→  }
+    57→}
+    58→
+    59→function getRelativeTime(dateStr: string | null): string {
+    60→  if (!dateStr) return 'Never'
+    61→  const now = Date.now()
+    62→  const then = new Date(dateStr).getTime()
+    63→  if (isNaN(then)) return '—'
+    64→  const diff = Math.max(0, now - then)
+    65→  const seconds = Math.floor(diff / 1000)
+    66→  const minutes = Math.floor(seconds / 60)
+    67→  const hours = Math.floor(minutes / 60)
+    68→  const days = Math.floor(hours / 24)
+    69→
+    70→  if (days > 0) return `${days}d ago`
+    71→  if (hours > 0) return `${hours}h ago`
+    72→  if (minutes > 0) return `${minutes}m ago`
+    73→  return 'just now'
+    74→}
+    75→
+    76→function isUserBanned(user: AdminUser): boolean {
+    77→  if (!user.banned_until) return false
+    78→  return new Date(user.banned_until).getTime() > Date.now()
+    79→}
+    80→
+    81→function getAvatarGradient(name?: string): string {
+    82→  const gradients = [
+    83→    'from-[#7C3AED] to-[#EC4899]',
+    84→    'from-[#06B6D4] to-[#3B82F6]',
+    85→    'from-[#10B981] to-[#06B6D4]',
+    86→    'from-[#F59E0B] to-[#EF4444]',
+    87→    'from-[#8B5CF6] to-[#06B6D4]',
+    88→    'from-[#EC4899] to-[#F59E0B]',
+    89→    'from-[#14B8A6] to-[#A78BFA]',
+    90→    'from-[#F43F5E] to-[#7C3AED]',
+    91→  ]
+    92→  const idx = name ? name.charCodeAt(0) % gradients.length : 0
+    93→  return gradients[idx]
+    94→}
+    95→
+    96→function exportCSV(users: AdminUser[]) {
+    97→  const header = 'Email,Full Name,Joined,Last Active,Status'
+    98→  const rows = users.map(u =>
+    99→    [
+   100→      u.email,
+   101→      u.user_metadata?.full_name || '',
+   102→      formatDate(u.created_at),
+   103→      formatDate(u.last_sign_in_at),
+   104→      isUserBanned(u) ? 'Banned' : 'Active',
+   105→    ]
+   106→      .map(v => `"${v}"`)
+   107→      .join(',')
+   108→  )
+   109→  const csv = [header, ...rows].join('\n')
+   110→  const blob = new Blob([csv], { type: 'text/csv' })
+   111→  const url = URL.createObjectURL(blob)
+   112→  const a = document.createElement('a')
+   113→  a.href = url
+   114→  a.download = `playnexa-users-${new Date().toISOString().split('T')[0]}.csv`
+   115→  a.click()
+   116→  URL.revokeObjectURL(url)
+   117→}
+   118→
+   119→// ── Component ──
+   120→
+   121→export default function UserManagerPage() {
+   122→  const { showToast } = useToast()
+   123→
+   124→  // Data state
+   125→  const [users, setUsers] = useState<AdminUser[]>([])
+   126→  const [isLoading, setIsLoading] = useState(true)
+   127→  const [searchQuery, setSearchQuery] = useState('')
+   128→  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'banned'>('all')
+   129→
+   130→  // Detail panel state
+   131→  const [selectedUser, setSelectedUser] = useState<AdminUser | null>(null)
+   132→  const [userStats, setUserStats] = useState<UserStats | null>(null)
+   133→  const [userHistory, setUserHistory] = useState<any[]>([])
+   134→
+   135→  // Modal state
+   136→  const [banTarget, setBanTarget] = useState<AdminUser | null>(null)
+   137→  const [deleteTarget, setDeleteTarget] = useState<AdminUser | null>(null)
+   138→  const [deleteConfirmText, setDeleteConfirmText] = useState('')
+   139→
+   140→  // ── Fetch users ──
+   141→
+   142→  const fetchUsers = useCallback(async () => {
+   143→    setIsLoading(true)
+   144→    try {
+   145→      const params = new URLSearchParams()
+   146→      if (searchQuery) params.set('search', searchQuery)
+   147→      const res = await fetch(`/api/admin/users?${params}`)
+   148→      const data = await res.json()
+   149→
+   150→      if (!res.ok) {
+   151→        throw new Error(data.error || 'Failed to fetch users')
+   152→      }
+   153→
+   154→      setUsers(data.users || [])
+   155→    } catch (err: any) {
+   156→      showToast(err.message || 'Failed to load users', 'error')
+   157→      setUsers([])
+   158→    } finally {
+   159→      setIsLoading(false)
+   160→    }
+   161→  }, [searchQuery, showToast])
+   162→
+   163→  useEffect(() => {
+   164→    fetchUsers()
+   165→  }, [fetchUsers])
+   166→
+   167→  // ── Fetch user stats when selected ──
+   168→
+   169→  useEffect(() => {
+   170→    if (!selectedUser) {
+   171→      setUserStats(null)
+   172→      setUserHistory([])
+   173→      return
+   174→    }
+   175→
+   176→    const fetchUserDetails = async () => {
+   177→      try {
+   178→        // We need the supabase admin client for this — call our own API
+   179→        const statsRes = await fetch(
+   180→          `/api/admin/users?userId=${selectedUser.id}&stats=true`,
+   181→        )
+   182→        if (statsRes.ok) {
+   183→          const statsData = await statsRes.json()
+   184→          setUserStats(statsData.stats || null)
+   185→          setUserHistory(statsData.history || [])
+   186→        }
+   187→      } catch {
+   188→        setUserStats(null)
+   189→        setUserHistory([])
+   190→      }
+   191→    }
+   192→
+   193→    fetchUserDetails()
+   194→  }, [selectedUser])
+   195→
+   196→  // ── Filter users by status ──
+   197→
+   198→  const filteredUsers = users.filter(u => {
+   199→    if (statusFilter === 'active') return !isUserBanned(u)
+   200→    if (statusFilter === 'banned') return isUserBanned(u)
+   201→    return true
+   202→  })
+   203→
+   204→  const activeCount = users.filter(u => !isUserBanned(u)).length
+   205→  const bannedCount = users.filter(u => isUserBanned(u)).length
+   206→
+   207→  // ── Ban / Unban user ──
+   208→
+   209→  const handleBanConfirm = async () => {
+   210→    if (!banTarget) return
+   211→
+   212→    const action = isUserBanned(banTarget) ? 'unban' : 'ban'
+   213→
+   214→    try {
+   215→      const res = await fetch('/api/admin/users', {
+   216→        method: 'POST',
+   217→        headers: { 'Content-Type': 'application/json' },
+   218→        body: JSON.stringify({ action, userId: banTarget.id }),
+   219→      })
+   220→
+   221→      const data = await res.json()
+   222→      if (!res.ok) throw new Error(data.error || 'Action failed')
+   223→
+   224→      showToast(
+   225→        action === 'ban'
+   226→          ? `User ${banTarget.email} has been banned`
+   227→          : `User ${banTarget.email} has been unbanned`,
+   228→        'success',
+   229→      )
+   230→
+   231→      logActivity(
+   232→        action === 'ban' ? 'BAN_USER' : 'UNBAN_USER',
+   233→        banTarget.email,
+   234→        { userId: banTarget.id },
+   235→      )
+   236→
+   237→      // Refresh
+   238→      setBanTarget(null)
+   239→      fetchUsers()
+   240→
+   241→      // Update selected user if it's the same
+   242→      if (selectedUser?.id === banTarget.id) {
+   243→        setSelectedUser(prev =>
+   244→          prev
+   245→            ? {
+   246→                ...prev,
+   247→                banned_until:
+   248→                  action === 'ban'
+   249→                    ? new Date(Date.now() + 876000 * 3600000).toISOString()
+   250→                    : null,
+   251→              }
+   252→            : null,
+   253→        )
+   254→      }
+   255→    } catch (err: any) {
+   256→      showToast(err.message || 'Action failed', 'error')
+   257→    }
+   258→  }
+   259→
+   260→  // ── Delete user ──
+   261→
+   262→  const handleDeleteConfirm = async () => {
+   263→    if (!deleteTarget) return
+   264→    if (deleteConfirmText !== deleteTarget.email) {
+   265→      showToast('Email does not match', 'error')
+   266→      return
+   267→    }
+   268→
+   269→    try {
+   270→      const res = await fetch('/api/admin/users', {
+   271→        method: 'POST',
+   272→        headers: { 'Content-Type': 'application/json' },
+   273→        body: JSON.stringify({ action: 'delete', userId: deleteTarget.id }),
+   274→      })
+   275→
+   276→      const data = await res.json()
+   277→      if (!res.ok) throw new Error(data.error || 'Delete failed')
+   278→
+   279→      showToast(`User ${deleteTarget.email} has been deleted`, 'success')
+   280→
+   281→      logActivity('DELETE_USER', deleteTarget.email, { userId: deleteTarget.id })
+   282→
+   283→      // Refresh
+   284→      if (selectedUser?.id === deleteTarget.id) {
+   285→        setSelectedUser(null)
+   286→      }
+   287→      setDeleteTarget(null)
+   288→      setDeleteConfirmText('')
+   289→      fetchUsers()
+   290→    } catch (err: any) {
+   291→      showToast(err.message || 'Delete failed', 'error')
+   292→    }
+   293→  }
+   294→
+   295→  // ── Copy to clipboard ──
+   296→
+   297→  const copyToClipboard = (text: string) => {
+   298→    navigator.clipboard.writeText(text).then(
+   299→      () => showToast('Copied to clipboard', 'success'),
+   300→      () => showToast('Failed to copy', 'error'),
+   301→    )
+   302→  }
+   303→
+   304→  // ── Render ──
+   305→
+   306→  return (
+   307→    <div className="space-y-5">
+   308→      {/* ── Header ── */}
+   309→      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+   310→        <div className="flex items-center gap-3">
+   311→          <h1 className="text-xl sm:text-2xl font-bold text-white">
+   312→            👥 User Manager
+   313→          </h1>
+   314→          <span className="px-2.5 py-0.5 bg-[#7C3AED]/20 text-[#A78BFA] text-xs font-semibold rounded-full">
+   315→            {users.length}
+   316→          </span>
+   317→        </div>
+   318→        <button
+   319→          onClick={() => exportCSV(filteredUsers)}
+   320→          disabled={filteredUsers.length === 0}
+   321→          className="h-11 px-5 bg-[#1A1A1A] border border-[#2D2D2D] hover:bg-[#2D2D2D] text-white text-sm font-medium rounded-xl transition-colors duration-150 min-h-[44px] disabled:opacity-40 disabled:cursor-not-allowed"
+   322→        >
+   323→          📥 Export CSV
+   324→        </button>
+   325→      </div>
+   326→
+   327→      {/* ── Search + Filter ── */}
+   328→      <div className="flex flex-col sm:flex-row gap-3">
+   329→        {/* Search input */}
+   330→        <div className="relative flex-1">
+   331→          <svg
+   332→            className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[#6B7280]"
+   333→            fill="none"
+   334→            stroke="currentColor"
+   335→            viewBox="0 0 24 24"
+   336→          >
+   337→            <path
+   338→              strokeLinecap="round"
+   339→              strokeLinejoin="round"
+   340→              strokeWidth={2}
+   341→              d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+   342→            />
+   343→          </svg>
+   344→          <input
+   345→            type="text"
+   346→            placeholder="Search by email or name..."
+   347→            value={searchQuery}
+   348→            onChange={e => setSearchQuery(e.target.value)}
+   349→            className="w-full h-11 bg-[#1A1A1A] border border-[#2D2D2D] rounded-xl pl-10 pr-4 text-white text-sm outline-none focus:border-[#7C3AED] transition-colors duration-150 placeholder:text-[#6B7280]"
+   350→          />
+   351→        </div>
+   352→
+   353→        {/* Status filter buttons */}
+   354→        <div className="flex gap-2">
+   355→          {([
+   356→            { key: 'all', label: 'All', count: users.length },
+   357→            { key: 'active', label: 'Active', count: activeCount },
+   358→            { key: 'banned', label: 'Banned', count: bannedCount },
+   359→          ] as const).map(f => (
+   360→            <button
+   361→              key={f.key}
+   362→              onClick={() => setStatusFilter(f.key)}
+   363→              className={`h-11 px-4 text-sm font-medium rounded-xl transition-colors duration-150 min-h-[44px] border ${
+   364→                statusFilter === f.key
+   365→                  ? f.key === 'banned'
+   366→                    ? 'bg-[#EF4444]/15 border-[#EF4444]/40 text-[#EF4444]'
+   367→                    : f.key === 'active'
+   368→                      ? 'bg-[#10B981]/15 border-[#10B981]/40 text-[#10B981]'
+   369→                      : 'bg-[#7C3AED] border-[#7C3AED] text-white'
+   370→                  : 'bg-[#1A1A1A] border-[#2D2D2D] text-[#9CA3AF] hover:text-white hover:border-[#4B5563]'
+   371→              }`}
+   372→            >
+   373→              {f.label} ({f.count})
+   374→            </button>
+   375→          ))}
+   376→        </div>
+   377→      </div>
+   378→
+   379→      {/* ── Users Table ── */}
+   380→      <div className="bg-[#0F0F0F] border border-[#242424] rounded-2xl overflow-hidden">
+   381→        <div className="overflow-x-auto">
+   382→          <table className="w-full text-sm">
+   383→            <thead>
+   384→              <tr className="border-b border-[#242424]">
+   385→                <th className="px-4 py-3 text-left text-[#9CA3AF] font-medium w-10">#</th>
+   386→                <th className="px-4 py-3 text-left text-[#9CA3AF] font-medium w-12">Avatar</th>
+   387→                <th className="px-4 py-3 text-left text-[#9CA3AF] font-medium">Email</th>
+   388→                <th className="px-4 py-3 text-left text-[#9CA3AF] font-medium w-28">Joined</th>
+   389→                <th className="px-4 py-3 text-left text-[#9CA3AF] font-medium w-28">Last Active</th>
+   390→                <th className="px-4 py-3 text-left text-[#9CA3AF] font-medium w-24">Status</th>
+   391→                <th className="px-4 py-3 text-right text-[#9CA3AF] font-medium w-36">Actions</th>
+   392→              </tr>
+   393→            </thead>
+   394→            <tbody>
+   395→              {isLoading ? (
+   396→                <tr>
+   397→                  <td colSpan={7} className="px-4 py-16 text-center text-[#6B7280]">
+   398→                    <div className="flex items-center justify-center gap-3">
+   399→                      <div className="w-5 h-5 border-2 border-[#7C3AED] border-t-transparent rounded-full animate-spin" />
+   400→                      <span>Loading users...</span>
+   401→                    </div>
+   402→                  </td>
+   403→                </tr>
+   404→              ) : filteredUsers.length === 0 ? (
+   405→                <tr>
+   406→                  <td colSpan={7} className="px-4 py-16 text-center text-[#6B7280]">
+   407→                    No users found
+   408→                  </td>
+   409→                </tr>
+   410→              ) : (
+   411→                filteredUsers.map((user, idx) => {
+   412→                  const banned = isUserBanned(user)
+   413→                  const firstName = user.user_metadata?.full_name || user.email
+   414→                  const initial = (firstName[0] || '?').toUpperCase()
+   415→
+   416→                  return (
+   417→                    <tr
+   418→                      key={user.id}
+   419→                      className={`border-b border-[#1A1A1A] hover:bg-[#1A1A1A]/50 transition-colors duration-150 ${
+   420→                        selectedUser?.id === user.id ? 'bg-[#7C3AED]/5' : ''
+   421→                      }`}
+   422→                    >
+   423→                      <td className="px-4 py-3 text-[#6B7280]">
+   424→                        {idx + 1}
+   425→                      </td>
+   426→                      <td className="px-4 py-3">
+   427→                        <div
+   428→                          className={`w-9 h-9 rounded-full bg-gradient-to-br ${getAvatarGradient(firstName)} flex items-center justify-center text-white text-sm font-bold flex-shrink-0`}
+   429→                        >
+   430→                          {initial}
+   431→                        </div>
+   432→                      </td>
+   433→                      <td className="px-4 py-3">
+   434→                        <div className="min-w-0">
+   435→                          <p className="text-white truncate max-w-[220px]" title={user.email}>
+   436→                            {user.email}
+   437→                          </p>
+   438→                          {user.user_metadata?.full_name && (
+   439→                            <p className="text-[#6B7280] text-xs truncate max-w-[220px]">
+   440→                              {user.user_metadata.full_name}
+   441→                            </p>
+   442→                          )}
+   443→                        </div>
+   444→                      </td>
+   445→                      <td className="px-4 py-3 text-[#9CA3AF]">
+   446→                        {formatDate(user.created_at)}
+   447→                      </td>
+   448→                      <td className="px-4 py-3 text-[#9CA3AF]">
+   449→                        <span title={user.last_sign_in_at || undefined}>
+   450→                          {getRelativeTime(user.last_sign_in_at)}
+   451→                        </span>
+   452→                      </td>
+   453→                      <td className="px-4 py-3">
+   454→                        {banned ? (
+   455→                          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-[#EF4444]/15 text-[#EF4444]">
+   456→                            <span className="w-1.5 h-1.5 rounded-full bg-[#EF4444]" />
+   457→                            Banned
+   458→                          </span>
+   459→                        ) : (
+   460→                          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-[#10B981]/15 text-[#10B981]">
+   461→                            <span className="w-1.5 h-1.5 rounded-full bg-[#10B981]" />
+   462→                            Active
+   463→                          </span>
+   464→                        )}
+   465→                      </td>
+   466→                      <td className="px-4 py-3">
+   467→                        <div className="flex items-center justify-end gap-1">
+   468→                          <button
+   469→                            onClick={() => setSelectedUser(user)}
+   470→                            className="p-2 rounded-lg text-[#9CA3AF] hover:text-white hover:bg-[#2D2D2D] transition-colors duration-150"
+   471→                            title="View Details"
+   472→                          >
+   473→                            👁️
+   474→                          </button>
+   475→                          <button
+   476→                            onClick={() => setBanTarget(user)}
+   477→                            className="p-2 rounded-lg text-[#9CA3AF] hover:text-[#F59E0B] hover:bg-[#F59E0B]/10 transition-colors duration-150"
+   478→                            title={banned ? 'Unban User' : 'Ban User'}
+   479→                          >
+   480→                            🚫
+   481→                          </button>
+   482→                          <button
+   483→                            onClick={() => {
+   484→                              setDeleteTarget(user)
+   485→                              setDeleteConfirmText('')
+   486→                            }}
+   487→                            className="p-2 rounded-lg text-[#9CA3AF] hover:text-[#EF4444] hover:bg-[#EF4444]/10 transition-colors duration-150"
+   488→                            title="Delete User"
+   489→                          >
+   490→                            🗑️
+   491→                          </button>
+   492→                        </div>
+   493→                      </td>
+   494→                    </tr>
+   495→                  )
+   496→                })
+   497→              )}
+   498→            </tbody>
+   499→          </table>
+   500→        </div>
+   501→      </div>
+   502→
+   503→      {/* ── User Detail Side Panel ── */}
+   504→      {selectedUser && (
+   505→        <div className="fixed right-0 top-0 h-full w-[360px] max-w-full bg-[#0F0F0F] border-l border-[#1A1A1A] z-[70] flex flex-col">
+   506→          {/* Panel header */}
+   507→          <div className="flex items-center justify-between px-5 py-4 border-b border-[#1A1A1A]">
+   508→            <h2 className="text-white font-bold text-base">User Details</h2>
+   509→            <button
+   510→              onClick={() => setSelectedUser(null)}
+   511→              className="min-w-[44px] min-h-[44px] flex items-center justify-center text-[#9CA3AF] hover:text-white transition-colors duration-150"
+   512→            >
+   513→              ✕
+   514→            </button>
+   515→          </div>
+   516→
+   517→          {/* Panel body */}
+   518→          <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-[#1A1A1A] [&::-webkit-scrollbar-thumb]:rounded-full">
+   519→            {/* Avatar + Name */}
+   520→            <div className="flex items-center gap-3">
+   521→              <div
+   522→                className={`w-14 h-14 rounded-full bg-gradient-to-br ${getAvatarGradient(selectedUser.user_metadata?.full_name || selectedUser.email)} flex items-center justify-center text-white text-xl font-bold flex-shrink-0`}
+   523→              >
+   524→                {((selectedUser.user_metadata?.full_name || selectedUser.email)[0] || '?').toUpperCase()}
+   525→              </div>
+   526→              <div className="min-w-0 flex-1">
+   527→                <p className="text-white font-semibold truncate">
+   528→                  {selectedUser.user_metadata?.full_name || 'No name set'}
+   529→                </p>
+   530→                <p className="text-[#9CA3AF] text-sm truncate">{selectedUser.email}</p>
+   531→              </div>
+   532→            </div>
+   533→
+   534→            {/* User ID (copyable) */}
+   535→            <div className="bg-[#1A1A1A] rounded-xl p-3">
+   536→              <p className="text-[#6B7280] text-xs font-medium mb-1">User ID</p>
+   537→              <div className="flex items-center gap-2">
+   538→                <code className="text-[#A78BFA] text-xs flex-1 truncate">{selectedUser.id}</code>
+   539→                <button
+   540→                  onClick={() => copyToClipboard(selectedUser.id)}
+   541→                  className="text-[#6B7280] hover:text-white transition-colors duration-150 flex-shrink-0 text-xs"
+   542→                  title="Copy"
+   543→                >
+   544→                  📋
+   545→                </button>
+   546→              </div>
+   547→            </div>
+   548→
+   549→            {/* Info rows */}
+   550→            <div className="space-y-3">
+   551→              <div className="flex items-center justify-between">
+   552→                <span className="text-[#6B7280] text-sm">Email</span>
+   553→                <span className="text-white text-sm truncate max-w-[200px]">{selectedUser.email}</span>
+   554→              </div>
+   555→              <div className="flex items-center justify-between">
+   556→                <span className="text-[#6B7280] text-sm">Joined</span>
+   557→                <span className="text-white text-sm">{formatDateTime(selectedUser.created_at)}</span>
+   558→              </div>
+   559→              <div className="flex items-center justify-between">
+   560→                <span className="text-[#6B7280] text-sm">Last Sign In</span>
+   561→                <span className="text-white text-sm">{formatDateTime(selectedUser.last_sign_in_at)}</span>
+   562→              </div>
+   563→              <div className="flex items-center justify-between">
+   564→                <span className="text-[#6B7280] text-sm">Status</span>
+   565→                {isUserBanned(selectedUser) ? (
+   566→                  <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-[#EF4444]/15 text-[#EF4444]">
+   567→                    Banned
+   568→                  </span>
+   569→                ) : (
+   570→                  <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-[#10B981]/15 text-[#10B981]">
+   571→                    Active
+   572→                  </span>
+   573→                )}
+   574→              </div>
+   575→            </div>
+   576→
+   577→            {/* Stats */}
+   578→            <div>
+   579→              <h3 className="text-[#9CA3AF] text-xs font-semibold uppercase tracking-wider mb-3">
+   580→                Activity Stats
+   581→              </h3>
+   582→              <div className="grid grid-cols-3 gap-2">
+   583→                <div className="bg-[#1A1A1A] rounded-xl p-3 text-center">
+   584→                  <p className="text-white font-bold text-lg">
+   585→                    {userStats?.watched ?? '—'}
+   586→                  </p>
+   587→                  <p className="text-[#6B7280] text-xs mt-0.5">Watched</p>
+   588→                </div>
+   589→                <div className="bg-[#1A1A1A] rounded-xl p-3 text-center">
+   590→                  <p className="text-white font-bold text-lg">
+   591→                    {userStats?.liked ?? '—'}
+   592→                  </p>
+   593→                  <p className="text-[#6B7280] text-xs mt-0.5">Liked</p>
+   594→                </div>
+   595→                <div className="bg-[#1A1A1A] rounded-xl p-3 text-center">
+   596→                  <p className="text-white font-bold text-lg">
+   597→                    {userStats?.watchlist ?? '—'}
+   598→                  </p>
+   599→                  <p className="text-[#6B7280] text-xs mt-0.5">Watchlist</p>
+   600→                </div>
+   601→              </div>
+   602→            </div>
+   603→
+   604→            {/* Recent Watch History */}
+   605→            <div>
+   606→              <h3 className="text-[#9CA3AF] text-xs font-semibold uppercase tracking-wider mb-3">
+   607→                Recent Watch History
+   608→              </h3>
+   609→              {userHistory.length === 0 ? (
+   610→                <p className="text-[#4B5563] text-sm text-center py-4">No watch history</p>
+   611→              ) : (
+   612→                <div className="space-y-2">
+   613→                  {userHistory.map((item: any, idx: number) => (
+   614→                    <div
+   615→                      key={item.id || idx}
+   616→                      className="flex items-center gap-3 bg-[#1A1A1A] rounded-xl p-2.5"
+   617→                    >
+   618→                      {item.movies?.thumbnail ? (
+   619→                        <img
+   620→                          src={item.movies.thumbnail}
+   621→                          alt={item.movies?.title || ''}
+   622→                          className="w-12 h-7 rounded object-cover bg-[#2D2D2D] flex-shrink-0"
+   623→                          loading="lazy"
+   624→                        />
+   625→                      ) : (
+   626→                        <div className="w-12 h-7 rounded bg-[#2D2D2D] flex items-center justify-center text-[#4B5563] text-xs flex-shrink-0">
+   627→                          🎬
+   628→                        </div>
+   629→                      )}
+   630→                      <span className="text-white text-sm truncate flex-1">
+   631→                        {item.movies?.title || 'Unknown'}
+   632→                      </span>
+   633→                    </div>
+   634→                  ))}
+   635→                </div>
+   636→              )}
+   637→            </div>
+   638→          </div>
+   639→
+   640→          {/* Panel footer — action buttons */}
+   641→          <div className="px-5 py-4 border-t border-[#1A1A1A] space-y-2">
+   642→            <button
+   643→              onClick={() => setBanTarget(selectedUser)}
+   644→              className="w-full h-12 rounded-xl bg-[#EF4444]/15 text-[#EF4444] text-sm font-semibold min-h-[44px] transition-colors duration-150 hover:bg-[#EF4444]/25"
+   645→            >
+   646→              {isUserBanned(selectedUser) ? '✅ Unban User' : '🚫 Ban User'}
+   647→            </button>
+   648→            <button
+   649→              onClick={() => {
+   650→                setDeleteTarget(selectedUser)
+   651→                setDeleteConfirmText('')
+   652→              }}
+   653→              className="w-full h-12 rounded-xl bg-[#EF4444]/10 text-[#EF4444] text-sm font-semibold min-h-[44px] transition-colors duration-150 hover:bg-[#EF4444]/20"
+   654→            >
+   655→              🗑️ Delete Account
+   656→            </button>
+   657→          </div>
+   658→        </div>
+   659→      )}
+   660→
+   661→      {/* ── Ban Confirm Modal ── */}
+   662→      {banTarget && (
+   663→        <ConfirmModal
+   664→          title={isUserBanned(banTarget) ? 'Unban User' : 'Ban User'}
+   665→          message={
+   666→            isUserBanned(banTarget)
+   667→              ? `Are you sure you want to unban "${banTarget.email}"? They will regain access to their account.`
+   668→              : `Are you sure you want to ban "${banTarget.email}"? They will lose access to their account immediately.`
+   669→          }
+   670→          confirmLabel={isUserBanned(banTarget) ? 'Unban' : 'Ban'}
+   671→          onConfirm={handleBanConfirm}
+   672→          onCancel={() => setBanTarget(null)}
+   673→        />
+   674→      )}
+   675→
+   676→      {/* ── Delete Confirm Modal (custom — requires typing email) ── */}
+   677→      {deleteTarget && (
+   678→        <div className="fixed inset-0 z-[90] flex items-center justify-center p-4">
+   679→          {/* Overlay */}
+   680→          <div
+   681→            className="absolute inset-0 bg-black/80"
+   682→            onClick={() => {
+   683→              setDeleteTarget(null)
+   684→              setDeleteConfirmText('')
+   685→            }}
+   686→          />
+   687→
+   688→          {/* Modal */}
+   689→          <div className="relative w-full max-w-md bg-[#0F0F0F] border border-[#242424] rounded-2xl p-6">
+   690→            <h3 className="text-white font-bold text-lg mb-2">Delete Account</h3>
+   691→            <p className="text-[#9CA3AF] text-sm mb-5">
+   692→              This will permanently delete the account for{' '}
+   693→              <span className="text-[#EF4444] font-semibold">{deleteTarget.email}</span>.
+   694→              This action cannot be undone.
+   695→            </p>
+   696→
+   697→            <div className="mb-4">
+   698→              <p className="text-[#9CA3AF] text-xs mb-2">
+   699→                Type the user&apos;s email{' '}
+   700→                <span className="text-[#EF4444] font-bold">{deleteTarget.email}</span>{' '}
+   701→                to confirm:
+   702→              </p>
+   703→              <input
+   704→                type="text"
+   705→                value={deleteConfirmText}
+   706→                onChange={e => setDeleteConfirmText(e.target.value)}
+   707→                className="w-full h-11 bg-[#1A1A1A] border border-[#2D2D2D] rounded-xl px-4 text-white text-sm outline-none focus:border-[#EF4444] transition-colors duration-150 placeholder:text-[#6B7280]"
+   708→                placeholder={deleteTarget.email}
+   709→                autoFocus
+   710→              />
+   711→            </div>
+   712→
+   713→            <div className="flex gap-3">
+   714→              <button
+   715→                onClick={() => {
+   716→                  setDeleteTarget(null)
+   717→                  setDeleteConfirmText('')
+   718→                }}
+   719→                className="flex-1 h-12 rounded-xl border border-[#2D2D2D] text-[#9CA3AF] text-sm font-medium min-h-[44px] transition-colors duration-150 hover:bg-[#1A1A1A]"
+   720→              >
+   721→                Cancel
+   722→              </button>
+   723→              <button
+   724→                onClick={handleDeleteConfirm}
+   725→                disabled={deleteConfirmText !== deleteTarget.email}
+   726→                className="flex-1 h-12 rounded-xl bg-[#EF4444] hover:bg-[#DC2626] text-white text-sm font-semibold min-h-[44px] transition-all duration-150 disabled:opacity-40 disabled:cursor-not-allowed"
+   727→              >
+   728→                Delete Account
+   729→              </button>
+   730→            </div>
+   731→          </div>
+   732→        </div>
+   733→      )}
+   734→    </div>
+   735→  )
+   736→}
+   737→

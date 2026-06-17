@@ -1,0 +1,884 @@
+     1→'use client'
+     2→
+     3→import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
+     4→import { useMediaLibrary } from '@/hooks/useMediaLibrary'
+     5→import { useMusicPlayer } from '@/hooks/useMusicPlayer'
+     6→import { formatDuration, formatFileSize, lsGet, lsSet } from '@/lib/mediaUtils'
+     7→import type { Song } from '@/lib/mediaUtils'
+     8→import EqualizerBars from './EqualizerBars'
+     9→
+    10→interface MusicLibraryProps {
+    11→  onSongSelect: (song: Song) => void
+    12→  onBack: () => void
+    13→}
+    14→
+    15→type TabKey = 'songs' | 'albums' | 'artists' | 'folders' | 'recent'
+    16→
+    17→const TABS: { key: TabKey; label: string }[] = [
+    18→  { key: 'songs', label: 'Songs' },
+    19→  { key: 'albums', label: 'Albums' },
+    20→  { key: 'artists', label: 'Artists' },
+    21→  { key: 'folders', label: 'Folders' },
+    22→  { key: 'recent', label: 'Recent' },
+    23→]
+    24→
+    25→const SORT_OPTIONS = [
+    26→  { value: 'name', label: 'Name' },
+    27→  { value: 'date', label: 'Date Added' },
+    28→  { value: 'duration', label: 'Duration' },
+    29→  { value: 'artist', label: 'Artist' },
+    30→  { value: 'size', label: 'File Size' },
+    31→] as const
+    32→
+    33→const HISTORY_KEY = 'pn_music_history'
+    34→const VIEW_KEY = 'pn_music_view'
+    35→
+    36→function stripExtension(name: string): string {
+    37→  return name.replace(/\.[^.]+$/, '')
+    38→}
+    39→
+    40→export default function MusicLibrary({ onSongSelect, onBack }: MusicLibraryProps) {
+    41→  const { songs, scanning, musicSort, scanMusicFiles, setMusicSort, sortSongs } = useMediaLibrary()
+    42→  const { currentSong, isPlaying, play, setPlaylist, playNext: playNextFn, addToPlaylist: addToPlaylistFn } = useMusicPlayer()
+    43→
+    44→  const [showSearch, setShowSearch] = useState(false)
+    45→  const [searchQuery, setSearchQuery] = useState('')
+    46→  const [activeTab, setActiveTab] = useState<TabKey>('songs')
+    47→  const [viewMode, setViewMode] = useState<'list' | 'grid'>(() =>
+    48→    lsGet<'list' | 'grid'>(VIEW_KEY, 'list')
+    49→  )
+    50→  const [showSortMenu, setShowSortMenu] = useState(false)
+    51→  const [selectedSong, setSelectedSong] = useState<Song | null>(null)
+    52→  const [showOptions, setShowOptions] = useState(false)
+    53→
+    54→  const searchInputRef = useRef<HTMLInputElement>(null)
+    55→  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+    56→  const [debouncedQuery, setDebouncedQuery] = useState('')
+    57→
+    58→  // Auto-scan on mount
+    59→  useEffect(() => {
+    60→    scanMusicFiles()
+    61→  }, [scanMusicFiles])
+    62→
+    63→  // Debounce search
+    64→  useEffect(() => {
+    65→    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current)
+    66→    debounceTimerRef.current = setTimeout(() => {
+    67→      setDebouncedQuery(searchQuery)
+    68→    }, 200)
+    69→    return () => {
+    70→      if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current)
+    71→    }
+    72→  }, [searchQuery])
+    73→
+    74→  // Auto-focus search input
+    75→  useEffect(() => {
+    76→    if (showSearch && searchInputRef.current) {
+    77→      searchInputRef.current.focus()
+    78→    }
+    79→  }, [showSearch])
+    80→
+    81→  // Save view mode
+    82→  useEffect(() => {
+    83→    lsSet(VIEW_KEY, viewMode)
+    84→  }, [viewMode])
+    85→
+    86→  // Sorted + filtered songs
+    87→  const sortedSongs = useMemo(() => {
+    88→    return sortSongs(songs, musicSort)
+    89→  }, [songs, musicSort, sortSongs])
+    90→
+    91→  const filteredSongs = useMemo(() => {
+    92→    if (!debouncedQuery.trim()) return sortedSongs
+    93→    const q = debouncedQuery.toLowerCase()
+    94→    return sortedSongs.filter(
+    95→      (s) =>
+    96→        s.name.toLowerCase().includes(q) ||
+    97→        s.artist.toLowerCase().includes(q) ||
+    98→        s.album.toLowerCase().includes(q)
+    99→    )
+   100→  }, [sortedSongs, debouncedQuery])
+   101→
+   102→  // Grouped data
+   103→  const albums = useMemo(() => {
+   104→    const map = new Map<string, { name: string; songs: Song[]; cover: string | null }>()
+   105→    for (const s of filteredSongs) {
+   106→      const key = s.album || 'Unknown Album'
+   107→      if (!map.has(key)) {
+   108→        map.set(key, { name: key, songs: [], cover: s.cover })
+   109→      }
+   110→      map.get(key)!.songs.push(s)
+   111→      if (s.cover && !map.get(key)!.cover) {
+   112→        map.get(key)!.cover = s.cover
+   113→      }
+   114→    }
+   115→    return Array.from(map.values())
+   116→  }, [filteredSongs])
+   117→
+   118→  const artists = useMemo(() => {
+   119→    const map = new Map<string, { name: string; songs: Song[] }>()
+   120→    for (const s of filteredSongs) {
+   121→      const key = s.artist || 'Unknown Artist'
+   122→      if (!map.has(key)) {
+   123→        map.set(key, { name: key, songs: [] })
+   124→      }
+   125→      map.get(key)!.songs.push(s)
+   126→    }
+   127→    return Array.from(map.values())
+   128→  }, [filteredSongs])
+   129→
+   130→  const folders = useMemo(() => {
+   131→    const map = new Map<string, { name: string; path: string; count: number }>()
+   132→    for (const s of filteredSongs) {
+   133→      const parts = s.path.split('/')
+   134→      const folder = parts.length > 1 ? parts[parts.length - 2] : 'Root'
+   135→      const folderPath = parts.slice(0, -1).join('/')
+   136→      if (!map.has(folderPath)) {
+   137→        map.set(folderPath, { name: folder, path: folderPath, count: 0 })
+   138→      }
+   139→      map.get(folderPath)!.count++
+   140→    }
+   141→    return Array.from(map.values())
+   142→  }, [filteredSongs])
+   143→
+   144→  // Recent history — computed from songs + localStorage
+   145→  const recentSongs = useMemo(() => {
+   146→    const historyIds: string[] = lsGet(HISTORY_KEY, [])
+   147→    if (historyIds.length === 0) return []
+   148→    const songMap = new Map(songs.map((s) => [s.id, s]))
+   149→    const found: Song[] = []
+   150→    for (const id of historyIds) {
+   151→      const song = songMap.get(id)
+   152→      if (song) found.push(song)
+   153→    }
+   154→    return found.slice(0, 50)
+   155→  }, [songs])
+   156→
+   157→  // Handle song play
+   158→  const handlePlaySong = useCallback(
+   159→    (song: Song) => {
+   160→      // Save to history
+   161→      const history: string[] = lsGet(HISTORY_KEY, [])
+   162→      const updated = [song.id, ...history.filter((id) => id !== song.id)].slice(0, 50)
+   163→      lsSet(HISTORY_KEY, updated)
+   164→
+   165→      setPlaylist(filteredSongs, filteredSongs.findIndex((s) => s.id === song.id))
+   166→      onSongSelect(song)
+   167→    },
+   168→    [filteredSongs, setPlaylist, onSongSelect]
+   169→  )
+   170→
+   171→  // Handle option actions
+   172→  const handlePlayNext = useCallback(() => {
+   173→    if (!selectedSong) return
+   174→    playNextFn(selectedSong)
+   175→    setShowOptions(false)
+   176→  }, [selectedSong, playNextFn])
+   177→
+   178→  const handleAddToQueue = useCallback(() => {
+   179→    if (!selectedSong) return
+   180→    addToPlaylistFn(selectedSong)
+   181→    setShowOptions(false)
+   182→  }, [selectedSong, addToPlaylistFn])
+   183→
+   184→  const handleSongOption = useCallback(
+   185→    (action: string) => {
+   186→      if (!selectedSong) return
+   187→      switch (action) {
+   188→        case 'play':
+   189→          handlePlaySong(selectedSong)
+   190→          break
+   191→        case 'playNext':
+   192→          handlePlayNext()
+   193→          break
+   194→        case 'addToQueue':
+   195→          handleAddToQueue()
+   196→          break
+   197→        case 'favorite': {
+   198→          const favs: string[] = lsGet('pn_music_favorites', [])
+   199→          if (!favs.includes(selectedSong.id)) {
+   200→            favs.push(selectedSong.id)
+   201→            lsSet('pn_music_favorites', favs)
+   202→          }
+   203→          break
+   204→        }
+   205→        case 'info': {
+   206→          alert(
+   207→            `Title: ${selectedSong.name}\nArtist: ${selectedSong.artist}\nAlbum: ${selectedSong.album}\nFormat: ${selectedSong.format.toUpperCase()}\nSize: ${formatFileSize(selectedSong.size)}\nDuration: ${formatDuration(selectedSong.duration)}`
+   208→          )
+   209→          break
+   210→        }
+   211→        case 'share': {
+   212→          if (navigator.share) {
+   213→            navigator.share({ title: selectedSong.name, text: `Listening to ${selectedSong.name} by ${selectedSong.artist}` }).catch(() => {})
+   214→          }
+   215→          break
+   216→        }
+   217→      }
+   218→      setShowOptions(false)
+   219→      setSelectedSong(null)
+   220→    },
+   221→    [selectedSong, handlePlaySong, handlePlayNext, handleAddToQueue]
+   222→  )
+   223→
+   224→  const currentSortLabel = SORT_OPTIONS.find((o) => o.value === musicSort)?.label || 'Name'
+   225→
+   226→  return (
+   227→    <div className="min-h-screen bg-[#0A0A0A] flex flex-col">
+   228→      {/* Header */}
+   229→      <header className="h-14 bg-[#0A0A0A] flex items-center px-1 flex-shrink-0">
+   230→        <button
+   231→          onClick={onBack}
+   232→          className="w-11 h-11 flex items-center justify-center text-white music-btn-press"
+   233→          aria-label="Go back"
+   234→        >
+   235→          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+   236→            <polyline points="15 18 9 12 15 6" />
+   237→          </svg>
+   238→        </button>
+   239→        <h1 className="flex-1 text-center font-bold text-lg text-white">Music Library</h1>
+   240→        <button
+   241→          onClick={() => setShowSearch(!showSearch)}
+   242→          className="w-11 h-11 flex items-center justify-center text-white music-btn-press"
+   243→          aria-label="Search"
+   244→        >
+   245→          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+   246→            <circle cx="11" cy="11" r="8" />
+   247→            <line x1="21" y1="21" x2="16.65" y2="16.65" />
+   248→          </svg>
+   249→        </button>
+   250→        <button
+   251→          onClick={() => setShowSortMenu(!showSortMenu)}
+   252→          className="w-11 h-11 flex items-center justify-center text-white music-btn-press"
+   253→          aria-label="Menu"
+   254→        >
+   255→          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+   256→            <circle cx="12" cy="5" r="2" />
+   257→            <circle cx="12" cy="12" r="2" />
+   258→            <circle cx="12" cy="19" r="2" />
+   259→          </svg>
+   260→        </button>
+   261→      </header>
+   262→
+   263→      {/* Search bar (slide down) */}
+   264→      {showSearch && (
+   265→        <div className="px-4 pb-3 animate-slide-up">
+   266→          <div className="relative">
+   267→            <svg className="absolute left-3 top-1/2 -translate-y-1/2 text-[#9CA3AF]" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+   268→              <circle cx="11" cy="11" r="8" />
+   269→              <line x1="21" y1="21" x2="16.65" y2="16.65" />
+   270→            </svg>
+   271→            <input
+   272→              ref={searchInputRef}
+   273→              type="text"
+   274→              value={searchQuery}
+   275→              onChange={(e) => setSearchQuery(e.target.value)}
+   276→              placeholder="Search songs, artists..."
+   277→              className="w-full h-11 bg-[#141414] border border-[#252525] rounded-xl pl-9 pr-4 text-sm text-white placeholder-[#9CA3AF] focus:outline-none focus:border-[#7C3AED] transition-colors duration-200"
+   278→            />
+   279→            {searchQuery && (
+   280→              <button
+   281→                onClick={() => setSearchQuery('')}
+   282→                className="absolute right-3 top-1/2 -translate-y-1/2 text-[#9CA3AF]"
+   283→                aria-label="Clear search"
+   284→              >
+   285→                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+   286→                  <line x1="18" y1="6" x2="6" y2="18" />
+   287→                  <line x1="6" y1="6" x2="18" y2="18" />
+   288→                </svg>
+   289→              </button>
+   290→            )}
+   291→          </div>
+   292→        </div>
+   293→      )}
+   294→
+   295→      {/* Tab row */}
+   296→      <div className="px-4 pb-2 flex-shrink-0">
+   297→        <div className="flex gap-2 overflow-x-auto scrollbar-hide py-1">
+   298→          {TABS.map((tab) => (
+   299→            <button
+   300→              key={tab.key}
+   301→              onClick={() => setActiveTab(tab.key)}
+   302→              className={`flex-shrink-0 px-4 py-2 rounded-full text-sm font-medium transition-colors duration-200 ${
+   303→                activeTab === tab.key
+   304→                  ? 'bg-[#7C3AED] text-white'
+   305→                  : 'border border-[#252525] text-[#9CA3AF] hover:text-white'
+   306→              }`}
+   307→            >
+   308→              {tab.label}
+   309→            </button>
+   310→          ))}
+   311→        </div>
+   312→      </div>
+   313→
+   314→      {/* Sort + View row */}
+   315→      <div className="px-4 pb-2 flex items-center justify-between flex-shrink-0">
+   316→        <div className="relative">
+   317→          <button
+   318→            onClick={() => setShowSortMenu(!showSortMenu)}
+   319→            className="flex items-center gap-1 text-xs text-[#9CA3AF] h-9 px-2 rounded-lg hover:bg-[#141414] transition-colors duration-200"
+   320→          >
+   321→            <span>Sort by: {currentSortLabel}</span>
+   322→            <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+   323→              <path d="M7 10l5 5 5-5z" />
+   324→            </svg>
+   325→          </button>
+   326→          {showSortMenu && (
+   327→            <div className="absolute top-9 left-0 bg-[#1A1A1A] border border-[#252525] rounded-xl py-1 z-30 min-w-[160px] animate-slide-up">
+   328→              {SORT_OPTIONS.map((opt) => (
+   329→                <button
+   330→                  key={opt.value}
+   331→                  onClick={() => {
+   332→                    setMusicSort(opt.value)
+   333→                    setShowSortMenu(false)
+   334→                  }}
+   335→                  className={`w-full text-left px-4 py-2.5 text-sm transition-colors duration-200 ${
+   336→                    musicSort === opt.value
+   337→                      ? 'text-[#7C3AED] bg-[#7C3AED]/10'
+   338→                      : 'text-[#9CA3AF] hover:text-white hover:bg-[#252525]'
+   339→                  }`}
+   340→                >
+   341→                  {opt.label}
+   342→                </button>
+   343→              ))}
+   344→            </div>
+   345→          )}
+   346→        </div>
+   347→        <div className="flex items-center gap-1">
+   348→          <button
+   349→            onClick={() => setViewMode('list')}
+   350→            className={`w-9 h-9 flex items-center justify-center rounded-lg transition-colors duration-200 ${
+   351→              viewMode === 'list' ? 'text-[#7C3AED] bg-[#7C3AED]/10' : 'text-[#9CA3AF]'
+   352→            }`}
+   353→            aria-label="List view"
+   354→          >
+   355→            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+   356→              <rect x="3" y="4" width="18" height="2" rx="1" />
+   357→              <rect x="3" y="11" width="18" height="2" rx="1" />
+   358→              <rect x="3" y="18" width="18" height="2" rx="1" />
+   359→            </svg>
+   360→          </button>
+   361→          <button
+   362→            onClick={() => setViewMode('grid')}
+   363→            className={`w-9 h-9 flex items-center justify-center rounded-lg transition-colors duration-200 ${
+   364→              viewMode === 'grid' ? 'text-[#7C3AED] bg-[#7C3AED]/10' : 'text-[#9CA3AF]'
+   365→            }`}
+   366→            aria-label="Grid view"
+   367→          >
+   368→            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+   369→              <rect x="3" y="3" width="8" height="8" rx="2" />
+   370→              <rect x="13" y="3" width="8" height="8" rx="2" />
+   371→              <rect x="3" y="13" width="8" height="8" rx="2" />
+   372→              <rect x="13" y="13" width="8" height="8" rx="2" />
+   373→            </svg>
+   374→          </button>
+   375→        </div>
+   376→      </div>
+   377→
+   378→      {/* Content area */}
+   379→      <div className="flex-1 overflow-y-auto">
+   380→        {/* Scanning indicator */}
+   381→        {scanning && (
+   382→          <div className="px-4 py-3">
+   383→            <div className="flex items-center gap-2 text-[#9CA3AF] text-sm">
+   384→              <svg className="animate-spin" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+   385→                <path d="M21 12a9 9 0 11-6.219-8.56" />
+   386→              </svg>
+   387→              <span>Scanning music files...</span>
+   388→            </div>
+   389→          </div>
+   390→        )}
+   391→
+   392→        {/* Songs Tab */}
+   393→        {activeTab === 'songs' && (
+   394→          <>
+   395→            {filteredSongs.length === 0 && !scanning && (
+   396→              <div className="flex flex-col items-center justify-center py-20 text-[#9CA3AF]">
+   397→                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="mb-3 opacity-50">
+   398→                  <path d="M9 18V5l12-2v13" />
+   399→                  <circle cx="6" cy="18" r="3" />
+   400→                  <circle cx="18" cy="16" r="3" />
+   401→                </svg>
+   402→                <p className="text-sm">
+   403→                  {debouncedQuery ? 'No songs found' : 'No music files found'}
+   404→                </p>
+   405→                {!debouncedQuery && (
+   406→                  <button
+   407→                    onClick={() => scanMusicFiles(true)}
+   408→                    className="mt-3 px-4 py-2 bg-[#7C3AED] text-white text-sm rounded-full music-btn-press"
+   409→                  >
+   410→                    Scan Again
+   411→                  </button>
+   412→                )}
+   413→              </div>
+   414→            )}
+   415→            {viewMode === 'list' ? (
+   416→              <SongList
+   417→                songs={filteredSongs}
+   418→                currentSong={currentSong}
+   419→                isPlaying={isPlaying}
+   420→                onPlay={handlePlaySong}
+   421→                onOptions={(song) => {
+   422→                  setSelectedSong(song)
+   423→                  setShowOptions(true)
+   424→                }}
+   425→              />
+   426→            ) : (
+   427→              <SongGrid
+   428→                songs={filteredSongs}
+   429→                currentSong={currentSong}
+   430→                isPlaying={isPlaying}
+   431→                onPlay={handlePlaySong}
+   432→                onOptions={(song) => {
+   433→                  setSelectedSong(song)
+   434→                  setShowOptions(true)
+   435→                }}
+   436→              />
+   437→            )}
+   438→          </>
+   439→        )}
+   440→
+   441→        {/* Albums Tab */}
+   442→        {activeTab === 'albums' && (
+   443→          <div className="px-4 pb-4 grid grid-cols-2 gap-3">
+   444→            {albums.map((album) => (
+   445→              <button
+   446→                key={album.name}
+   447→                onClick={() => {
+   448→                  if (album.songs.length > 0) {
+   449→                    setPlaylist(album.songs, 0)
+   450→                    onSongSelect(album.songs[0])
+   451→                  }
+   452→                }}
+   453→                className="text-left focus:outline-none music-btn-press"
+   454→              >
+   455→                <div className="aspect-square rounded-xl overflow-hidden bg-gradient-to-br from-[#1A0A3E] to-[#0A1A3E] mb-2">
+   456→                  {album.cover ? (
+   457→                    <img
+   458→                      src={album.cover}
+   459→                      alt={album.name}
+   460→                      className="w-full h-full object-cover"
+   461→                      loading="lazy"
+   462→                    />
+   463→                  ) : (
+   464→                    <div className="w-full h-full flex items-center justify-center">
+   465→                      <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#7C3AED" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+   466→                        <rect x="3" y="3" width="18" height="18" rx="2" />
+   467→                        <circle cx="12" cy="13" r="4" />
+   468→                        <path d="M9 3v3" />
+   469→                        <path d="M15 3v3" />
+   470→                      </svg>
+   471→                    </div>
+   472→                  )}
+   473→                </div>
+   474→                <p className="text-sm font-medium text-white truncate">{album.name}</p>
+   475→                <p className="text-xs text-[#9CA3AF]">{album.songs.length} song{album.songs.length !== 1 ? 's' : ''}</p>
+   476→              </button>
+   477→            ))}
+   478→          </div>
+   479→        )}
+   480→
+   481→        {/* Artists Tab */}
+   482→        {activeTab === 'artists' && (
+   483→          <div className="px-4 pb-4">
+   484→            {artists.map((artist) => (
+   485→              <button
+   486→                key={artist.name}
+   487→                onClick={() => {
+   488→                  if (artist.songs.length > 0) {
+   489→                    setPlaylist(artist.songs, 0)
+   490→                    onSongSelect(artist.songs[0])
+   491→                  }
+   492→                }}
+   493→                className="w-full flex items-center gap-3 min-h-[56px] px-2 py-2 hover:bg-[#141414] active:bg-[#141414] transition-colors duration-200 rounded-lg focus:outline-none"
+   494→              >
+   495→                <div
+   496→                  className="w-11 h-11 rounded-full flex items-center justify-center flex-shrink-0"
+   497→                  style={{
+   498→                    background: `linear-gradient(135deg, #7C3AED, #06B6D4)`,
+   499→                  }}
+   500→                >
+   501→                  <span className="text-white font-bold text-sm">
+   502→                    {artist.name.charAt(0).toUpperCase()}
+   503→                  </span>
+   504→                </div>
+   505→                <div className="min-w-0 flex-1">
+   506→                  <p className="text-sm font-medium text-white truncate">{artist.name}</p>
+   507→                  <p className="text-xs text-[#9CA3AF]">
+   508→                    {artist.songs.length} song{artist.songs.length !== 1 ? 's' : ''}
+   509→                  </p>
+   510→                </div>
+   511→              </button>
+   512→            ))}
+   513→          </div>
+   514→        )}
+   515→
+   516→        {/* Folders Tab */}
+   517→        {activeTab === 'folders' && (
+   518→          <div className="px-4 pb-4">
+   519→            {folders.map((folder) => (
+   520→              <button
+   521→                key={folder.path}
+   522→                onClick={() => {
+   523→                  const folderSongs = filteredSongs.filter((s) =>
+   524→                    s.path.startsWith(folder.path + '/')
+   525→                  )
+   526→                  if (folderSongs.length > 0) {
+   527→                    setPlaylist(folderSongs, 0)
+   528→                    onSongSelect(folderSongs[0])
+   529→                  }
+   530→                }}
+   531→                className="w-full flex items-center gap-3 min-h-[56px] px-2 py-2 hover:bg-[#141414] active:bg-[#141414] transition-colors duration-200 rounded-lg focus:outline-none"
+   532→              >
+   533→                <div className="w-11 h-11 rounded-xl bg-[#1A1A1A] flex items-center justify-center flex-shrink-0">
+   534→                  <svg width="22" height="22" viewBox="0 0 24 24" fill="#7C3AED">
+   535→                    <path d="M10 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z" />
+   536→                  </svg>
+   537→                </div>
+   538→                <div className="min-w-0 flex-1">
+   539→                  <p className="text-sm font-medium text-white truncate">{folder.name}</p>
+   540→                  <p className="text-xs text-[#9CA3AF]">
+   541→                    {folder.count} song{folder.count !== 1 ? 's' : ''}
+   542→                  </p>
+   543→                </div>
+   544→              </button>
+   545→            ))}
+   546→          </div>
+   547→        )}
+   548→
+   549→        {/* Recent Tab */}
+   550→        {activeTab === 'recent' && (
+   551→          <>
+   552→            {recentSongs.length === 0 ? (
+   553→              <div className="flex flex-col items-center justify-center py-20 text-[#9CA3AF]">
+   554→                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="mb-3 opacity-50">
+   555→                  <circle cx="12" cy="12" r="10" />
+   556→                  <polyline points="12 6 12 12 16 14" />
+   557→                </svg>
+   558→                <p className="text-sm">No recently played songs</p>
+   559→              </div>
+   560→            ) : (
+   561→              <SongList
+   562→                songs={recentSongs}
+   563→                currentSong={currentSong}
+   564→                isPlaying={isPlaying}
+   565→                onPlay={handlePlaySong}
+   566→                onOptions={(song) => {
+   567→                  setSelectedSong(song)
+   568→                  setShowOptions(true)
+   569→                }}
+   570→              />
+   571→            )}
+   572→          </>
+   573→        )}
+   574→      </div>
+   575→
+   576→      {/* Click-away for sort menu */}
+   577→      {showSortMenu && (
+   578→        <div
+   579→          className="fixed inset-0 z-20"
+   580→          onClick={() => setShowSortMenu(false)}
+   581→        />
+   582→      )}
+   583→
+   584→      {/* Song Options Bottom Sheet */}
+   585→      {showOptions && selectedSong && (
+   586→        <OptionsSheet
+   587→          song={selectedSong}
+   588→          onAction={handleSongOption}
+   589→          onClose={() => {
+   590→            setShowOptions(false)
+   591→            setSelectedSong(null)
+   592→          }}
+   593→        />
+   594→      )}
+   595→    </div>
+   596→  )
+   597→}
+   598→
+   599→// ── Song List View ──────────────────────────────────────────────
+   600→function SongList({
+   601→  songs,
+   602→  currentSong,
+   603→  isPlaying,
+   604→  onPlay,
+   605→  onOptions,
+   606→}: {
+   607→  songs: Song[]
+   608→  currentSong: Song | null
+   609→  isPlaying: boolean
+   610→  onPlay: (song: Song) => void
+   611→  onOptions: (song: Song) => void
+   612→}) {
+   613→  return (
+   614→    <div className="pb-4">
+   615→      {songs.map((song) => {
+   616→        const isActive = currentSong?.id === song.id
+   617→        return (
+   618→          <div
+   619→            key={song.id}
+   620→            className={`flex items-center gap-3 min-h-[64px] px-4 transition-colors duration-100 ${
+   621→              isActive ? 'bg-[#141414]' : 'hover:bg-[#141414]'
+   622→            }`}
+   623→            style={{ contentVisibility: 'auto' }}
+   624→          >
+   625→            <button
+   626→              onClick={() => onPlay(song)}
+   627→              className="flex items-center gap-3 flex-1 min-w-0 min-h-[64px] focus:outline-none"
+   628→            >
+   629→              {/* Icon */}
+   630→              <div className="w-12 h-12 rounded-xl flex-shrink-0 overflow-hidden bg-gradient-to-br from-[#1A0A3E] to-[#0A1A3E]">
+   631→                {song.cover ? (
+   632→                  <img
+   633→                    src={song.cover}
+   634→                    alt={song.name}
+   635→                    className="w-full h-full object-cover"
+   636→                    loading="lazy"
+   637→                  />
+   638→                ) : (
+   639→                  <div className="w-full h-full flex items-center justify-center">
+   640→                    {isActive && isPlaying ? (
+   641→                      <EqualizerBars isPlaying={true} className="scale-75" />
+   642→                    ) : (
+   643→                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#7C3AED" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+   644→                        <path d="M9 18V5l12-2v13" />
+   645→                        <circle cx="6" cy="18" r="3" />
+   646→                        <circle cx="18" cy="16" r="3" />
+   647→                      </svg>
+   648→                    )}
+   649→                  </div>
+   650→                )}
+   651→              </div>
+   652→              {/* Info */}
+   653→              <div className="min-w-0 flex-1">
+   654→                <p className={`text-sm font-medium truncate ${isActive ? 'text-[#7C3AED]' : 'text-white'}`}>
+   655→                  {stripExtension(song.name)}
+   656→                </p>
+   657→                <p className="text-xs text-[#9CA3AF] truncate">
+   658→                  {song.artist || 'Unknown Artist'} &bull; {formatDuration(song.duration)} &bull; {formatFileSize(song.size)}
+   659→                </p>
+   660→              </div>
+   661→            </button>
+   662→            {/* Options button */}
+   663→            <button
+   664→              onClick={() => onOptions(song)}
+   665→              className="w-11 h-11 flex items-center justify-center text-[#9CA3AF] music-btn-press"
+   666→              aria-label="Song options"
+   667→            >
+   668→              <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+   669→                <circle cx="12" cy="5" r="2" />
+   670→                <circle cx="12" cy="12" r="2" />
+   671→                <circle cx="12" cy="19" r="2" />
+   672→              </svg>
+   673→            </button>
+   674→          </div>
+   675→        )
+   676→      })}
+   677→    </div>
+   678→  )
+   679→}
+   680→
+   681→// ── Song Grid View ──────────────────────────────────────────────
+   682→function SongGrid({
+   683→  songs,
+   684→  currentSong,
+   685→  isPlaying,
+   686→  onPlay,
+   687→  onOptions,
+   688→}: {
+   689→  songs: Song[]
+   690→  currentSong: Song | null
+   691→  isPlaying: boolean
+   692→  onPlay: (song: Song) => void
+   693→  onOptions: (song: Song) => void
+   694→}) {
+   695→  return (
+   696→    <div className="px-4 pb-4 grid grid-cols-2 gap-3">
+   697→      {songs.map((song) => {
+   698→        const isActive = currentSong?.id === song.id
+   699→        return (
+   700→          <div key={song.id} className="relative" style={{ contentVisibility: 'auto' }}>
+   701→            <button
+   702→              onClick={() => onPlay(song)}
+   703→              className="w-full text-left focus:outline-none music-btn-press"
+   704→            >
+   705→              <div className="aspect-square rounded-xl overflow-hidden bg-gradient-to-br from-[#1A0A3E] to-[#0A1A3E] mb-2">
+   706→                {song.cover ? (
+   707→                  <img
+   708→                    src={song.cover}
+   709→                    alt={song.name}
+   710→                    className="w-full h-full object-cover"
+   711→                    loading="lazy"
+   712→                  />
+   713→                ) : (
+   714→                  <div className="w-full h-full flex items-center justify-center">
+   715→                    {isActive && isPlaying ? (
+   716→                      <EqualizerBars isPlaying={true} />
+   717→                    ) : (
+   718→                      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#7C3AED" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+   719→                        <path d="M9 18V5l12-2v13" />
+   720→                        <circle cx="6" cy="18" r="3" />
+   721→                        <circle cx="18" cy="16" r="3" />
+   722→                      </svg>
+   723→                    )}
+   724→                  </div>
+   725→                )}
+   726→              </div>
+   727→              <p className={`text-xs font-medium truncate ${isActive ? 'text-[#7C3AED]' : 'text-white'}`}>
+   728→                {stripExtension(song.name)}
+   729→              </p>
+   730→              <p className="text-[10px] text-[#9CA3AF] truncate">{song.artist || 'Unknown Artist'}</p>
+   731→            </button>
+   732→            <button
+   733→              onClick={() => onOptions(song)}
+   734→              className="absolute top-2 right-2 w-8 h-8 flex items-center justify-center rounded-full bg-[#0A0A0A]/60 text-[#9CA3AF]"
+   735→              aria-label="Song options"
+   736→            >
+   737→              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+   738→                <circle cx="12" cy="5" r="2" />
+   739→                <circle cx="12" cy="12" r="2" />
+   740→                <circle cx="12" cy="19" r="2" />
+   741→              </svg>
+   742→            </button>
+   743→          </div>
+   744→        )
+   745→      })}
+   746→    </div>
+   747→  )
+   748→}
+   749→
+   750→// ── Options Bottom Sheet ────────────────────────────────────────
+   751→function OptionsSheet({
+   752→  song,
+   753→  onAction,
+   754→  onClose,
+   755→}: {
+   756→  song: Song
+   757→  onAction: (action: string) => void
+   758→  onClose: () => void
+   759→}) {
+   760→  const options = [
+   761→    { key: 'play', label: 'Play Now', icon: PlayIcon },
+   762→    { key: 'playNext', label: 'Play Next', icon: PlayNextIcon },
+   763→    { key: 'addToQueue', label: 'Add to Queue', icon: QueueIcon },
+   764→    { key: 'favorite', label: 'Add to Favorites', icon: HeartIcon },
+   765→    { key: 'info', label: 'Song Info', icon: InfoIcon },
+   766→    { key: 'share', label: 'Share', icon: ShareIcon },
+   767→  ]
+   768→
+   769→  return (
+   770→    <div className="fixed inset-0 z-50 flex items-end justify-center" onClick={onClose}>
+   771→      {/* Backdrop */}
+   772→      <div className="absolute inset-0 bg-black/60" />
+   773→
+   774→      {/* Sheet */}
+   775→      <div
+   776→        className="relative w-full max-w-lg bg-[#141414] rounded-t-2xl animate-slide-up"
+   777→        onClick={(e) => e.stopPropagation()}
+   778→      >
+   779→        {/* Drag handle */}
+   780→        <div className="flex justify-center pt-3 pb-2">
+   781→          <div className="w-10 h-1 rounded-full bg-[#333333]" />
+   782→        </div>
+   783→
+   784→        {/* Song info header */}
+   785→        <div className="flex items-center gap-3 px-4 pb-4 border-b border-[#252525]">
+   786→          <div className="w-12 h-12 rounded-xl overflow-hidden bg-gradient-to-br from-[#1A0A3E] to-[#0A1A3E] flex-shrink-0">
+   787→            {song.cover ? (
+   788→              <img src={song.cover} alt={song.name} className="w-full h-full object-cover" />
+   789→            ) : (
+   790→              <div className="w-full h-full flex items-center justify-center">
+   791→                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#7C3AED" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+   792→                  <path d="M9 18V5l12-2v13" />
+   793→                  <circle cx="6" cy="18" r="3" />
+   794→                  <circle cx="18" cy="16" r="3" />
+   795→                </svg>
+   796→              </div>
+   797→            )}
+   798→          </div>
+   799→          <div className="min-w-0 flex-1">
+   800→            <p className="text-sm font-medium text-white truncate">{stripExtension(song.name)}</p>
+   801→            <p className="text-xs text-[#9CA3AF] truncate">{song.artist || 'Unknown Artist'}</p>
+   802→          </div>
+   803→        </div>
+   804→
+   805→        {/* Options */}
+   806→        <div className="py-2 pb-6">
+   807→          {options.map((opt) => (
+   808→            <button
+   809→              key={opt.key}
+   810→              onClick={() => onAction(opt.key)}
+   811→              className="w-full flex items-center gap-4 px-4 py-3 hover:bg-[#1F1F1F] active:bg-[#252525] transition-colors duration-200 focus:outline-none"
+   812→            >
+   813→              <opt.icon />
+   814→              <span className="text-sm text-white">{opt.label}</span>
+   815→            </button>
+   816→          ))}
+   817→        </div>
+   818→      </div>
+   819→    </div>
+   820→  )
+   821→}
+   822→
+   823→// ── Icon Components ─────────────────────────────────────────────
+   824→
+   825→function PlayIcon() {
+   826→  return (
+   827→    <svg width="20" height="20" viewBox="0 0 24 24" fill="#9CA3AF">
+   828→      <path d="M8 5v14l11-7z" />
+   829→    </svg>
+   830→  )
+   831→}
+   832→
+   833→function PlayNextIcon() {
+   834→  return (
+   835→    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#9CA3AF" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+   836→      <line x1="3" y1="12" x2="21" y2="12" />
+   837→      <polyline points="15 6 21 12 15 18" />
+   838→    </svg>
+   839→  )
+   840→}
+   841→
+   842→function QueueIcon() {
+   843→  return (
+   844→    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#9CA3AF" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+   845→      <line x1="8" y1="6" x2="21" y2="6" />
+   846→      <line x1="8" y1="12" x2="21" y2="12" />
+   847→      <line x1="8" y1="18" x2="21" y2="18" />
+   848→      <line x1="3" y1="6" x2="3.01" y2="6" />
+   849→      <line x1="3" y1="12" x2="3.01" y2="12" />
+   850→      <line x1="3" y1="18" x2="3.01" y2="18" />
+   851→    </svg>
+   852→  )
+   853→}
+   854→
+   855→function HeartIcon() {
+   856→  return (
+   857→    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#9CA3AF" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+   858→      <path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z" />
+   859→    </svg>
+   860→  )
+   861→}
+   862→
+   863→function InfoIcon() {
+   864→  return (
+   865→    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#9CA3AF" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+   866→      <circle cx="12" cy="12" r="10" />
+   867→      <line x1="12" y1="16" x2="12" y2="12" />
+   868→      <line x1="12" y1="8" x2="12.01" y2="8" />
+   869→    </svg>
+   870→  )
+   871→}
+   872→
+   873→function ShareIcon() {
+   874→  return (
+   875→    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#9CA3AF" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+   876→      <circle cx="18" cy="5" r="3" />
+   877→      <circle cx="6" cy="12" r="3" />
+   878→      <circle cx="18" cy="19" r="3" />
+   879→      <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
+   880→      <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
+   881→    </svg>
+   882→  )
+   883→}
+   884→

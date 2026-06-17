@@ -32,6 +32,7 @@ export interface Song {
   cover: string | null
   path: string
   format: string
+  file?: File           // Only available for browser-picked files
 }
 
 export interface VideoFile {
@@ -47,6 +48,7 @@ export interface VideoFile {
   height: number
   lastPlayed: number | null
   progress: number
+  file?: File           // Only available for browser-picked files
 }
 
 // ══════════════════════════════════════════════════════════════

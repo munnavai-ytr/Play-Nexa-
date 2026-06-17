@@ -1,0 +1,1247 @@
+     1→// ── Play Nexa Admin — Gemini AI Channel Manager ───────────────
+     2→// YouTube Channel Manager with AI-powered scanning via Gemini 1.5 Flash
+     3→// Features: Add channels, Gemini AI scan, display settings, scan history
+     4→// AMOLED dark theme (#000000 base), 44px touch targets, no backdrop-blur
+     5→
+     6→'use client'
+     7→
+     8→import { useState, useEffect, useCallback, useRef } from 'react'
+     9→
+    10→// ── Types ──
+    11→
+    12→interface Channel {
+    13→  id: string
+    14→  channel_url: string
+    15→  channel_id: string
+    16→  channel_name: string
+    17→  channel_avatar: string | null
+    18→  channel_type: 'movies' | 'music' | 'mixed'
+    19→  filter_keywords: string[]
+    20→  exclude_keywords: string[]
+    21→  auto_sync: boolean
+    22→  sync_interval: number
+    23→  last_synced_at: string | null
+    24→  total_imported: number
+    25→  is_active: boolean
+    26→  created_at: string
+    27→}
+    28→
+    29→interface FetchedInfo {
+    30→  name: string
+    31→  channelId: string
+    32→  avatar: string
+    33→  videoCount: number
+    34→}
+    35→
+    36→interface ScanJob {
+    37→  id: string
+    38→  channel_name: string
+    39→  status: 'scanning' | 'completed' | 'failed'
+    40→  total_videos: number
+    41→  processed: number
+    42→  movies_found: number
+    43→  music_found: number
+    44→  skipped: number
+    45→  error_message: string | null
+    46→  started_at: string
+    47→  completed_at: string | null
+    48→}
+    49→
+    50→interface DisplaySettings {
+    51→  display_name: string
+    52→  badge_color: string
+    53→  border_color: string
+    54→}
+    55→
+    56→interface ScanState {
+    57→  status: 'idle' | 'scanning' | 'paused' | 'completed'
+    58→  totalOnChannel: number
+    59→  imported: number
+    60→  movieCount: number
+    61→  musicCount: number
+    62→  remaining: number
+    63→  progress: number
+    64→  batchNumber: number
+    65→  scannedCount: number
+    66→}
+    67→
+    68→const BADGE_PRESETS = [
+    69→  '#FF4444', '#FF8C42', '#7C3AED',
+    70→  '#06B6D4', '#FCD34D', '#F472B6',
+    71→]
+    72→
+    73→// ── Helpers ──
+    74→
+    75→function timeAgo(dateStr: string | null): string {
+    76→  if (!dateStr) return 'Never'
+    77→  const diff = Date.now() - new Date(dateStr).getTime()
+    78→  const mins = Math.floor(diff / 60000)
+    79→  if (mins < 1) return 'Just now'
+    80→  if (mins < 60) return `${mins}m ago`
+    81→  const hours = Math.floor(mins / 60)
+    82→  if (hours < 24) return `${hours}h ago`
+    83→  const days = Math.floor(hours / 24)
+    84→  if (days < 30) return `${days}d ago`
+    85→  const months = Math.floor(days / 30)
+    86→  return `${months}mo ago`
+    87→}
+    88→
+    89→// Remove tracking params (?si=, etc.) from YouTube URLs
+    90→const cleanYouTubeUrl = (url: string): string => {
+    91→  try {
+    92→    // Remove all query params (?si=, ?v=, etc)
+    93→    const urlObj = new URL(url.trim())
+    94→    // Keep only origin + pathname
+    95→    const clean = urlObj.origin + urlObj.pathname
+    96→    return clean
+    97→  } catch {
+    98→    // If not valid URL, return trimmed
+    99→    return url.trim()
+   100→  }
+   101→}
+   102→
+   103→// Extract channel identifier (handle, UC ID, user, c-name) from URL
+   104→const extractChannelIdentifier = (url: string): string => {
+   105→  const cleaned = cleanYouTubeUrl(url)
+   106→
+   107→  // Match patterns:
+   108→  // youtube.com/channel/UCxxxxxx
+   109→  const ucMatch = cleaned.match(/channel\/(UC[\w-]{10,})/)
+   110→  if (ucMatch) return ucMatch[1]
+   111→
+   112→  // youtube.com/@handle
+   113→  const handleMatch = cleaned.match(/\/@([\w.-]+)/)
+   114→  if (handleMatch) return '@' + handleMatch[1]
+   115→
+   116→  // youtube.com/c/name
+   117→  const cMatch = cleaned.match(/\/c\/([\w.-]+)/)
+   118→  if (cMatch) return cMatch[1]
+   119→
+   120→  // youtube.com/user/name
+   121→  const userMatch = cleaned.match(/\/user\/([\w.-]+)/)
+   122→  if (userMatch) return userMatch[1]
+   123→
+   124→  // Bare UC.. ID pasted directly
+   125→  if (/^UC[\w-]{10,}$/.test(cleaned.trim())) return cleaned.trim()
+   126→  // Bare @handle pasted directly
+   127→  if (/^@[\w.-]+$/.test(cleaned.trim())) return cleaned.trim()
+   128→
+   129→  return cleaned
+   130→}
+   131→
+   132→// ── Component ──
+   133→
+   134→export default function ChannelManagerPage() {
+   135→  // ── State ──
+   136→  const [channels, setChannels] = useState<Channel[]>([])
+   137→  const [scanJobs, setScanJobs] = useState<ScanJob[]>([])
+   138→  const [isLoading, setIsLoading] = useState(true)
+   139→  const [showAddModal, setShowAddModal] = useState(false)
+   140→  const [showEditModal, setShowEditModal] = useState(false)
+   141→  const [editChannel, setEditChannel] = useState<Channel | null>(null)
+   142→  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+   143→  const [deleteTarget, setDeleteTarget] = useState<Channel | null>(null)
+   144→  const [scanningIds, setScanningIds] = useState<Set<string>>(new Set())
+   145→  const [scanStates, setScanStates] = useState<Record<string, ScanState>>({})
+   146→  const pollRefs = useRef<Record<string, NodeJS.Timeout>>({})
+   147→  const [toast, setToast] = useState({ show: false, msg: '', type: '' })
+   148→
+   149→  // Add modal state
+   150→  const [urlInput, setUrlInput] = useState('')
+   151→  const [fetchedInfo, setFetchedInfo] = useState<FetchedInfo | null>(null)
+   152→  const [isFetching, setIsFetching] = useState(false)
+   153→  const [displaySettings, setDisplaySettings] = useState<DisplaySettings>({
+   154→    display_name: '',
+   155→    badge_color: '#7C3AED',
+   156→    border_color: '#7C3AED',
+   157→  })
+   158→
+   159→  // Edit modal state
+   160→  const [editBadgeColor, setEditBadgeColor] = useState('#7C3AED')
+   161→  const [channelType, setChannelType] = useState<'movies' | 'music' | 'mixed'>('movies')
+   162→
+   163→  // ── Toast ──
+   164→  const showToast = useCallback((msg: string, type: string) => {
+   165→    setToast({ show: true, msg, type })
+   166→    setTimeout(() => setToast({ show: false, msg: '', type: '' }), 3500)
+   167→  }, [])
+   168→
+   169→  // ── Fetch channels ──
+   170→  const fetchChannels = useCallback(async () => {
+   171→    setIsLoading(true)
+   172→    try {
+   173→      const res = await fetch('/api/admin/channels')
+   174→      const data = await res.json()
+   175→      if (data.channels) setChannels(data.channels)
+   176→      else if (data.error) showToast(data.error, 'error')
+   177→    } catch {
+   178→      showToast('Failed to load channels', 'error')
+   179→    }
+   180→    setIsLoading(false)
+   181→  }, [showToast])
+   182→
+   183→  // ── Fetch scan jobs ──
+   184→  const fetchScanJobs = useCallback(async () => {
+   185→    try {
+   186→      const res = await fetch('/api/admin/scan-jobs')
+   187→      const data = await res.json()
+   188→      if (data.jobs) setScanJobs(data.jobs as ScanJob[])
+   189→    } catch {
+   190→      // ai_scan_jobs table may not exist yet — silent
+   191→    }
+   192→  }, [])
+   193→
+   194→  useEffect(() => {
+   195→    fetchChannels()
+   196→    fetchScanJobs()
+   197→  }, [fetchChannels, fetchScanJobs])
+   198→
+   199→  // ── Load scan status for all channels ──
+   200→  // Only runs once on mount — uses a ref to track loaded channels
+   201→  const loadedRef = useRef<Set<string>>(new Set())
+   202→
+   203→  useEffect(() => {
+   204→    if (channels.length > 0) {
+   205→      channels.forEach(ch => {
+   206→        if (!loadedRef.current.has(ch.id)) {
+   207→          loadedRef.current.add(ch.id)
+   208→          loadScanStatus(ch.id)
+   209→        }
+   210→      })
+   211→    }
+   212→  }, [channels]) // eslint-disable-line react-hooks/exhaustive-deps
+   213→
+   214→  const loadScanStatus = async (chId: string) => {
+   215→    try {
+   216→      const res = await fetch(
+   217→        `/api/admin/scan-status?channelId=${chId}`
+   218→      )
+   219→      const data = await res.json()
+   220→      if (data.status) {
+   221→        setScanStates(prev => ({ ...prev, [chId]: data }))
+   222→        // If was scanning, resume polling
+   223→        if (data.status === 'scanning') {
+   224→          startPolling(chId)
+   225→        }
+   226→      }
+   227→    } catch {}
+   228→  }
+   229→
+   230→  // ── Polling for scan progress ──
+   231→  const startPolling = (chId: string) => {
+   232→    if (pollRefs.current[chId]) return
+   233→
+   234→    pollRefs.current[chId] = setInterval(async () => {
+   235→      try {
+   236→        const res = await fetch(
+   237→          `/api/admin/scan-status?channelId=${chId}`
+   238→        )
+   239→        const data = await res.json()
+   240→        if (data.status) {
+   241→          setScanStates(prev => ({ ...prev, [chId]: data }))
+   242→
+   243→          // Auto trigger next batch if scanning
+   244→          if (data.status === 'scanning') {
+   245→            fetch('/api/admin/auto-scan', {
+   246→              method: 'POST',
+   247→              headers: { 'Content-Type': 'application/json' },
+   248→              body: JSON.stringify({
+   249→                channelDbId: chId,
+   250→                action: 'resume',
+   251→              }),
+   252→            }).catch(() => {})
+   253→          }
+   254→
+   255→          // Stop polling when done
+   256→          if (data.status !== 'scanning') {
+   257→            stopPolling(chId)
+   258→          }
+   259→        }
+   260→      } catch {}
+   261→    }, 8000) // poll every 8 seconds
+   262→  }
+   263→
+   264→  const stopPolling = (chId: string) => {
+   265→    if (pollRefs.current[chId]) {
+   266→      clearInterval(pollRefs.current[chId])
+   267→      delete pollRefs.current[chId]
+   268→    }
+   269→  }
+   270→
+   271→  // Cleanup on unmount
+   272→  useEffect(() => {
+   273→    return () => {
+   274→      Object.keys(pollRefs.current).forEach(stopPolling)
+   275→    }
+   276→  }, [])
+   277→
+   278→  // ── Auto Scan Actions ──
+   279→  const handleStartScan = async (chId: string) => {
+   280→    setScanStates(prev => ({
+   281→      ...prev,
+   282→      [chId]: { ...prev[chId], status: 'scanning' },
+   283→    }))
+   284→
+   285→    await fetch('/api/admin/auto-scan', {
+   286→      method: 'POST',
+   287→      headers: { 'Content-Type': 'application/json' },
+   288→      body: JSON.stringify({ channelDbId: chId, action: 'start' }),
+   289→    })
+   290→
+   291→    startPolling(chId)
+   292→    showToast('Auto scan started!', 'success')
+   293→  }
+   294→
+   295→  const handlePause = async (chId: string) => {
+   296→    stopPolling(chId)
+   297→    await fetch('/api/admin/auto-scan', {
+   298→      method: 'POST',
+   299→      headers: { 'Content-Type': 'application/json' },
+   300→      body: JSON.stringify({ channelDbId: chId, action: 'pause' }),
+   301→    })
+   302→    setScanStates(prev => ({
+   303→      ...prev,
+   304→      [chId]: { ...prev[chId], status: 'paused' },
+   305→    }))
+   306→    showToast('Scan paused', 'info')
+   307→  }
+   308→
+   309→  const handleResume = async (chId: string) => {
+   310→    await fetch('/api/admin/auto-scan', {
+   311→      method: 'POST',
+   312→      headers: { 'Content-Type': 'application/json' },
+   313→      body: JSON.stringify({ channelDbId: chId, action: 'resume' }),
+   314→    })
+   315→    setScanStates(prev => ({
+   316→      ...prev,
+   317→      [chId]: { ...prev[chId], status: 'scanning' },
+   318→    }))
+   319→    startPolling(chId)
+   320→    showToast('Scan resumed', 'success')
+   321→  }
+   322→
+   323→  const handleStop = async (chId: string) => {
+   324→    stopPolling(chId)
+   325→    await fetch('/api/admin/auto-scan', {
+   326→      method: 'POST',
+   327→      headers: { 'Content-Type': 'application/json' },
+   328→      body: JSON.stringify({ channelDbId: chId, action: 'stop' }),
+   329→    })
+   330→    setScanStates(prev => ({
+   331→      ...prev,
+   332→      [chId]: {
+   333→        ...prev[chId],
+   334→        status: 'idle',
+   335→        imported: 0,
+   336→        movieCount: 0,
+   337→        musicCount: 0,
+   338→        remaining: 0,
+   339→        progress: 0,
+   340→        scannedCount: 0,
+   341→      },
+   342→    }))
+   343→    showToast('Scan stopped & reset', 'info')
+   344→  }
+   345→
+   346→  // ── Fetch channel info from RSS ──
+   347→  const handleFetchInfo = async () => {
+   348→    const identifier = extractChannelIdentifier(urlInput)
+   349→
+   350→    if (!identifier) {
+   351→      showToast('Invalid YouTube URL', 'error')
+   352→      return
+   353→    }
+   354→
+   355→    setIsFetching(true)
+   356→    try {
+   357→      const res = await fetch(
+   358→        `/api/admin/channel-info?id=${encodeURIComponent(identifier)}`
+   359→      )
+   360→      const data = await res.json()
+   361→      if (data.error) {
+   362→        showToast(data.hint ? `${data.error} ${data.hint}` : data.error, 'error')
+   363→        setFetchedInfo(null)
+   364→      } else {
+   365→        setFetchedInfo(data)
+   366→        setDisplaySettings(prev => ({
+   367→          ...prev,
+   368→          display_name: data.name,
+   369→        }))
+   370→        showToast(`Channel found! ${data.videoCount || 0} videos detected`, 'success')
+   371→      }
+   372→    } catch {
+   373→      showToast('Failed to fetch channel info. Check URL.', 'error')
+   374→      setFetchedInfo(null)
+   375→    }
+   376→    setIsFetching(false)
+   377→  }
+   378→
+   379→  // ── Save channel + trigger Gemini AI scan ──
+   380→  const handleSaveAndScan = async () => {
+   381→    if (!fetchedInfo) {
+   382→      showToast('Fetch channel info first', 'error')
+   383→      return
+   384→    }
+   385→
+   386→    try {
+   387→      // 1. Save channel to yt_channels
+   388→      const saveRes = await fetch('/api/admin/channels', {
+   389→        method: 'POST',
+   390→        headers: { 'Content-Type': 'application/json' },
+   391→        body: JSON.stringify({
+   392→          channel_url: urlInput,
+   393→          channel_id: fetchedInfo.channelId,
+   394→          channel_name: fetchedInfo.name,
+   395→          channel_avatar: fetchedInfo.avatar,
+   396→          channel_type: channelType,
+   397→          is_active: true,
+   398→          filter_keywords: [],
+   399→          exclude_keywords: [],
+   400→          auto_sync: false,
+   401→          sync_interval: 6,
+   402→        }),
+   403→      })
+   404→      const savedData = await saveRes.json()
+   405→
+   406→      if (savedData.error) {
+   407→        if (saveRes.status === 409) {
+   408→          showToast('This channel already exists!', 'error')
+   409→        } else {
+   410→          showToast(savedData.error, 'error')
+   411→        }
+   412→        return
+   413→      }
+   414→
+   415→      const savedChannel = savedData.channel
+   416→
+   417→      // 2. Save display settings via API route (avoids client-side RLS issues)
+   418→      try {
+   419→        await fetch('/api/admin/channel-display', {
+   420→          method: 'POST',
+   421→          headers: { 'Content-Type': 'application/json' },
+   422→          body: JSON.stringify({
+   423→            channel_id: savedChannel.id,
+   424→            display_name: displaySettings.display_name || fetchedInfo.name,
+   425→            logo_url: fetchedInfo.avatar,
+   426→            badge_color: displaySettings.badge_color,
+   427→            border_color: displaySettings.border_color,
+   428→            is_visible: true,
+   429→          }),
+   430→        })
+   431→      } catch {
+   432→        // channel_display save failed — non-critical
+   433→      }
+   434→
+   435→      // 3. Start Gemini AI scan
+   436→      setScanningIds(prev => new Set(prev).add(savedChannel.id))
+   437→      showToast('Gemini AI scanning started...', 'info')
+   438→
+   439→      try {
+   440→        const scanRes = await fetch('/api/admin/gemini-scan', {
+   441→          method: 'POST',
+   442→          headers: { 'Content-Type': 'application/json' },
+   443→          body: JSON.stringify({ channelDbId: savedChannel.id }),
+   444→        })
+   445→        const scanData = await scanRes.json()
+   446→
+   447→        if (scanData.success) {
+   448→          showToast(
+   449→            `Done! ${scanData.moviesFound} movies, ${scanData.musicFound} music found`,
+   450→            'success'
+   451→          )
+   452→        } else {
+   453→          showToast('Scan failed: ' + (scanData.error || 'Unknown error'), 'error')
+   454→        }
+   455→      } catch {
+   456→        showToast('Scan request failed. Check connection.', 'error')
+   457→      } finally {
+   458→        setScanningIds(prev => {
+   459→          const next = new Set(prev)
+   460→          next.delete(savedChannel.id)
+   461→          return next
+   462→        })
+   463→      }
+   464→
+   465→      // Refresh data
+   466→      fetchChannels()
+   467→      fetchScanJobs()
+   468→      closeAddModal()
+   469→    } catch {
+   470→      showToast('Save failed. Check connection.', 'error')
+   471→    }
+   472→  }
+   473→
+   474→  // ── Re-scan channel ──
+   475→  const triggerRescan = async (channel: Channel) => {
+   476→    setScanningIds(prev => new Set(prev).add(channel.id))
+   477→    showToast(`Scanning ${channel.channel_name} with Gemini AI...`, 'info')
+   478→
+   479→    try {
+   480→      const scanRes = await fetch('/api/admin/gemini-scan', {
+   481→        method: 'POST',
+   482→        headers: { 'Content-Type': 'application/json' },
+   483→        body: JSON.stringify({ channelDbId: channel.id }),
+   484→      })
+   485→      const scanData = await scanRes.json()
+   486→
+   487→      if (scanData.success) {
+   488→        showToast(
+   489→          `Done! ${scanData.moviesFound} movies, ${scanData.musicFound} music found`,
+   490→          'success'
+   491→        )
+   492→      } else {
+   493→        showToast('Scan failed: ' + (scanData.error || 'Unknown error'), 'error')
+   494→      }
+   495→    } catch {
+   496→      showToast('Scan failed. Check connection.', 'error')
+   497→    } finally {
+   498→      setScanningIds(prev => {
+   499→        const next = new Set(prev)
+   500→        next.delete(channel.id)
+   501→        return next
+   502→      })
+   503→      fetchChannels()
+   504→      fetchScanJobs()
+   505→    }
+   506→  }
+   507→
+   508→  // ── Delete channel ──
+   509→  const deleteChannel = async () => {
+   510→    if (!deleteTarget) return
+   511→    try {
+   512→      const res = await fetch(`/api/admin/channels?id=${deleteTarget.id}`, { method: 'DELETE' })
+   513→      const data = await res.json()
+   514→      if (data.error) {
+   515→        showToast(data.error, 'error')
+   516→      } else {
+   517→        showToast('Channel deleted', 'success')
+   518→        fetchChannels()
+   519→      }
+   520→    } catch {
+   521→      showToast('Delete failed', 'error')
+   522→    }
+   523→    setShowDeleteConfirm(false)
+   524→    setDeleteTarget(null)
+   525→  }
+   526→
+   527→  // ── Edit channel display settings ──
+   528→  const saveEditSettings = async () => {
+   529→    if (!editChannel) return
+   530→    try {
+   531→      await fetch('/api/admin/channel-display', {
+   532→        method: 'POST',
+   533→        headers: { 'Content-Type': 'application/json' },
+   534→        body: JSON.stringify({
+   535→          channel_id: editChannel.id,
+   536→          display_name: editChannel.channel_name,
+   537→          badge_color: editBadgeColor,
+   538→          border_color: editBadgeColor,
+   539→          is_visible: true,
+   540→        }),
+   541→      })
+   542→      showToast('Display settings updated!', 'success')
+   543→    } catch {
+   544→      showToast('Failed to update display settings', 'error')
+   545→    }
+   546→    setShowEditModal(false)
+   547→    setEditChannel(null)
+   548→  }
+   549→
+   550→  // ── Modal openers/closers ──
+   551→  const openAddModal = () => {
+   552→    setUrlInput('')
+   553→    setFetchedInfo(null)
+   554→    setDisplaySettings({ display_name: '', badge_color: '#7C3AED', border_color: '#7C3AED' })
+   555→    setChannelType('movies')
+   556→    setShowAddModal(true)
+   557→  }
+   558→
+   559→  const closeAddModal = () => {
+   560→    setShowAddModal(false)
+   561→    setFetchedInfo(null)
+   562→    setUrlInput('')
+   563→  }
+   564→
+   565→  const openEditModal = (ch: Channel) => {
+   566→    setEditChannel(ch)
+   567→    setEditBadgeColor('#7C3AED')
+   568→    setShowEditModal(true)
+   569→  }
+   570→
+   571→  // ── Render ──
+   572→
+   573→  return (
+   574→    <div className="min-h-screen bg-black p-4 pb-24">
+   575→      {/* ── Toast ── */}
+   576→      {toast.show && (
+   577→        <div
+   578→          className={`fixed top-4 left-1/2 -translate-x-1/2 z-[9999] px-4 py-3 rounded-xl text-sm font-medium shadow-lg min-h-[44px] flex items-center transition-opacity duration-300 ${
+   579→            toast.type === 'error'
+   580→              ? 'bg-[#EF4444] text-white'
+   581→              : toast.type === 'success'
+   582→                ? 'bg-[#22C55E] text-white'
+   583→                : 'bg-[#3B82F6] text-white'
+   584→          }`}
+   585→        >
+   586→          {toast.msg}
+   587→        </div>
+   588→      )}
+   589→
+   590→      {/* ── Header ── */}
+   591→      <div className="flex items-center justify-between mb-6">
+   592→        <div>
+   593→          <h1 className="text-xl font-bold text-white flex items-center gap-2">
+   594→            <span className="text-2xl">📺</span> Channel Manager
+   595→          </h1>
+   596→          <p className="text-[#9CA3AF] text-xs mt-1">
+   597→            {channels.length} channel{channels.length !== 1 ? 's' : ''} configured
+   598→            {' '}| Gemini AI auto-classification
+   599→          </p>
+   600→        </div>
+   601→        <button
+   602→          onClick={openAddModal}
+   603→          className="h-11 px-5 bg-[#7C3AED] hover:bg-[#6D28D9] rounded-xl text-white font-semibold text-sm transition-colors duration-150 min-h-[44px]"
+   604→        >
+   605→          + Add Channel
+   606→        </button>
+   607→      </div>
+   608→
+   609→      {/* ── Channel List ── */}
+   610→      {isLoading ? (
+   611→        <div className="flex items-center justify-center py-20">
+   612→          <div className="w-6 h-6 border-2 border-[#7C3AED] border-t-transparent rounded-full animate-spin" />
+   613→        </div>
+   614→      ) : channels.length === 0 ? (
+   615→        <div className="bg-[#0F0F0F] border border-[#1A1A1A] rounded-2xl p-8 text-center">
+   616→          <div className="text-4xl mb-3">📺</div>
+   617→          <p className="text-[#9CA3AF] text-sm">No channels yet. Add your first YouTube channel to start AI-powered content scanning.</p>
+   618→        </div>
+   619→      ) : (
+   620→        <div className="space-y-3">
+   621→          {channels.map(ch => {
+   622→            const isScanning = scanningIds.has(ch.id)
+   623→            return (
+   624→              <div
+   625→                key={ch.id}
+   626→                className="bg-[#0F0F0F] border border-[#1A1A1A] rounded-2xl p-4"
+   627→              >
+   628→                <div className="flex items-start gap-3">
+   629→                  {/* Avatar */}
+   630→                  <div className="w-12 h-12 rounded-full bg-gradient-to-br from-[#7C3AED] to-[#06B6D4] flex items-center justify-center text-white font-bold text-sm shrink-0 overflow-hidden">
+   631→                    {ch.channel_avatar ? (
+   632→                      <img src={ch.channel_avatar} alt="" className="w-12 h-12 rounded-full object-cover" />
+   633→                    ) : (
+   634→                      ch.channel_name.charAt(0).toUpperCase()
+   635→                    )}
+   636→                  </div>
+   637→
+   638→                  {/* Info */}
+   639→                  <div className="flex-1 min-w-0">
+   640→                    <div className="flex items-center gap-2 flex-wrap">
+   641→                      <h3 className="text-white font-semibold text-sm truncate max-w-[200px]">
+   642→                        {ch.channel_name}
+   643→                      </h3>
+   644→                      <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
+   645→                        ch.channel_type === 'movies'
+   646→                          ? 'bg-[#7C3AED]/20 text-[#A78BFA]'
+   647→                          : ch.channel_type === 'music'
+   648→                            ? 'bg-[#06B6D4]/20 text-[#22D3EE]'
+   649→                            : 'bg-[#22C55E]/20 text-[#4ADE80]'
+   650→                      }`}>
+   651→                        {ch.channel_type === 'movies' ? 'Movies' : ch.channel_type === 'music' ? 'Music' : 'Mixed'}
+   652→                      </span>
+   653→                    </div>
+   654→
+   655→                    <div className="flex items-center gap-3 mt-1 text-[#9CA3AF] text-xs">
+   656→                      <span>Last scan: {timeAgo(ch.last_synced_at)}</span>
+   657→                      <span>{ch.total_imported} imported</span>
+   658→                    </div>
+   659→
+   660→                    {/* Active status */}
+   661→                    <div className="flex items-center gap-2 mt-1.5">
+   662→                      <span className={`flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full ${
+   663→                        ch.is_active
+   664→                          ? 'bg-[#22C55E]/15 text-[#4ADE80]'
+   665→                          : 'bg-[#6B7280]/15 text-[#9CA3AF]'
+   666→                      }`}>
+   667→                        <span className={`w-1.5 h-1.5 rounded-full ${ch.is_active ? 'bg-[#22C55E]' : 'bg-[#6B7280]'}`} />
+   668→                        {ch.is_active ? 'Active' : 'Paused'}
+   669→                      </span>
+   670→                    </div>
+   671→                  </div>
+   672→
+   673→                  {/* Action buttons */}
+   674→                  <div className="flex items-center gap-1.5 shrink-0">
+   675→                    <button
+   676→                      onClick={() => triggerRescan(ch)}
+   677→                      disabled={isScanning}
+   678→                      className="h-9 px-3 flex items-center justify-center gap-1.5 rounded-lg bg-[#7C3AED]/15 hover:bg-[#7C3AED]/25 text-[#A78BFA] text-xs font-medium transition-colors duration-150 disabled:opacity-50 min-h-[44px]"
+   679→                      title="Re-scan with Gemini AI"
+   680→                    >
+   681→                      {isScanning ? (
+   682→                        <span className="w-3.5 h-3.5 border-2 border-[#7C3AED] border-t-transparent rounded-full animate-spin" />
+   683→                      ) : (
+   684→                        <>
+   685→                          <span>🤖</span>
+   686→                          <span className="hidden sm:inline">Re-scan</span>
+   687→                        </>
+   688→                      )}
+   689→                    </button>
+   690→                    <button
+   691→                      onClick={() => openEditModal(ch)}
+   692→                      className="h-9 w-9 flex items-center justify-center rounded-lg bg-[#1A1A1A] hover:bg-[#242424] text-[#9CA3AF] hover:text-white transition-colors duration-150 min-h-[44px] min-w-[44px]"
+   693→                      title="Edit"
+   694→                    >
+   695→                      ✏️
+   696→                    </button>
+   697→                    <button
+   698→                      onClick={() => { setDeleteTarget(ch); setShowDeleteConfirm(true) }}
+   699→                      className="h-9 w-9 flex items-center justify-center rounded-lg bg-[#1A1A1A] hover:bg-[#EF4444]/20 text-[#9CA3AF] hover:text-[#EF4444] transition-colors duration-150 min-h-[44px] min-w-[44px]"
+   700→                      title="Delete"
+   701→                    >
+   702→                      🗑️
+   703→                    </button>
+   704→                  </div>
+   705→                </div>
+   706→
+   707→                {/* Scanning indicator (legacy gemini-scan) */}
+   708→                {isScanning && (
+   709→                  <div className="mt-3 pt-3 border-t border-[#1A1A1A]">
+   710→                    <div className="flex items-center gap-2 text-xs text-[#A78BFA]">
+   711→                      <span className="w-3 h-3 border-2 border-[#7C3AED] border-t-transparent rounded-full animate-spin" />
+   712→                      <span>Gemini AI is scanning...</span>
+   713→                    </div>
+   714→                    <div className="mt-2 h-1.5 bg-[#1A1A1A] rounded-full overflow-hidden">
+   715→                      <div className="h-full bg-gradient-to-r from-[#7C3AED] to-[#06B6D4] rounded-full animate-pulse" style={{ width: '60%' }} />
+   716→                    </div>
+   717→                  </div>
+   718→                )}
+   719→
+   720→                {/* ── Auto Scan Status UI ── */}
+   721→                {(() => {
+   722→                  const scan = scanStates[ch.id]
+   723→                  if (!scan) return null
+   724→                  return (
+   725→                    <div className="mt-3 border-t border-[#2D2D44] pt-3">
+   726→
+   727→                      {/* Stats row */}
+   728→                      <div className="grid grid-cols-3 gap-2 mb-3">
+   729→                        <div className="bg-[#0D0D0D] rounded-xl p-2 text-center">
+   730→                          <p className="text-[#9CA3AF] text-[10px]">On Channel</p>
+   731→                          <p className="text-white font-bold text-sm">{scan.totalOnChannel || '?'}</p>
+   732→                        </div>
+   733→                        <div className="bg-[#0D0D0D] rounded-xl p-2 text-center">
+   734→                          <p className="text-[#9CA3AF] text-[10px]">Imported</p>
+   735→                          <p className="text-[#7C3AED] font-bold text-sm">{scan.imported || 0}</p>
+   736→                          {(scan.movieCount || 0) > 0 && (
+   737→                            <p className="text-[10px] text-[#9CA3AF]">
+   738→                              🎬{scan.movieCount} 🎵{scan.musicCount}
+   739→                            </p>
+   740→                          )}
+   741→                        </div>
+   742→                        <div className="bg-[#0D0D0D] rounded-xl p-2 text-center">
+   743→                          <p className="text-[#9CA3AF] text-[10px]">Remaining</p>
+   744→                          <p className="text-[#06B6D4] font-bold text-sm">{scan.remaining || 0}</p>
+   745→                        </div>
+   746→                      </div>
+   747→
+   748→                      {/* Progress bar */}
+   749→                      {(scan.progress || 0) > 0 && (
+   750→                        <div className="mb-3">
+   751→                          <div className="flex justify-between text-[10px] text-[#9CA3AF] mb-1">
+   752→                            <span>Progress</span>
+   753→                            <span>{scan.progress || 0}%</span>
+   754→                          </div>
+   755→                          <div className="h-1.5 bg-[#2D2D44] rounded-full overflow-hidden">
+   756→                            <div
+   757→                              className="h-full rounded-full transition-all duration-500"
+   758→                              style={{
+   759→                                width: `${scan.progress || 0}%`,
+   760→                                background: 'linear-gradient(90deg, #7C3AED, #06B6D4)',
+   761→                              }}
+   762→                            />
+   763→                          </div>
+   764→                        </div>
+   765→                      )}
+   766→
+   767→                      {/* Status indicator */}
+   768→                      {scan.status === 'scanning' && (
+   769→                        <div className="flex items-center gap-2 mb-3">
+   770→                          <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+   771→                          <span className="text-green-400 text-xs">
+   772→                            Auto scanning... (Batch {scan.batchNumber || 1})
+   773→                          </span>
+   774→                        </div>
+   775→                      )}
+   776→                      {scan.status === 'paused' && (
+   777→                        <div className="flex items-center gap-2 mb-3">
+   778→                          <div className="w-2 h-2 rounded-full bg-yellow-400" />
+   779→                          <span className="text-yellow-400 text-xs">
+   780→                            Paused — {scan.imported || 0} imported
+   781→                          </span>
+   782→                        </div>
+   783→                      )}
+   784→                      {scan.status === 'completed' && (
+   785→                        <div className="flex items-center gap-2 mb-3">
+   786→                          <div className="w-2 h-2 rounded-full bg-[#7C3AED]" />
+   787→                          <span className="text-[#A78BFA] text-xs">
+   788→                            ✅ Scan complete — {scan.imported || 0} total imported
+   789→                          </span>
+   790→                        </div>
+   791→                      )}
+   792→
+   793→                      {/* Action buttons */}
+   794→                      <div className="flex gap-2">
+   795→                        {/* Start (idle/completed) */}
+   796→                        {(scan.status === 'idle' || scan.status === 'completed' || !scan.status) && (
+   797→                          <button
+   798→                            onClick={() => handleStartScan(ch.id)}
+   799→                            className="flex-1 flex items-center justify-center gap-2 py-2.5 bg-[#7C3AED] rounded-xl text-white text-sm font-semibold min-h-[44px] active:opacity-80"
+   800→                          >
+   801→                            🤖 Auto Scan
+   802→                          </button>
+   803→                        )}
+   804→                        {/* Pause (scanning) */}
+   805→                        {scan.status === 'scanning' && (
+   806→                          <button
+   807→                            onClick={() => handlePause(ch.id)}
+   808→                            className="flex-1 flex items-center justify-center gap-2 py-2.5 bg-yellow-600 rounded-xl text-white text-sm font-semibold min-h-[44px] active:opacity-80"
+   809→                          >
+   810→                            ⏸ Pause
+   811→                          </button>
+   812→                        )}
+   813→                        {/* Resume (paused) */}
+   814→                        {scan.status === 'paused' && (
+   815→                          <button
+   816→                            onClick={() => handleResume(ch.id)}
+   817→                            className="flex-1 flex items-center justify-center gap-2 py-2.5 bg-green-700 rounded-xl text-white text-sm font-semibold min-h-[44px] active:opacity-80"
+   818→                          >
+   819→                            ▶ Resume
+   820→                          </button>
+   821→                        )}
+   822→                        {/* Stop (scanning or paused) */}
+   823→                        {(scan.status === 'scanning' || scan.status === 'paused') && (
+   824→                          <button
+   825→                            onClick={() => handleStop(ch.id)}
+   826→                            className="px-4 py-2.5 bg-red-800/50 border border-red-700 rounded-xl text-red-400 text-sm font-semibold min-h-[44px] active:opacity-80"
+   827→                          >
+   828→                            ⏹ Stop
+   829→                          </button>
+   830→                        )}
+   831→                        {/* Re-scan (completed) */}
+   832→                        {scan.status === 'completed' && (
+   833→                          <button
+   834→                            onClick={() => handleStartScan(ch.id)}
+   835→                            className="px-4 py-2.5 bg-[#1A1A2E] border border-[#2D2D44] rounded-xl text-[#9CA3AF] text-xs min-h-[44px] active:opacity-80"
+   836→                          >
+   837→                            🔄 Re-scan
+   838→                          </button>
+   839→                        )}
+   840→                      </div>
+   841→                    </div>
+   842→                  )
+   843→                })()}
+   844→              </div>
+   845→            )
+   846→          })}
+   847→        </div>
+   848→      )}
+   849→
+   850→      {/* ── AI Scan History ── */}
+   851→      {scanJobs.length > 0 && (
+   852→        <div className="mt-8">
+   853→          <h2 className="text-white font-semibold text-sm mb-3 flex items-center gap-2">
+   854→            <span>🤖</span> AI Scan History
+   855→          </h2>
+   856→          <div className="bg-[#0F0F0F] border border-[#1A1A1A] rounded-2xl overflow-hidden">
+   857→            <div className="overflow-x-auto">
+   858→              <table className="w-full text-xs">
+   859→                <thead>
+   860→                  <tr className="border-b border-[#1A1A1A]">
+   861→                    <th className="text-left text-[#9CA3AF] font-medium px-3 py-2.5">Channel</th>
+   862→                    <th className="text-center text-[#9CA3AF] font-medium px-3 py-2.5">Processed</th>
+   863→                    <th className="text-center text-[#9CA3AF] font-medium px-3 py-2.5">Movies</th>
+   864→                    <th className="text-center text-[#9CA3AF] font-medium px-3 py-2.5">Music</th>
+   865→                    <th className="text-center text-[#9CA3AF] font-medium px-3 py-2.5">Skipped</th>
+   866→                    <th className="text-center text-[#9CA3AF] font-medium px-3 py-2.5">Status</th>
+   867→                    <th className="text-right text-[#9CA3AF] font-medium px-3 py-2.5">Time</th>
+   868→                  </tr>
+   869→                </thead>
+   870→                <tbody>
+   871→                  {scanJobs.map(job => (
+   872→                    <tr key={job.id} className="border-b border-[#1A1A1A] last:border-0">
+   873→                      <td className="text-white px-3 py-2.5 truncate max-w-[120px]">{job.channel_name || 'Unknown'}</td>
+   874→                      <td className="text-center text-[#9CA3AF] px-3 py-2.5">{job.processed || 0}</td>
+   875→                      <td className="text-center text-[#A78BFA] px-3 py-2.5">{job.movies_found || 0}</td>
+   876→                      <td className="text-center text-[#22D3EE] px-3 py-2.5">{job.music_found || 0}</td>
+   877→                      <td className="text-center text-[#9CA3AF] px-3 py-2.5">{job.skipped || 0}</td>
+   878→                      <td className="text-center px-3 py-2.5">
+   879→                        <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-medium ${
+   880→                          job.status === 'completed'
+   881→                            ? 'bg-[#22C55E]/15 text-[#4ADE80]'
+   882→                            : job.status === 'failed'
+   883→                              ? 'bg-[#EF4444]/15 text-[#F87171]'
+   884→                              : 'bg-[#F59E0B]/15 text-[#FBBF24]'
+   885→                        }`}>
+   886→                          {job.status === 'scanning' ? (
+   887→                            <span className="inline-flex items-center gap-1">
+   888→                              <span className="w-1.5 h-1.5 rounded-full bg-[#FBBF24] animate-pulse" />
+   889→                              scanning
+   890→                            </span>
+   891→                          ) : job.status}
+   892→                        </span>
+   893→                      </td>
+   894→                      <td className="text-right text-[#9CA3AF] px-3 py-2.5 whitespace-nowrap">{timeAgo(job.started_at)}</td>
+   895→                    </tr>
+   896→                  ))}
+   897→                </tbody>
+   898→              </table>
+   899→            </div>
+   900→          </div>
+   901→        </div>
+   902→      )}
+   903→
+   904→      {/* ════════════════════════════════════════════════════════ */}
+   905→      {/* ── ADD CHANNEL MODAL ── */}
+   906→      {/* ════════════════════════════════════════════════════════ */}
+   907→      {showAddModal && (
+   908→        <div
+   909→          className="fixed inset-0 bg-black/80 z-[9000] flex items-end sm:items-center justify-center"
+   910→          onClick={closeAddModal}
+   911→        >
+   912→          <div
+   913→            className="bg-[#0F0F0F] border border-[#2D2D2D] rounded-t-2xl sm:rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto"
+   914→            onClick={e => e.stopPropagation()}
+   915→          >
+   916→            {/* Modal Header */}
+   917→            <div className="sticky top-0 bg-[#0F0F0F] border-b border-[#2D2D2D] px-5 py-4 flex items-center justify-between z-10">
+   918→              <h2 className="text-white font-semibold text-base flex items-center gap-2">
+   919→                <span>🤖</span> Add Channel
+   920→              </h2>
+   921→              <button
+   922→                onClick={closeAddModal}
+   923→                className="w-9 h-9 flex items-center justify-center rounded-lg text-[#9CA3AF] hover:text-white hover:bg-[#1A1A1A] transition-colors duration-150 min-h-[44px] min-w-[44px]"
+   924→              >
+   925→                ✕
+   926→              </button>
+   927→            </div>
+   928→
+   929→            <div className="p-5 space-y-5">
+   930→              {/* ── STEP 1: URL Input ── */}
+   931→              <div>
+   932→                <label className="text-[#9CA3AF] text-xs font-medium mb-1.5 block">
+   933→                  YouTube Channel URL
+   934→                </label>
+   935→                <div className="flex gap-2">
+   936→                  <input
+   937→                    type="url"
+   938→                    value={urlInput}
+   939→                    onChange={e => setUrlInput(e.target.value)}
+   940→                    onKeyDown={e => e.key === 'Enter' && handleFetchInfo()}
+   941→                    placeholder="youtube.com/@channel or youtube.com/channel/UCxxx"
+   942→                    className="flex-1 h-11 bg-[#1A1A1A] border border-[#2D2D2D] rounded-xl px-4 text-sm text-white outline-none focus:border-[#7C3AED] transition-colors duration-150 placeholder-[#6B7280]"
+   943→                  />
+   944→                  <button
+   945→                    onClick={handleFetchInfo}
+   946→                    disabled={isFetching || !urlInput.trim()}
+   947→                    className="h-11 px-4 bg-[#1A1A1A] border border-[#7C3AED]/40 rounded-xl text-[#A78BFA] text-sm font-medium hover:bg-[#7C3AED]/10 transition-colors duration-150 disabled:opacity-50 min-h-[44px] whitespace-nowrap"
+   948→                  >
+   949→                    {isFetching ? (
+   950→                      <span className="w-4 h-4 border-2 border-[#7C3AED] border-t-transparent rounded-full animate-spin inline-block" />
+   951→                    ) : (
+   952→                      '🔍 Fetch'
+   953→                    )}
+   954→                  </button>
+   955→                </div>
+   956→              </div>
+   957→
+   958→              {/* ── Channel Type (always visible) ── */}
+   959→              <div>
+   960→                <label className="text-[#9CA3AF] text-xs font-medium mb-2 block">
+   961→                  Channel Type
+   962→                </label>
+   963→                <div className="flex gap-2">
+   964→                  <button
+   965→                    onClick={() => setChannelType('movies')}
+   966→                    className={`flex-1 h-12 rounded-xl border-2 flex items-center justify-center gap-2 text-sm font-medium transition-colors duration-150 min-h-[44px] ${
+   967→                      channelType === 'movies'
+   968→                        ? 'border-[#7C3AED] bg-[#7C3AED]/15 text-[#A78BFA]'
+   969→                        : 'border-[#2D2D2D] bg-[#1A1A1A] text-[#9CA3AF] hover:border-[#7C3AED]/50'
+   970→                    }`}
+   971→                  >
+   972→                    <span>🎬</span> Movies
+   973→                  </button>
+   974→                  <button
+   975→                    onClick={() => setChannelType('music')}
+   976→                    className={`flex-1 h-12 rounded-xl border-2 flex items-center justify-center gap-2 text-sm font-medium transition-colors duration-150 min-h-[44px] ${
+   977→                      channelType === 'music'
+   978→                        ? 'border-[#06B6D4] bg-[#06B6D4]/15 text-[#22D3EE]'
+   979→                        : 'border-[#2D2D2D] bg-[#1A1A1A] text-[#9CA3AF] hover:border-[#06B6D4]/50'
+   980→                    }`}
+   981→                  >
+   982→                    <span>🎵</span> Music
+   983→                  </button>
+   984→                  <button
+   985→                    onClick={() => setChannelType('mixed')}
+   986→                    className={`flex-1 h-12 rounded-xl border-2 flex items-center justify-center gap-2 text-sm font-medium transition-colors duration-150 min-h-[44px] ${
+   987→                      channelType === 'mixed'
+   988→                        ? 'border-[#22C55E] bg-[#22C55E]/15 text-[#4ADE80]'
+   989→                        : 'border-[#2D2D2D] bg-[#1A1A1A] text-[#9CA3AF] hover:border-[#22C55E]/50'
+   990→                    }`}
+   991→                  >
+   992→                    <span>🎭</span> Mixed
+   993→                  </button>
+   994→                </div>
+   995→                <p className="text-[#6B7280] text-[10px] mt-1.5">
+   996→                  {channelType === 'movies' && 'Videos will be imported to Movie Hub only'}
+   997→                  {channelType === 'music' && 'Videos will be imported to YT Music only'}
+   998→                  {channelType === 'mixed' && 'Gemini AI will classify videos as movie or music automatically'}
+   999→                </p>
+  1000→              </div>
+  1001→
+  1002→              {/* ── STEP 2: Channel Preview ── */}
+  1003→              {fetchedInfo && (
+  1004→                <div className="space-y-4">
+  1005→                  {/* Channel info card */}
+  1006→                  <div className="bg-[#1A1A1A] border border-[#2D2D2D] rounded-xl px-4 py-3">
+  1007→                    <div className="flex items-center gap-3">
+  1008→                      <div className="w-14 h-14 rounded-full bg-gradient-to-br from-[#7C3AED] to-[#06B6D4] flex items-center justify-center text-white font-bold text-lg shrink-0 overflow-hidden">
+  1009→                        {fetchedInfo.avatar ? (
+  1010→                          <img src={fetchedInfo.avatar} alt="" className="w-14 h-14 rounded-full object-cover" />
+  1011→                        ) : (
+  1012→                          fetchedInfo.name.charAt(0).toUpperCase()
+  1013→                        )}
+  1014→                      </div>
+  1015→                      <div className="min-w-0 flex-1">
+  1016→                        <p className="text-white text-sm font-semibold truncate">{fetchedInfo.name}</p>
+  1017→                        <p className="text-[#6B7280] text-xs font-mono truncate">{fetchedInfo.channelId}</p>
+  1018→                        <p className="text-[#A78BFA] text-xs mt-0.5">{fetchedInfo.videoCount} videos found</p>
+  1019→                      </div>
+  1020→                    </div>
+  1021→                  </div>
+  1022→
+  1023→                  {/* Display Name */}
+  1024→                  <div>
+  1025→                    <label className="text-[#9CA3AF] text-xs font-medium mb-1.5 block">
+  1026→                      Display Name
+  1027→                    </label>
+  1028→                    <input
+  1029→                      type="text"
+  1030→                      value={displaySettings.display_name}
+  1031→                      onChange={e => setDisplaySettings(prev => ({ ...prev, display_name: e.target.value }))}
+  1032→                      placeholder={fetchedInfo.name}
+  1033→                      className="w-full h-11 bg-[#1A1A1A] border border-[#2D2D2D] rounded-xl px-4 text-sm text-white outline-none focus:border-[#7C3AED] transition-colors duration-150 placeholder-[#6B7280]"
+  1034→                    />
+  1035→                  </div>
+  1036→
+  1037→                  {/* Badge Color Picker */}
+  1038→                  <div>
+  1039→                    <label className="text-[#9CA3AF] text-xs font-medium mb-2 block">
+  1040→                      Badge Color
+  1041→                    </label>
+  1042→                    <div className="flex gap-2 flex-wrap">
+  1043→                      {BADGE_PRESETS.map(color => (
+  1044→                        <button
+  1045→                          key={color}
+  1046→                          onClick={() => setDisplaySettings(prev => ({ ...prev, badge_color: color, border_color: color }))}
+  1047→                          className={`w-10 h-10 rounded-xl border-2 transition-colors duration-150 min-h-[44px] min-w-[44px] ${
+  1048→                            displaySettings.badge_color === color ? 'border-white' : 'border-transparent'
+  1049→                          }`}
+  1050→                          style={{ backgroundColor: color }}
+  1051→                        />
+  1052→                      ))}
+  1053→                      {/* Custom color */}
+  1054→                      <div className="relative">
+  1055→                        <input
+  1056→                          type="color"
+  1057→                          value={displaySettings.badge_color}
+  1058→                          onChange={e => setDisplaySettings(prev => ({ ...prev, badge_color: e.target.value, border_color: e.target.value }))}
+  1059→                          className="absolute inset-0 w-10 h-10 opacity-0 cursor-pointer min-h-[44px] min-w-[44px]"
+  1060→                        />
+  1061→                        <div
+  1062→                          className="w-10 h-10 rounded-xl border-2 border-dashed border-[#2D2D2D] flex items-center justify-center text-[#9CA3AF] text-xs min-h-[44px] min-w-[44px]"
+  1063→                        >
+  1064→                          +
+  1065→                        </div>
+  1066→                      </div>
+  1067→                    </div>
+  1068→                  </div>
+  1069→                </div>
+  1070→              )}
+  1071→            </div>
+  1072→
+  1073→            {/* Modal Footer */}
+  1074→            <div className="sticky bottom-0 bg-[#0F0F0F] border-t border-[#2D2D2D] px-5 py-4 flex gap-3">
+  1075→              <button
+  1076→                onClick={closeAddModal}
+  1077→                className="flex-1 h-12 rounded-xl bg-[#1A1A1A] border border-[#2D2D2D] text-[#9CA3AF] font-medium text-sm hover:text-white transition-colors duration-150 min-h-[44px]"
+  1078→              >
+  1079→                Cancel
+  1080→              </button>
+  1081→              <button
+  1082→                onClick={handleSaveAndScan}
+  1083→                disabled={!fetchedInfo}
+  1084→                className="flex-1 h-12 rounded-xl bg-[#7C3AED] hover:bg-[#6D28D9] text-white font-semibold text-sm transition-colors duration-150 disabled:opacity-50 min-h-[44px] flex items-center justify-center gap-2"
+  1085→              >
+  1086→                <span>🤖</span> Save & Scan with Gemini AI
+  1087→              </button>
+  1088→            </div>
+  1089→          </div>
+  1090→        </div>
+  1091→      )}
+  1092→
+  1093→      {/* ════════════════════════════════════════════════════════ */}
+  1094→      {/* ── EDIT DISPLAY SETTINGS MODAL ── */}
+  1095→      {/* ════════════════════════════════════════════════════════ */}
+  1096→      {showEditModal && editChannel && (
+  1097→        <div
+  1098→          className="fixed inset-0 bg-black/80 z-[9000] flex items-center justify-center p-4"
+  1099→          onClick={() => { setShowEditModal(false); setEditChannel(null) }}
+  1100→        >
+  1101→          <div
+  1102→            className="bg-[#0F0F0F] border border-[#2D2D2D] rounded-2xl w-full max-w-sm"
+  1103→            onClick={e => e.stopPropagation()}
+  1104→          >
+  1105→            {/* Header */}
+  1106→            <div className="px-5 py-4 border-b border-[#2D2D2D] flex items-center justify-between">
+  1107→              <h3 className="text-white font-semibold text-sm">Edit Display Settings</h3>
+  1108→              <button
+  1109→                onClick={() => { setShowEditModal(false); setEditChannel(null) }}
+  1110→                className="w-9 h-9 flex items-center justify-center rounded-lg text-[#9CA3AF] hover:text-white hover:bg-[#1A1A1A] transition-colors duration-150 min-h-[44px] min-w-[44px]"
+  1111→              >
+  1112→                ✕
+  1113→              </button>
+  1114→            </div>
+  1115→
+  1116→            <div className="p-5 space-y-4">
+  1117→              {/* Channel info */}
+  1118→              <div className="flex items-center gap-3">
+  1119→                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[#7C3AED] to-[#06B6D4] flex items-center justify-center text-white font-bold text-sm shrink-0 overflow-hidden">
+  1120→                  {editChannel.channel_avatar ? (
+  1121→                    <img src={editChannel.channel_avatar} alt="" className="w-10 h-10 rounded-full object-cover" />
+  1122→                  ) : (
+  1123→                    editChannel.channel_name.charAt(0).toUpperCase()
+  1124→                  )}
+  1125→                </div>
+  1126→                <div className="min-w-0">
+  1127→                  <p className="text-white text-sm font-medium truncate">{editChannel.channel_name}</p>
+  1128→                  <p className="text-[#6B7280] text-[10px] font-mono truncate">{editChannel.channel_id}</p>
+  1129→                </div>
+  1130→              </div>
+  1131→
+  1132→              {/* Badge Color */}
+  1133→              <div>
+  1134→                <label className="text-[#9CA3AF] text-xs font-medium mb-2 block">
+  1135→                  Badge Color
+  1136→                </label>
+  1137→                <div className="flex gap-2 flex-wrap">
+  1138→                  {BADGE_PRESETS.map(color => (
+  1139→                    <button
+  1140→                      key={color}
+  1141→                      onClick={() => setEditBadgeColor(color)}
+  1142→                      className={`w-10 h-10 rounded-xl border-2 transition-colors duration-150 min-h-[44px] min-w-[44px] ${
+  1143→                        editBadgeColor === color ? 'border-white' : 'border-transparent'
+  1144→                      }`}
+  1145→                      style={{ backgroundColor: color }}
+  1146→                    />
+  1147→                  ))}
+  1148→                  <div className="relative">
+  1149→                    <input
+  1150→                      type="color"
+  1151→                      value={editBadgeColor}
+  1152→                      onChange={e => setEditBadgeColor(e.target.value)}
+  1153→                      className="absolute inset-0 w-10 h-10 opacity-0 cursor-pointer min-h-[44px] min-w-[44px]"
+  1154→                    />
+  1155→                    <div className="w-10 h-10 rounded-xl border-2 border-dashed border-[#2D2D2D] flex items-center justify-center text-[#9CA3AF] text-xs min-h-[44px] min-w-[44px]">
+  1156→                      +
+  1157→                    </div>
+  1158→                  </div>
+  1159→                </div>
+  1160→              </div>
+  1161→
+  1162→              {/* Preview */}
+  1163→              <div>
+  1164→                <label className="text-[#9CA3AF] text-xs font-medium mb-1.5 block">Preview</label>
+  1165→                <div className="bg-[#1A1A1A] border border-[#2D2D2D] rounded-xl p-3">
+  1166→                  <div className="flex items-center gap-2">
+  1167→                    <span
+  1168→                      className="text-[10px] px-2 py-0.5 rounded-full font-medium"
+  1169→                      style={{
+  1170→                        backgroundColor: editBadgeColor + '33',
+  1171→                        color: editBadgeColor,
+  1172→                        borderColor: editBadgeColor,
+  1173→                      }}
+  1174→                    >
+  1175→                      {editChannel.channel_type === 'movies' ? 'Movies' : editChannel.channel_type === 'music' ? 'Music' : 'Mixed'}
+  1176→                    </span>
+  1177→                    <span className="text-white text-xs">{editChannel.channel_name}</span>
+  1178→                  </div>
+  1179→                </div>
+  1180→              </div>
+  1181→            </div>
+  1182→
+  1183→            {/* Footer */}
+  1184→            <div className="px-5 py-4 border-t border-[#2D2D2D] flex gap-3">
+  1185→              <button
+  1186→                onClick={() => { setShowEditModal(false); setEditChannel(null) }}
+  1187→                className="flex-1 h-12 rounded-xl bg-[#1A1A1A] border border-[#2D2D2D] text-[#9CA3AF] font-medium text-sm hover:text-white transition-colors duration-150 min-h-[44px]"
+  1188→              >
+  1189→                Cancel
+  1190→              </button>
+  1191→              <button
+  1192→                onClick={saveEditSettings}
+  1193→                className="flex-1 h-12 rounded-xl bg-[#7C3AED] hover:bg-[#6D28D9] text-white font-semibold text-sm transition-colors duration-150 min-h-[44px]"
+  1194→              >
+  1195→                Save
+  1196→              </button>
+  1197→            </div>
+  1198→          </div>
+  1199→        </div>
+  1200→      )}
+  1201→
+  1202→      {/* ════════════════════════════════════════════════════════ */}
+  1203→      {/* ── DELETE CONFIRM MODAL ── */}
+  1204→      {/* ════════════════════════════════════════════════════════ */}
+  1205→      {showDeleteConfirm && deleteTarget && (
+  1206→        <div
+  1207→          className="fixed inset-0 bg-black/80 z-[9500] flex items-center justify-center p-4"
+  1208→          onClick={() => { setShowDeleteConfirm(false); setDeleteTarget(null) }}
+  1209→        >
+  1210→          <div
+  1211→            className="bg-[#0F0F0F] border border-[#2D2D2D] rounded-2xl p-6 max-w-sm w-full"
+  1212→            onClick={e => e.stopPropagation()}
+  1213→          >
+  1214→            <div className="flex items-center gap-3 mb-4">
+  1215→              <div className="w-10 h-10 rounded-xl bg-[#EF4444]/10 flex items-center justify-center text-lg">
+  1216→                ⚠️
+  1217→              </div>
+  1218→              <div>
+  1219→                <h3 className="text-white font-bold text-sm">Delete Channel</h3>
+  1220→                <p className="text-[#9CA3AF] text-xs">This action cannot be undone</p>
+  1221→              </div>
+  1222→            </div>
+  1223→            <p className="text-[#9CA3AF] text-sm mb-5">
+  1224→              Delete <span className="text-white font-medium">{deleteTarget.channel_name}</span>?
+  1225→              All scan history for this channel will also be removed.
+  1226→            </p>
+  1227→            <div className="flex gap-3">
+  1228→              <button
+  1229→                onClick={() => { setShowDeleteConfirm(false); setDeleteTarget(null) }}
+  1230→                className="flex-1 h-12 rounded-xl bg-[#1A1A1A] border border-[#2D2D2D] text-[#9CA3AF] font-medium text-sm hover:text-white transition-colors duration-150 min-h-[44px]"
+  1231→              >
+  1232→                Cancel
+  1233→              </button>
+  1234→              <button
+  1235→                onClick={deleteChannel}
+  1236→                className="flex-1 h-12 rounded-xl bg-[#EF4444] hover:bg-[#DC2626] text-white font-semibold text-sm transition-colors duration-150 min-h-[44px]"
+  1237→              >
+  1238→                Delete
+  1239→              </button>
+  1240→            </div>
+  1241→          </div>
+  1242→        </div>
+  1243→      )}
+  1244→    </div>
+  1245→  )
+  1246→}
+  1247→
