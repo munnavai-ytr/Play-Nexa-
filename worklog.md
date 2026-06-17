@@ -378,3 +378,22 @@ Stage Summary:
   * src/app/video/page.tsx — added `router` to useCallback deps.
   * src/app/music/page.tsx — added `router` to useCallback deps.
 - All checks green: 0 TypeScript errors, 0 ESLint errors, 0 ESLint warnings, build succeeds for both routes.
+
+---
+Task ID: hydration-fix-songlist
+Agent: main
+Task: Fix Next.js hydration error "In HTML, <button> cannot be a descendant of <button>" in LocalMusicPlayer.tsx SongList component.
+
+Work Log:
+- Read /home/z/my-project/src/components/music/LocalMusicPlayer.tsx — confirmed outer `<button>` (line 453-529) wrapping inner `<button>` (3-dot menu, line 509-528) caused invalid HTML nesting.
+- Converted the outer `<button>` to a `<div>` with `role="button"`, `tabIndex={0}`, `aria-label`, and an `onKeyDown` handler (Enter / Space → onSelect). Retained the original `onClick={() => onSelect(mf, idx)}`.
+- Preserved the original styling (`cursor-pointer w-full flex items-center gap-3 px-2 py-3 rounded-xl active:bg-[#141420] transition-colors`) and added `focus:outline-none focus-visible:ring-2 focus-visible:ring-[#7C3AED]/60` for keyboard-accessibility visibility.
+- Kept the inner 3-dot `<button>` as a proper button; reinforced its `onClick` with both `e.stopPropagation()` AND `e.preventDefault()` so the click never bubbles up to the outer div's `onSelect`.
+- Verified there are no other nested `<button>` patterns in the file (14 `<button>` occurrences — each now standalone or inside a div/li).
+- Type-checked the file standalone — only pre-existing `@/` path-alias resolution errors (not related to this structural change).
+
+Stage Summary:
+- Single surgical edit to SongList (lines 452-538). No feature logic or visual design changed.
+- Hydration error root cause eliminated: invalid button-in-button DOM nesting removed.
+- Accessibility preserved: keyboard activation + focus ring + aria-label.
+- Click-bubbling from 3-dot menu to song row is now blocked by both stopPropagation + preventDefault.

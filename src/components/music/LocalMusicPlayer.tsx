@@ -450,10 +450,18 @@ function SongList({
         const menuOpen = menuOpenFor === mf.id;
         return (
           <li key={mf.id} className="relative">
-            <button
-              type="button"
+            <div
+              role="button"
+              tabIndex={0}
+              aria-label={`Play ${title} by ${artist}`}
               onClick={() => onSelect(mf, idx)}
-              className="w-full flex items-center gap-3 px-2 py-3 rounded-xl active:bg-[#141420] transition-colors"
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  onSelect(mf, idx);
+                }
+              }}
+              className="cursor-pointer w-full flex items-center gap-3 px-2 py-3 rounded-xl active:bg-[#141420] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#7C3AED]/60"
               style={{
                 backgroundColor: isActive ? '#14141F' : 'transparent',
                 minHeight: 64,
@@ -510,6 +518,7 @@ function SongList({
                 type="button"
                 onClick={(e) => {
                   e.stopPropagation();
+                  e.preventDefault();
                   setMenuOpenFor(menuOpen ? null : mf.id);
                 }}
                 aria-label="More options"
@@ -526,7 +535,7 @@ function SongList({
                   <circle cx="12" cy="19" r="2" />
                 </svg>
               </button>
-            </button>
+            </div>
 
             {/* Inline dropdown menu */}
             {menuOpen && (
