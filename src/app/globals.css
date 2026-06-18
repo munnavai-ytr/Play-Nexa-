@@ -699,3 +699,107 @@ html.light-mode picture {
 .pn-glyph-pulse {
   animation: pn-glyph-pulse 2.6s ease-in-out infinite;
 }
+
+/* ─────────────────────────────────────────────────────────────────────
+   PREMIUM REDESIGN v3 — additional animations for both players
+   ───────────────────────────────────────────────────────────────────── */
+
+/* Slow vinyl record rotation — used on the music expanded player art */
+@keyframes pn-vinyl-record-spin {
+  from { transform: rotate(0deg);   }
+  to   { transform: rotate(360deg); }
+}
+.pn-vinyl-record-spin {
+  animation: pn-vinyl-record-spin 18s linear infinite;
+  animation-play-state: paused;
+}
+.pn-vinyl-record-spin.is-playing {
+  animation-play-state: running;
+}
+
+/* Soft floating "breath" for the floating mini-player pill */
+@keyframes pn-float-breath {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-2px); }
+}
+.pn-float-breath {
+  animation: pn-float-breath 5s ease-in-out infinite;
+}
+
+/* Subtle shimmer for video card thumbnail skeleton */
+@keyframes pn-shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position:  200% 0; }
+}
+.pn-shimmer {
+  background: linear-gradient(
+    90deg,
+    rgba(255,255,255,0.02) 0%,
+    rgba(255,255,255,0.07) 50%,
+    rgba(255,255,255,0.02) 100%
+  );
+  background-size: 200% 100%;
+  animation: pn-shimmer 1.6s ease-in-out infinite;
+}
+
+/* Card lift hover for premium video cards */
+.pn-card-lift {
+  transition:
+    transform 220ms cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 220ms ease,
+    border-color 220ms ease;
+}
+.pn-card-lift:hover {
+  transform: translateY(-2px);
+}
+
+/* Slow pulse for the play overlay on video cards */
+@keyframes pn-play-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(124, 58, 237, 0.45);
+    transform: scale(1);
+  }
+  50% {
+    box-shadow: 0 0 0 12px rgba(124, 58, 237, 0);
+    transform: scale(1.06);
+  }
+}
+.pn-play-pulse {
+  animation: pn-play-pulse 2.4s ease-out infinite;
+}
+
+/* Cinematic slide-up for the video immersive player */
+@keyframes pn-cine-up {
+  0%   { opacity: 0; transform: scale(1.02); }
+  100% { opacity: 1; transform: scale(1);    }
+}
+.pn-cine-up {
+  animation: pn-cine-up 320ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* Slow drift for the immersive player's ambient halo */
+@keyframes pn-halo-drift {
+  0%, 100% { opacity: 0.35; transform: scale(1);    }
+  50%      { opacity: 0.55; transform: scale(1.04); }
+}
+.pn-halo-drift {
+  animation: pn-halo-drift 6s ease-in-out infinite;
+}
+
+/* Speed menu fade-in for video player */
+@keyframes pn-menu-pop {
+  0%   { opacity: 0; transform: translateY(-6px) scale(0.96); }
+  100% { opacity: 1; transform: translateY(0)    scale(1);    }
+}
+.pn-menu-pop {
+  animation: pn-menu-pop 180ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* Smooth pulse for the buffering ring */
+@keyframes pn-buffer-ring {
+  0%   { transform: rotate(0deg);   }
+  100% { transform: rotate(360deg); }
+}
+.pn-buffer-ring {
+  animation: pn-buffer-ring 900ms linear infinite;
+}

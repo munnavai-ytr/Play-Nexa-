@@ -422,18 +422,18 @@ function LibraryView({
     <div
       className="flex-1 flex flex-col"
       style={{
-        paddingBottom: currentSongId ? 88 : 0, // leave room for mini player
+        paddingBottom: currentSongId ? 96 : 0, // leave room for floating mini player
       }}
     >
-      {/* ────────── HEADER ────────── */}
+      {/* ────────── HEADER (premium floating glass bar) ────────── */}
       <header
         className="flex items-center justify-between px-4 pt-5 pb-4 sticky top-0 z-30"
         style={{
           // Glassmorphism header: translucent dark over the gradient bg.
           backgroundColor: 'rgba(12, 13, 25, 0.72)',
-          backdropFilter: 'blur(18px)',
-          WebkitBackdropFilter: 'blur(18px)',
-          borderBottom: '1px solid rgba(255,255,255,0.06)',
+          backdropFilter: 'blur(20px) saturate(140%)',
+          WebkitBackdropFilter: 'blur(20px) saturate(140%)',
+          borderBottom: '1px solid rgba(124, 58, 237, 0.12)',
         }}
       >
         <div className="flex items-center gap-3 min-w-0">
@@ -441,7 +441,7 @@ function LibraryView({
             type="button"
             onClick={onBack}
             aria-label="Back"
-            className="w-11 h-11 rounded-full flex items-center justify-center active:opacity-70 active:scale-95 flex-shrink-0 transition-all"
+            className="w-11 h-11 rounded-full flex items-center justify-center active:opacity-70 active:scale-90 flex-shrink-0 transition-all"
             style={{
               backgroundColor: 'rgba(255,255,255,0.05)',
               border: '1px solid rgba(255,255,255,0.08)',
@@ -453,24 +453,28 @@ function LibraryView({
               viewBox="0 0 24 24"
               fill="none"
               stroke="white"
-              strokeWidth="2"
+              strokeWidth="2.2"
               strokeLinecap="round"
+              strokeLinejoin="round"
             >
               <path d="M19 12H5M12 19l-7-7 7-7" />
             </svg>
           </button>
           <div className="min-w-0">
             <h1
-              className="text-white font-bold text-xl leading-tight truncate"
-              style={{ letterSpacing: '-0.01em' }}
+              className="text-white font-bold text-[22px] leading-tight truncate"
+              style={{ letterSpacing: '-0.02em' }}
             >
               Local Music
             </h1>
-            <p className="text-[#7A7A92] text-xs mt-0.5">
+            <p
+              className="text-[#7A7A92] text-[11px] mt-0.5 truncate"
+              style={{ letterSpacing: '0.01em' }}
+            >
               {isLoading
-                ? 'Scanning…'
+                ? 'Scanning your device…'
                 : files.length > 0
-                  ? `${files.length} song${files.length === 1 ? '' : 's'} found`
+                  ? `${files.length} song${files.length === 1 ? '' : 's'} · 100% offline`
                   : 'Offline · 100% private'}
             </p>
           </div>
@@ -478,12 +482,12 @@ function LibraryView({
         <button
           type="button"
           onClick={onRefresh}
-          aria-label="Refresh"
+          aria-label="Refresh library"
           disabled={isLoading}
-          className="w-11 h-11 rounded-full flex items-center justify-center active:opacity-70 active:scale-95 disabled:opacity-40 flex-shrink-0 transition-all"
+          className="w-11 h-11 rounded-full flex items-center justify-center active:opacity-70 active:scale-90 disabled:opacity-40 flex-shrink-0 transition-all"
           style={{
-            backgroundColor: 'rgba(255,255,255,0.05)',
-            border: '1px solid rgba(255,255,255,0.08)',
+            backgroundColor: 'rgba(124, 58, 237, 0.12)',
+            border: '1px solid rgba(124, 58, 237, 0.28)',
           }}
         >
           <svg
@@ -491,9 +495,10 @@ function LibraryView({
             height="20"
             viewBox="0 0 24 24"
             fill="none"
-            stroke="white"
-            strokeWidth="2"
+            stroke="#C4B5FD"
+            strokeWidth="2.2"
             strokeLinecap="round"
+            strokeLinejoin="round"
             className={isLoading ? 'animate-spin' : ''}
           >
             <path d="M21 12a9 9 0 1 1-2.64-6.36" />
@@ -561,7 +566,7 @@ function SongList({
   setMenuOpenFor: (id: string | null) => void;
 }) {
   return (
-    <ul className="flex flex-col" style={{ contentVisibility: 'auto' }}>
+    <ul className="flex flex-col gap-1" style={{ contentVisibility: 'auto' }}>
       {files.map((mf, idx) => {
         const { title, artist } = parseFilename(mf.name);
         const isActive = currentSongId === mf.id;
@@ -579,68 +584,104 @@ function SongList({
                   onSelect(mf, idx);
                 }
               }}
-              className="cursor-pointer w-full flex items-center gap-3 px-2 py-3 rounded-xl transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#7C3AED]/60 hover:bg-white/[0.04] active:bg-white/[0.08]"
+              className="cursor-pointer w-full flex items-center gap-3 px-2 py-2.5 rounded-2xl transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-[#7C3AED]/60 hover:bg-white/[0.04] active:bg-white/[0.08]"
               style={{
                 backgroundColor: isActive
-                  ? 'rgba(124, 58, 237, 0.12)'
+                  ? 'linear-gradient(90deg, rgba(124,58,237,0.18) 0%, rgba(124,58,237,0.08) 100%)'
                   : 'transparent',
                 border: isActive
-                  ? '1px solid rgba(124, 58, 237, 0.25)'
+                  ? '1px solid rgba(124, 58, 237, 0.35)'
                   : '1px solid transparent',
-                minHeight: 64,
+                minHeight: 68,
+                boxShadow: isActive
+                  ? '0 4px 20px rgba(124, 58, 237, 0.12)'
+                  : 'none',
               }}
             >
-              {/* Icon / LIVE EQUALIZER for active+playing song */}
+              {/* Album thumb / LIVE EQUALIZER for active+playing song */}
               <div
-                className="w-11 h-11 rounded-lg flex items-center justify-center flex-shrink-0"
+                className="rounded-xl flex items-center justify-center flex-shrink-0 relative overflow-hidden"
                 style={{
+                  width: 52,
+                  height: 52,
                   background: isActive
-                    ? 'linear-gradient(135deg, #8B5CF6 0%, #6D28D9 100%)'
-                    : 'rgba(255,255,255,0.04)',
+                    ? 'linear-gradient(135deg, #8B5CF6 0%, #6D28D9 60%, #4C1D95 100%)'
+                    : 'linear-gradient(135deg, rgba(124,58,237,0.12) 0%, rgba(76,29,149,0.08) 100%)',
                   border: isActive
-                    ? '1px solid rgba(124, 58, 237, 0.45)'
+                    ? '1px solid rgba(167, 139, 250, 0.55)'
                     : '1px solid rgba(255,255,255,0.06)',
                   boxShadow: isActive
-                    ? '0 4px 16px rgba(124, 58, 237, 0.4)'
-                    : 'none',
+                    ? '0 6px 18px rgba(124, 58, 237, 0.45), inset 0 1px 0 rgba(255,255,255,0.18)'
+                    : 'inset 0 1px 0 rgba(255,255,255,0.04)',
                 }}
               >
-                {isActive && isPlaying ? (
-                  <LiveEqualizer />
-                ) : (
-                  <svg
-                    width="20"
-                    height="20"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke={isActive ? 'white' : '#A78BFA'}
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                  >
-                    <path d="M9 18V5l12-2v13" />
-                    <circle cx="6" cy="18" r="3" />
-                    <circle cx="18" cy="16" r="3" />
-                  </svg>
-                )}
+                {/* Subtle vinyl ring texture inside thumb */}
+                <div
+                  aria-hidden
+                  className="absolute inset-0 pointer-events-none"
+                  style={{
+                    background:
+                      'repeating-radial-gradient(circle at 50% 50%, transparent 0px, transparent 4px, rgba(255,255,255,0.04) 5px, rgba(255,255,255,0.04) 6px)',
+                  }}
+                />
+                <div className="relative z-10">
+                  {isActive && isPlaying ? (
+                    <LiveEqualizer />
+                  ) : (
+                    <svg
+                      width="22"
+                      height="22"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke={isActive ? 'white' : '#A78BFA'}
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <path d="M9 18V5l12-2v13" />
+                      <circle cx="6" cy="18" r="3" />
+                      <circle cx="18" cy="16" r="3" />
+                    </svg>
+                  )}
+                </div>
               </div>
 
               {/* Title + artist */}
               <div className="flex-1 min-w-0 text-left">
                 <p
-                  className={`text-[14px] font-medium leading-tight truncate ${
+                  className={`text-[15px] font-semibold leading-tight truncate ${
                     isActive ? 'text-[#C4B5FD]' : 'text-white'
                   }`}
                   title={title}
+                  style={{ letterSpacing: '-0.005em' }}
                 >
                   {title}
                 </p>
                 <p
-                  className="text-[#7A7A92] text-xs mt-0.5 truncate"
+                  className="text-[#7A7A92] text-[12px] mt-1 truncate"
                   title={artist}
                 >
                   {artist} · {formatSize(mf.sizeBytes)}
                 </p>
               </div>
+
+              {/* Active "playing" pill badge (subtle premium touch) */}
+              {isActive && isPlaying && (
+                <span
+                  className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-semibold uppercase tracking-wider"
+                  style={{
+                    color: '#C4B5FD',
+                    backgroundColor: 'rgba(124, 58, 237, 0.18)',
+                    border: '1px solid rgba(124, 58, 237, 0.40)',
+                  }}
+                >
+                  <span
+                    className="w-1.5 h-1.5 rounded-full bg-[#A78BFA]"
+                    style={{ animation: 'pn-glyph-pulse 1.4s ease-in-out infinite' }}
+                  />
+                  Playing
+                </span>
+              )}
 
               {/* 3-dot menu */}
               <button
@@ -651,7 +692,7 @@ function SongList({
                   setMenuOpenFor(menuOpen ? null : mf.id);
                 }}
                 aria-label="More options"
-                className="w-9 h-9 rounded-full flex items-center justify-center active:opacity-60 active:scale-95 flex-shrink-0 transition-transform"
+                className="w-9 h-9 rounded-full flex items-center justify-center active:opacity-60 active:scale-90 flex-shrink-0 transition-transform hover:bg-white/[0.06]"
               >
                 <svg
                   width="18"
@@ -675,14 +716,14 @@ function SongList({
                   onClick={() => setMenuOpenFor(null)}
                 />
                 <div
-                  className="absolute right-2 top-14 z-20 rounded-2xl overflow-hidden min-w-[160px] pn-fade-up"
+                  className="absolute right-2 top-16 z-20 rounded-2xl overflow-hidden min-w-[180px] pn-fade-up"
                   style={{
-                    backgroundColor: 'rgba(20, 20, 38, 0.92)',
-                    border: '1px solid rgba(124, 58, 237, 0.25)',
+                    backgroundColor: 'rgba(20, 20, 38, 0.95)',
+                    border: '1px solid rgba(124, 58, 237, 0.30)',
                     boxShadow:
-                      '0 12px 36px rgba(0,0,0,0.65), 0 0 0 1px rgba(124,58,237,0.08)',
-                    backdropFilter: 'blur(16px)',
-                    WebkitBackdropFilter: 'blur(16px)',
+                      '0 16px 48px rgba(0,0,0,0.7), 0 0 0 1px rgba(124,58,237,0.10), 0 0 40px rgba(124,58,237,0.15)',
+                    backdropFilter: 'blur(20px)',
+                    WebkitBackdropFilter: 'blur(20px)',
                   }}
                 >
                   {[
@@ -694,9 +735,9 @@ function SongList({
                       key={item.label}
                       type="button"
                       onClick={() => setMenuOpenFor(null)}
-                      className="w-full px-4 py-3 flex items-center gap-3 text-white text-sm transition-colors hover:bg-white/[0.06] active:bg-white/[0.10]"
+                      className="w-full px-4 py-3 flex items-center gap-3 text-white text-sm transition-colors hover:bg-white/[0.08] active:bg-white/[0.12]"
                     >
-                      <span className="text-[#A78BFA] text-base">
+                      <span className="text-[#A78BFA] text-base w-4 text-center">
                         {item.icon}
                       </span>
                       {item.label}
@@ -718,23 +759,25 @@ function SongList({
  * DJ visualizer reacting to music. Purely decorative — no JS state.
  */
 function LiveEqualizer() {
-  // 4 bars with staggered animation delays for an organic, lively feel.
-  const bars = [0, 110, 220, 80];
+  // 5 bars with staggered animation delays for an organic, lively feel.
+  const bars = [0, 110, 220, 80, 160];
   return (
     <div
-      className="flex items-end justify-center gap-[3px] h-5"
+      className="flex items-end justify-center gap-[3px] h-6"
       aria-hidden
     >
       {bars.map((delay, i) => (
         <span
           key={i}
-          className="pn-eq-bar w-[3px] rounded-sm"
+          className="pn-eq-bar w-[3px] rounded-full"
           style={{
             height: '100%',
-            backgroundColor: 'white',
+            background:
+              'linear-gradient(180deg, #FFFFFF 0%, #C4B5FD 100%)',
             animationDelay: `${delay}ms`,
             // Vary durations slightly so the bars don't sync.
             animationDuration: `${820 + i * 90}ms`,
+            boxShadow: '0 0 6px rgba(196, 181, 253, 0.55)',
           }}
         />
       ))}
@@ -1020,145 +1063,167 @@ function MiniPlayer({
 
   return (
     <div
-      className="fixed bottom-0 left-0 right-0 z-40"
+      className="fixed bottom-0 left-0 right-0 z-40 px-3 pb-3 pointer-events-none"
       onPointerDown={handlePointerDown}
       onPointerUp={handlePointerUp}
     >
-      {/* Progress strip on top of mini bar */}
+      {/* Floating glassmorphic pill — pointer-events-auto re-enables taps */}
       <div
-        className="absolute top-0 left-0 right-0"
+        className="pointer-events-auto rounded-3xl overflow-hidden pn-float-breath"
         style={{
-          height: 2,
-          backgroundColor: 'rgba(255,255,255,0.05)',
+          backgroundColor: 'rgba(20, 18, 38, 0.82)',
+          border: '1px solid rgba(124, 58, 237, 0.30)',
+          backdropFilter: 'blur(24px) saturate(140%)',
+          WebkitBackdropFilter: 'blur(24px) saturate(140%)',
+          boxShadow:
+            '0 -6px 30px rgba(0,0,0,0.45), 0 0 0 1px rgba(124,58,237,0.10), 0 0 40px rgba(124,58,237,0.15)',
+          paddingBottom: 'calc(0.5rem + env(safe-area-inset-bottom))',
         }}
       >
+        {/* Premium gradient progress strip on top of pill */}
         <div
+          className="relative"
           style={{
-            position: 'absolute',
-            top: 0,
-            left: 0,
-            bottom: 0,
-            width: `${pct}%`,
-            backgroundColor: '#7C3AED',
-            transition: 'width 200ms linear',
-          }}
-        />
-      </div>
-
-      <div
-        className="flex items-center gap-3 px-3 py-2.5"
-        style={{
-          // Glassmorphism mini-bar: translucent dark over gradient bg.
-          backgroundColor: 'rgba(12, 13, 25, 0.88)',
-          borderTop: '1px solid rgba(124, 58, 237, 0.18)',
-          backdropFilter: 'blur(18px)',
-          WebkitBackdropFilter: 'blur(18px)',
-          boxShadow: '0 -8px 30px rgba(0,0,0,0.45)',
-          paddingBottom: 'calc(0.625rem + env(safe-area-inset-bottom))',
-        }}
-      >
-        {/* Album art thumb (also expands the full sheet) */}
-        <button
-          type="button"
-          onClick={onExpand}
-          aria-label="Expand"
-          className="w-11 h-11 rounded-lg flex items-center justify-center flex-shrink-0 active:scale-95 transition-transform"
-          style={{
-            background:
-              'linear-gradient(135deg, #8B5CF6 0%, #6D28D9 100%)',
-            boxShadow: '0 4px 14px rgba(124,58,237,0.4)',
+            height: 2,
+            backgroundColor: 'rgba(255,255,255,0.05)',
           }}
         >
-          {isPlaying ? (
-            <LiveEqualizer />
-          ) : (
+          <div
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              bottom: 0,
+              width: `${pct}%`,
+              background:
+                'linear-gradient(90deg, #8B5CF6 0%, #A78BFA 50%, #C4B5FD 100%)',
+              boxShadow: '0 0 8px rgba(167, 139, 250, 0.6)',
+              transition: 'width 200ms linear',
+            }}
+          />
+        </div>
+
+        <div className="flex items-center gap-3 px-3 py-2.5">
+          {/* Album art thumb with vinyl spin (also expands the full sheet) */}
+          <button
+            type="button"
+            onClick={onExpand}
+            aria-label="Expand player"
+            className="w-12 h-12 rounded-2xl flex items-center justify-center flex-shrink-0 active:scale-95 transition-transform relative overflow-hidden"
+            style={{
+              background:
+                'linear-gradient(135deg, #8B5CF6 0%, #6D28D9 60%, #4C1D95 100%)',
+              border: '1px solid rgba(167, 139, 250, 0.55)',
+              boxShadow:
+                '0 6px 16px rgba(124,58,237,0.45), inset 0 1px 0 rgba(255,255,255,0.20)',
+            }}
+          >
+            {/* Vinyl rings overlay */}
+            <div
+              aria-hidden
+              className="absolute inset-0 pointer-events-none"
+              style={{
+                background:
+                  'repeating-radial-gradient(circle at 50% 50%, transparent 0px, transparent 4px, rgba(255,255,255,0.05) 5px, rgba(255,255,255,0.05) 6px)',
+              }}
+            />
+            <div className="relative z-10">
+              {isPlaying ? (
+                <LiveEqualizer />
+              ) : (
+                <svg
+                  width="22"
+                  height="22"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="white"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M9 18V5l12-2v13" />
+                  <circle cx="6" cy="18" r="3" />
+                  <circle cx="18" cy="16" r="3" />
+                </svg>
+              )}
+            </div>
+          </button>
+
+          {/* Title + artist (marquee) — tap to expand */}
+          <button
+            type="button"
+            onClick={onExpand}
+            className="flex-1 min-w-0 text-left overflow-hidden"
+          >
+            <div className="overflow-hidden">
+              <Marquee
+                text={song.name}
+                className="text-white text-[14px] font-semibold truncate"
+              />
+            </div>
+            <p
+              className="text-[#9A9AB0] text-[11px] mt-0.5 truncate"
+              style={{ letterSpacing: '0.01em' }}
+            >
+              {song.artist} · {formatTime(currentTime)} / {formatTime(duration)}
+            </p>
+          </button>
+
+          {/* Play / pause — premium gradient pill */}
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onTogglePlay();
+            }}
+            aria-label={isPlaying ? 'Pause' : 'Play'}
+            className={`w-12 h-12 rounded-full flex items-center justify-center active:scale-90 transition-transform flex-shrink-0 ${
+              isPlaying ? 'pn-btn-glow' : ''
+            }`}
+            style={{
+              background:
+                'linear-gradient(135deg, #8B5CF6 0%, #7C3AED 50%, #6D28D9 100%)',
+              boxShadow: isPlaying
+                ? undefined
+                : '0 6px 18px rgba(124,58,237,0.45), 0 0 0 1px rgba(124,58,237,0.45)',
+            }}
+          >
+            {isPlaying ? (
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="white">
+                <rect x="6" y="5" width="4" height="14" rx="1.5" />
+                <rect x="14" y="5" width="4" height="14" rx="1.5" />
+              </svg>
+            ) : (
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="white">
+                <polygon points="6 4 20 12 6 20 6 4" />
+              </svg>
+            )}
+          </button>
+
+          {/* Close */}
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onClose();
+            }}
+            aria-label="Close player"
+            className="w-9 h-9 rounded-full flex items-center justify-center active:opacity-60 active:scale-90 flex-shrink-0 transition-transform hover:bg-white/[0.06]"
+          >
             <svg
-              width="20"
-              height="20"
+              width="18"
+              height="18"
               viewBox="0 0 24 24"
               fill="none"
-              stroke="white"
-              strokeWidth="2"
+              stroke="#9A9AB0"
+              strokeWidth="2.2"
               strokeLinecap="round"
             >
-              <path d="M9 18V5l12-2v13" />
-              <circle cx="6" cy="18" r="3" />
-              <circle cx="18" cy="16" r="3" />
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
             </svg>
-          )}
-        </button>
-
-        {/* Title + artist (marquee) */}
-        <button
-          type="button"
-          onClick={onExpand}
-          className="flex-1 min-w-0 text-left overflow-hidden"
-        >
-          <div className="overflow-hidden">
-            <Marquee
-              text={`${song.name} · ${song.artist}`}
-              className="text-white text-[13px] font-medium truncate"
-            />
-          </div>
-          <p className="text-[#7A7A92] text-[11px] mt-0.5 truncate">
-            {formatTime(currentTime)} / {formatTime(duration)}
-          </p>
-        </button>
-
-        {/* Play / pause */}
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            onTogglePlay();
-          }}
-          aria-label={isPlaying ? 'Pause' : 'Play'}
-          className="w-11 h-11 rounded-full flex items-center justify-center active:scale-95 transition-transform flex-shrink-0"
-          style={{
-            backgroundColor: 'rgba(124,58,237,0.22)',
-            border: '1px solid rgba(124,58,237,0.35)',
-          }}
-        >
-          {isPlaying ? (
-            <svg
-              width="20"
-              height="20"
-              viewBox="0 0 24 24"
-              fill="white"
-            >
-              <rect x="6" y="5" width="4" height="14" rx="1" />
-              <rect x="14" y="5" width="4" height="14" rx="1" />
-            </svg>
-          ) : (
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="white">
-              <polygon points="6 4 20 12 6 20 6 4" />
-            </svg>
-          )}
-        </button>
-
-        {/* Close */}
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            onClose();
-          }}
-          aria-label="Close"
-          className="w-9 h-9 rounded-full flex items-center justify-center active:opacity-60 active:scale-95 flex-shrink-0 transition-transform"
-        >
-          <svg
-            width="18"
-            height="18"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="#9A9AB0"
-            strokeWidth="2"
-            strokeLinecap="round"
-          >
-            <line x1="18" y1="6" x2="6" y2="18" />
-            <line x1="6" y1="6" x2="18" y2="18" />
-          </svg>
-        </button>
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -1369,7 +1434,7 @@ function ExpandedPlayer({
         <div
           className="w-10 h-1 rounded-full"
           style={{
-            backgroundColor: 'rgba(255,255,255,0.28)',
+            backgroundColor: 'rgba(255,255,255,0.32)',
           }}
         />
       </div>
@@ -1380,7 +1445,7 @@ function ExpandedPlayer({
           type="button"
           onClick={onClose}
           aria-label="Collapse"
-          className="w-11 h-11 rounded-full flex items-center justify-center active:scale-95 transition-all hover:bg-white/10"
+          className="w-11 h-11 rounded-full flex items-center justify-center active:scale-90 transition-all hover:bg-white/10"
           style={{
             backgroundColor: 'rgba(255,255,255,0.05)',
             border: '1px solid rgba(255,255,255,0.08)',
@@ -1394,7 +1459,7 @@ function ExpandedPlayer({
             viewBox="0 0 24 24"
             fill="none"
             stroke="white"
-            strokeWidth="2"
+            strokeWidth="2.2"
             strokeLinecap="round"
             strokeLinejoin="round"
           >
@@ -1402,18 +1467,23 @@ function ExpandedPlayer({
           </svg>
         </button>
         <div className="flex flex-col items-center">
-          <p className="text-[#7A7A92] text-[10px] uppercase tracking-[0.2em] font-medium">
+          <p
+            className="text-[#7A7A92] text-[10px] uppercase tracking-[0.25em] font-semibold"
+          >
             Now Playing
           </p>
-          <p className="text-white/40 text-[10px] mt-0.5">
+          <p
+            className="text-white/50 text-[11px] mt-0.5 font-medium truncate max-w-[180px]"
+            title={song.album || 'Local Audio'}
+          >
             {song.album || 'Local Audio'}
           </p>
         </div>
         <button
           type="button"
           onClick={onClose}
-          aria-label="More"
-          className="w-11 h-11 rounded-full flex items-center justify-center active:scale-95 transition-all hover:bg-white/10"
+          aria-label="More options"
+          className="w-11 h-11 rounded-full flex items-center justify-center active:scale-90 transition-all hover:bg-white/10"
           style={{
             backgroundColor: 'rgba(255,255,255,0.05)',
             border: '1px solid rgba(255,255,255,0.08)',
@@ -1434,25 +1504,25 @@ function ExpandedPlayer({
         </button>
       </div>
 
-      {/* ──────── Album art centerpiece (frosted glass) ──────── */}
+      {/* ──────── Album art centerpiece (vinyl record) ──────── */}
       <div className="relative flex-1 flex items-center justify-center px-8">
         <div
           className="relative"
           style={{
-            width: 'min(80vw, 340px)',
-            height: 'min(80vw, 340px)',
+            width: 'min(82vw, 360px)',
+            height: 'min(82vw, 360px)',
           }}
         >
           {/* Outer pulse-glow halo — breathes while playing. */}
           {isPlaying && (
             <div
               aria-hidden
-              className="absolute inset-0 rounded-[36px] pn-art-pulse"
+              className="absolute inset-0 rounded-full pn-art-pulse"
               style={{
                 background:
                   'radial-gradient(circle at 50% 50%, rgba(124,58,237,0.55), rgba(76,29,149,0.25) 40%, transparent 75%)',
                 filter: 'blur(48px)',
-                transform: 'scale(1.15)',
+                transform: 'scale(1.18)',
               }}
             />
           )}
@@ -1461,45 +1531,67 @@ function ExpandedPlayer({
           {!isPlaying && (
             <div
               aria-hidden
-              className="absolute inset-0 rounded-[36px]"
+              className="absolute inset-0 rounded-full pn-halo-drift"
               style={{
                 background:
-                  'radial-gradient(circle at 50% 50%, rgba(124,58,237,0.30), transparent 70%)',
+                  'radial-gradient(circle at 50% 50%, rgba(124,58,237,0.32), transparent 70%)',
                 filter: 'blur(40px)',
-                transform: 'scale(1.08)',
+                transform: 'scale(1.10)',
                 opacity: 0.6,
               }}
             />
           )}
 
-          {/* Frosted-glass art container with neon-purple border. */}
+          {/* Vinyl record disc — spins while playing */}
           <div
-            className="absolute inset-0 rounded-[32px] flex items-center justify-center overflow-hidden"
+            className={`absolute inset-0 rounded-full overflow-hidden pn-vinyl-record-spin ${
+              isPlaying ? 'is-playing' : ''
+            }`}
             style={{
-              // Frosted glass per spec:
-              //   backdrop-blur-md  +  bg-white/5  +  border-white/10
-              backgroundColor: 'rgba(255,255,255,0.05)',
-              border: '1px solid rgba(255,255,255,0.10)',
+              background:
+                'radial-gradient(circle at 50% 50%, #1A1A2E 0%, #0E0E1A 55%, #050510 100%)',
+              border: '1.5px solid rgba(124,58,237,0.50)',
               boxShadow:
-                '0 30px 80px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.08), 0 0 0 1.5px rgba(124,58,237,0.45)',
-              backdropFilter: 'blur(20px)',
-              WebkitBackdropFilter: 'blur(20px)',
-              willChange: 'transform',
+                '0 30px 80px rgba(0,0,0,0.7), inset 0 1px 0 rgba(255,255,255,0.10), 0 0 0 1px rgba(255,255,255,0.05)',
             }}
           >
-            {/* Center label — minimalist music glyph that pulses when playing */}
-            <div className="flex flex-col items-center gap-4 px-6 text-center">
+            {/* Vinyl grooves — repeating radial gradient */}
+            <div
+              aria-hidden
+              className="absolute inset-0 rounded-full pointer-events-none"
+              style={{
+                background:
+                  'repeating-radial-gradient(circle at 50% 50%, transparent 0px, transparent 6px, rgba(255,255,255,0.025) 7px, rgba(255,255,255,0.025) 8px)',
+              }}
+            />
+
+            {/* Light sheen from upper-left */}
+            <div
+              aria-hidden
+              className="absolute inset-0 rounded-full pointer-events-none"
+              style={{
+                background:
+                  'linear-gradient(135deg, rgba(255,255,255,0.10) 0%, transparent 35%, transparent 65%, rgba(0,0,0,0.30) 100%)',
+              }}
+            />
+
+            {/* Center label — gradient circle with music glyph */}
+            <div
+              className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full flex items-center justify-center"
+              style={{
+                width: '38%',
+                height: '38%',
+                background:
+                  'linear-gradient(135deg, #8B5CF6 0%, #7C3AED 50%, #4C1D95 100%)',
+                border: '1px solid rgba(255,255,255,0.18)',
+                boxShadow:
+                  '0 0 30px rgba(124,58,237,0.55), inset 0 1px 0 rgba(255,255,255,0.25), inset 0 0 0 6px rgba(0,0,0,0.20)',
+              }}
+            >
               <div
-                className={`w-20 h-20 rounded-2xl flex items-center justify-center ${
+                className={`flex flex-col items-center gap-2 ${
                   isPlaying ? 'pn-glyph-pulse' : ''
                 }`}
-                style={{
-                  background:
-                    'linear-gradient(135deg, rgba(124,58,237,0.85) 0%, rgba(76,29,149,0.85) 100%)',
-                  border: '1px solid rgba(255,255,255,0.15)',
-                  boxShadow:
-                    '0 0 30px rgba(124,58,237,0.5), inset 0 1px 0 rgba(255,255,255,0.25)',
-                }}
               >
                 <svg
                   width="36"
@@ -1516,37 +1608,36 @@ function ExpandedPlayer({
                   <circle cx="18" cy="16" r="3" />
                 </svg>
               </div>
-              <p
-                className="text-[10px] uppercase tracking-[0.25em] font-medium"
-                style={{ color: 'rgba(255,255,255,0.40)' }}
-              >
-                {song.album || 'Local Audio'}
-              </p>
+              {/* Center spindle hole */}
+              <div
+                aria-hidden
+                className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full"
+                style={{
+                  width: 8,
+                  height: 8,
+                  backgroundColor: '#06060A',
+                  border: '1px solid rgba(255,255,255,0.20)',
+                }}
+              />
             </div>
-
-            {/* Frosted glass sheen overlay */}
-            <div
-              className="absolute inset-x-0 top-0 h-1/2 rounded-t-[32px] pointer-events-none"
-              style={{
-                background:
-                  'linear-gradient(180deg, rgba(255,255,255,0.10), transparent)',
-              }}
-            />
           </div>
         </div>
       </div>
 
       {/* Title / artist */}
-      <div className="relative px-8 pt-4 pb-3 text-center pn-fade-up">
+      <div className="relative px-8 pt-5 pb-3 text-center pn-fade-up">
         <h2
-          className="text-white font-bold text-2xl tracking-tight truncate"
+          className="text-white font-bold text-[26px] tracking-tight truncate"
           title={song.name}
-          style={{ textShadow: '0 2px 12px rgba(124,58,237,0.35)' }}
+          style={{
+            textShadow: '0 2px 16px rgba(124,58,237,0.35)',
+            letterSpacing: '-0.02em',
+          }}
         >
           {song.name}
         </h2>
         <p
-          className="text-[#9A9AB0] text-sm mt-1.5 truncate font-medium"
+          className="text-[#A8A8C0] text-[14px] mt-1.5 truncate font-medium"
           title={song.artist}
         >
           {song.artist}
@@ -1562,14 +1653,14 @@ function ExpandedPlayer({
         />
         <div className="flex items-center justify-between mt-2 px-1">
           <span
-            className="text-[11px] font-mono"
-            style={{ color: 'rgba(255,255,255,0.55)' }}
+            className="text-[11px] font-mono font-medium"
+            style={{ color: 'rgba(255,255,255,0.65)' }}
           >
             {formatTime(currentTime)}
           </span>
           <span
             className="text-[11px] font-mono"
-            style={{ color: 'rgba(255,255,255,0.55)' }}
+            style={{ color: 'rgba(255,255,255,0.45)' }}
           >
             {formatTime(duration)}
           </span>
@@ -1578,7 +1669,7 @@ function ExpandedPlayer({
 
       {/* ──────── Controls row (premium tactile) ──────── */}
       <div
-        className="relative flex items-center justify-between px-8 pb-10 pn-fade-up"
+        className="relative flex items-center justify-between px-7 pb-10 pn-fade-up"
         style={{ animationDelay: '120ms' }}
       >
         {/* Shuffle */}
@@ -1590,13 +1681,13 @@ function ExpandedPlayer({
           className="w-12 h-12 rounded-full flex items-center justify-center active:scale-90 transition-all hover:bg-white/10"
           style={{
             backgroundColor: isShuffle
-              ? 'rgba(124,58,237,0.22)'
+              ? 'rgba(124,58,237,0.25)'
               : 'rgba(255,255,255,0.04)',
             border: isShuffle
-              ? '1px solid rgba(124,58,237,0.55)'
+              ? '1px solid rgba(124,58,237,0.60)'
               : '1px solid rgba(255,255,255,0.06)',
             boxShadow: isShuffle
-              ? '0 0 18px rgba(124,58,237,0.45)'
+              ? '0 0 20px rgba(124,58,237,0.55)'
               : 'none',
           }}
         >
@@ -1606,7 +1697,7 @@ function ExpandedPlayer({
             viewBox="0 0 24 24"
             fill="none"
             stroke={isShuffle ? '#C4B5FD' : 'white'}
-            strokeWidth="2"
+            strokeWidth="2.2"
             strokeLinecap="round"
             strokeLinejoin="round"
           >
@@ -1650,7 +1741,7 @@ function ExpandedPlayer({
               'linear-gradient(135deg, #8B5CF6 0%, #7C3AED 50%, #6D28D9 100%)',
             boxShadow: isPlaying
               ? undefined
-              : '0 12px 30px rgba(124,58,237,0.45), 0 0 0 1px rgba(124,58,237,0.5)',
+              : '0 14px 36px rgba(124,58,237,0.50), 0 0 0 1px rgba(124,58,237,0.55)',
           }}
         >
           {isPlaying ? (
@@ -1694,15 +1785,15 @@ function ExpandedPlayer({
           style={{
             backgroundColor:
               repeatMode !== 'off'
-                ? 'rgba(124,58,237,0.22)'
+                ? 'rgba(124,58,237,0.25)'
                 : 'rgba(255,255,255,0.04)',
             border:
               repeatMode !== 'off'
-                ? '1px solid rgba(124,58,237,0.55)'
+                ? '1px solid rgba(124,58,237,0.60)'
                 : '1px solid rgba(255,255,255,0.06)',
             boxShadow:
               repeatMode !== 'off'
-                ? '0 0 18px rgba(124,58,237,0.45)'
+                ? '0 0 20px rgba(124,58,237,0.55)'
                 : 'none',
           }}
         >
@@ -1712,7 +1803,7 @@ function ExpandedPlayer({
             viewBox="0 0 24 24"
             fill="none"
             stroke={repeatMode !== 'off' ? '#C4B5FD' : 'white'}
-            strokeWidth="2"
+            strokeWidth="2.2"
             strokeLinecap="round"
             strokeLinejoin="round"
           >
@@ -1727,7 +1818,7 @@ function ExpandedPlayer({
               className="absolute -top-0.5 -right-0.5 w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-bold text-white"
               style={{
                 backgroundColor: '#7C3AED',
-                border: '1px solid rgba(255,255,255,0.4)',
+                border: '1px solid rgba(255,255,255,0.45)',
               }}
             >
               1

@@ -338,14 +338,19 @@ function LibraryView({
   return (
     <div
       className="min-h-screen flex flex-col"
-      style={{ backgroundColor: '#0A0A0A' }}
+      style={{
+        background:
+          'linear-gradient(180deg, #0c0d19 0%, #0a0b14 50%, #06070c 100%)',
+      }}
     >
-      {/* ────────── HEADER ────────── */}
+      {/* ────────── HEADER (premium floating glass bar) ────────── */}
       <header
         className="flex items-center justify-between px-4 pt-5 pb-4 sticky top-0 z-30"
         style={{
-          backgroundColor: '#0A0A0A',
-          borderBottom: '1px solid #141414',
+          backgroundColor: 'rgba(12, 13, 25, 0.72)',
+          backdropFilter: 'blur(20px) saturate(140%)',
+          WebkitBackdropFilter: 'blur(20px) saturate(140%)',
+          borderBottom: '1px solid rgba(124, 58, 237, 0.12)',
         }}
       >
         <div className="flex items-center gap-3 min-w-0">
@@ -353,7 +358,11 @@ function LibraryView({
             type="button"
             onClick={onBack}
             aria-label="Back"
-            className="w-11 h-11 rounded-full bg-[#141414] flex items-center justify-center active:opacity-70 flex-shrink-0"
+            className="w-11 h-11 rounded-full flex items-center justify-center active:opacity-70 active:scale-90 flex-shrink-0 transition-all"
+            style={{
+              backgroundColor: 'rgba(255,255,255,0.05)',
+              border: '1px solid rgba(255,255,255,0.08)',
+            }}
           >
             <svg
               width="20"
@@ -361,24 +370,28 @@ function LibraryView({
               viewBox="0 0 24 24"
               fill="none"
               stroke="white"
-              strokeWidth="2"
+              strokeWidth="2.2"
               strokeLinecap="round"
+              strokeLinejoin="round"
             >
               <path d="M19 12H5M12 19l-7-7 7-7" />
             </svg>
           </button>
           <div className="min-w-0">
             <h1
-              className="text-white font-bold text-xl leading-tight truncate"
-              style={{ letterSpacing: '-0.01em' }}
+              className="text-white font-bold text-[22px] leading-tight truncate"
+              style={{ letterSpacing: '-0.02em' }}
             >
               Local Videos
             </h1>
-            <p className="text-[#7A7A7A] text-xs mt-0.5">
+            <p
+              className="text-[#7A7A92] text-[11px] mt-0.5 truncate"
+              style={{ letterSpacing: '0.01em' }}
+            >
               {isLoading
-                ? 'Scanning…'
+                ? 'Scanning your device…'
                 : files.length > 0
-                  ? `${files.length} video${files.length === 1 ? '' : 's'} found`
+                  ? `${files.length} video${files.length === 1 ? '' : 's'} · 100% offline`
                   : 'Offline · 100% private'}
             </p>
           </div>
@@ -386,18 +399,23 @@ function LibraryView({
         <button
           type="button"
           onClick={onRefresh}
-          aria-label="Refresh"
+          aria-label="Refresh library"
           disabled={isLoading}
-          className="w-11 h-11 rounded-full bg-[#141414] flex items-center justify-center active:opacity-70 disabled:opacity-40 flex-shrink-0"
+          className="w-11 h-11 rounded-full flex items-center justify-center active:opacity-70 active:scale-90 disabled:opacity-40 flex-shrink-0 transition-all"
+          style={{
+            backgroundColor: 'rgba(124, 58, 237, 0.12)',
+            border: '1px solid rgba(124, 58, 237, 0.28)',
+          }}
         >
           <svg
             width="20"
             height="20"
             viewBox="0 0 24 24"
             fill="none"
-            stroke="white"
-            strokeWidth="2"
+            stroke="#C4B5FD"
+            strokeWidth="2.2"
             strokeLinecap="round"
+            strokeLinejoin="round"
             className={isLoading ? 'animate-spin' : ''}
           >
             <path d="M21 12a9 9 0 1 1-2.64-6.36" />
@@ -472,15 +490,16 @@ function VideoCard({
     <button
       type="button"
       onClick={() => onSelect(video)}
-      className="text-left rounded-2xl overflow-hidden active:scale-[0.97] transition-transform duration-150"
+      className="text-left rounded-2xl overflow-hidden active:scale-[0.97] transition-transform duration-150 pn-card-lift"
       style={{
         backgroundColor: '#12121C',
-        border: '1px solid #1E1E2E',
+        border: '1px solid rgba(255,255,255,0.06)',
+        boxShadow: '0 4px 16px rgba(0,0,0,0.35)',
       }}
     >
       {/* Thumbnail area (16:9) */}
       <div
-        className="relative w-full flex items-center justify-center"
+        className="relative w-full flex items-center justify-center overflow-hidden"
         style={{
           aspectRatio: '16 / 9',
           background:
@@ -488,41 +507,68 @@ function VideoCard({
         }}
       >
         <VideoThumbnail video={video} />
-        {/* Play overlay */}
+
+        {/* Subtle inner vignette so the play button pops */}
+        <div
+          aria-hidden
+          className="absolute inset-0 pointer-events-none"
+          style={{
+            background:
+              'radial-gradient(ellipse at center, transparent 40%, rgba(0,0,0,0.35) 100%)',
+          }}
+        />
+
+        {/* Play overlay — premium glowing pill that breathes */}
         <div
           className="absolute inset-0 flex items-center justify-center pointer-events-none"
           style={{
             background:
-              'linear-gradient(180deg, transparent 50%, rgba(0,0,0,0.45) 100%)',
+              'linear-gradient(180deg, transparent 50%, rgba(0,0,0,0.55) 100%)',
           }}
         >
           <div
-            className="w-11 h-11 rounded-full flex items-center justify-center"
+            className="w-12 h-12 rounded-full flex items-center justify-center pn-play-pulse"
             style={{
-              backgroundColor: 'rgba(124, 58, 237, 0.85)',
-              boxShadow: '0 4px 14px rgba(124, 58, 237, 0.35)',
+              background:
+                'linear-gradient(135deg, #8B5CF6 0%, #7C3AED 50%, #6D28D9 100%)',
+              border: '1px solid rgba(255,255,255,0.25)',
+              boxShadow: '0 4px 14px rgba(124, 58, 237, 0.55)',
             }}
           >
-            <svg
-              width="18"
-              height="18"
-              viewBox="0 0 24 24"
-              fill="white"
-            >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="white">
               <polygon points="6 4 20 12 6 20 6 4" />
             </svg>
           </div>
         </div>
+
+        {/* Duration badge — premium pill bottom-right */}
+        {video.durationSec ? (
+          <span
+            className="absolute bottom-1.5 right-1.5 px-1.5 py-0.5 rounded-md text-[10px] font-mono font-medium text-white"
+            style={{
+              backgroundColor: 'rgba(0,0,0,0.75)',
+              border: '1px solid rgba(255,255,255,0.10)',
+              backdropFilter: 'blur(6px)',
+              WebkitBackdropFilter: 'blur(6px)',
+            }}
+          >
+            {formatTime(video.durationSec)}
+          </span>
+        ) : null}
       </div>
       {/* Meta */}
       <div className="px-3 py-2.5">
         <p
-          className="text-white text-[13px] font-medium leading-tight truncate"
+          className="text-white text-[13px] font-semibold leading-tight truncate"
           title={video.name}
+          style={{ letterSpacing: '-0.005em' }}
         >
-          {truncateName(video.name)}
+          {truncateName(video.name, 26)}
         </p>
-        <p className="text-[#7A7A7A] text-[11px] mt-1">
+        <p
+          className="text-[#7A7A92] text-[11px] mt-1 truncate"
+          style={{ letterSpacing: '0.01em' }}
+        >
           {formatSize(video.sizeBytes)}
           {video.durationSec ? ` · ${formatTime(video.durationSec)}` : ''}
         </p>
@@ -671,24 +717,26 @@ function LoadingGrid() {
         <div
           key={i}
           className="rounded-2xl overflow-hidden"
-          style={{ backgroundColor: '#12121C', border: '1px solid #1E1E2E' }}
+          style={{
+            backgroundColor: '#12121C',
+            border: '1px solid rgba(255,255,255,0.06)',
+            boxShadow: '0 4px 16px rgba(0,0,0,0.35)',
+          }}
         >
           <div
-            className="w-full"
+            className="w-full pn-shimmer"
             style={{
               aspectRatio: '16 / 9',
-              background:
-                'linear-gradient(90deg, #14141F 0%, #1A1A2E 50%, #14141F 100%)',
             }}
           />
           <div className="px-3 py-2.5">
             <div
-              className="h-3 rounded mb-2"
-              style={{ backgroundColor: '#1A1A2E', width: '70%' }}
+              className="h-3 rounded mb-2 pn-shimmer"
+              style={{ width: '70%' }}
             />
             <div
-              className="h-2.5 rounded"
-              style={{ backgroundColor: '#14141F', width: '40%' }}
+              className="h-2.5 rounded pn-shimmer"
+              style={{ width: '40%' }}
             />
           </div>
         </div>
@@ -736,9 +784,11 @@ function EmptyState({
         <button
           type="button"
           onClick={onPick}
-          className="w-full max-w-xs mx-auto block rounded-full py-3.5 text-white font-semibold text-sm active:opacity-80"
+          className="w-full max-w-xs mx-auto block rounded-full py-3.5 text-white font-semibold text-sm active:scale-95 transition-transform"
           style={{
-            backgroundColor: '#7C3AED',
+            background:
+              'linear-gradient(135deg, #8B5CF6 0%, #7C3AED 50%, #6D28D9 100%)',
+            boxShadow: '0 10px 30px rgba(124,58,237,0.45)',
             minHeight: 44,
           }}
         >
@@ -822,9 +872,11 @@ function EmptyState({
       <button
         type="button"
         onClick={onPick}
-        className="w-full max-w-xs mx-auto flex items-center justify-center gap-2 rounded-full py-3.5 text-white font-semibold text-sm active:opacity-80"
+        className="w-full max-w-xs mx-auto flex items-center justify-center gap-2 rounded-full py-3.5 text-white font-semibold text-sm active:scale-95 transition-transform"
         style={{
-          backgroundColor: '#7C3AED',
+          background:
+            'linear-gradient(135deg, #8B5CF6 0%, #7C3AED 50%, #6D28D9 100%)',
+          boxShadow: '0 10px 30px rgba(124,58,237,0.45)',
           minHeight: 44,
         }}
       >
@@ -864,15 +916,22 @@ function EmptyShell({
       <div
         className="w-24 h-24 rounded-full flex items-center justify-center mb-6"
         style={{
-          backgroundColor: 'rgba(124, 58, 237, 0.08)',
-          border: '1px solid rgba(124, 58, 237, 0.2)',
+          background:
+            'radial-gradient(circle at 50% 50%, rgba(124,58,237,0.20), rgba(124,58,237,0.04) 70%)',
+          border: '1px solid rgba(124, 58, 237, 0.25)',
+          boxShadow: '0 0 40px rgba(124,58,237,0.18)',
         }}
       >
         {icon}
       </div>
-      <h2 className="text-white font-bold text-xl mb-2">{title}</h2>
+      <h2
+        className="text-white font-bold text-xl mb-2"
+        style={{ textShadow: '0 2px 12px rgba(124,58,237,0.30)' }}
+      >
+        {title}
+      </h2>
       <p
-        className="text-[#8A8A8A] text-sm leading-relaxed max-w-xs mb-8"
+        className="text-[#7A7A92] text-sm leading-relaxed max-w-xs mb-8"
       >
         {subtitle}
       </p>
@@ -1218,7 +1277,7 @@ function ImmersivePlayer({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex flex-col select-none"
+      className="fixed inset-0 z-50 flex flex-col select-none pn-cine-up"
       style={{ backgroundColor: '#000000' }}
     >
       {/* ────────── VIDEO STAGE ────────── */}
@@ -1242,17 +1301,22 @@ function ImmersivePlayer({
           controls={false}
         />
 
-        {/* Buffering spinner */}
+        {/* Buffering spinner — premium ring */}
         {isBuffering && (
           <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
             <div
-              className="w-12 h-12 rounded-full border-4 border-white/20 border-t-white animate-spin"
+              className="w-14 h-14 rounded-full pn-buffer-ring"
+              style={{
+                border: '3px solid rgba(255,255,255,0.10)',
+                borderTopColor: '#A78BFA',
+                boxShadow: '0 0 24px rgba(124, 58, 237, 0.55)',
+              }}
               aria-label="Buffering"
             />
           </div>
         )}
 
-        {/* Gesture feedback overlay */}
+        {/* Gesture feedback overlay — premium rounded glass pill */}
         {gestureFeedback && (
           <div
             className="absolute pointer-events-none flex flex-col items-center justify-center"
@@ -1261,16 +1325,23 @@ function ImmersivePlayer({
               transform: 'translateY(-50%)',
               left: gestureFeedback.type === 'brightness' ? '15%' : 'auto',
               right: gestureFeedback.type === 'volume' ? '15%' : 'auto',
-              backgroundColor: 'rgba(0,0,0,0.7)',
-              borderRadius: 14,
-              padding: '14px 18px',
-              minWidth: 90,
+              backgroundColor: 'rgba(0,0,0,0.72)',
+              borderRadius: 18,
+              padding: '16px 20px',
+              minWidth: 100,
+              border: '1px solid rgba(255,255,255,0.10)',
+              backdropFilter: 'blur(12px)',
+              WebkitBackdropFilter: 'blur(12px)',
+              boxShadow: '0 8px 24px rgba(0,0,0,0.45)',
             }}
           >
-            <div className="text-white text-2xl font-bold">
+            <div
+              className="text-white text-3xl font-bold"
+              style={{ letterSpacing: '-0.02em' }}
+            >
               {gestureFeedback.value}%
             </div>
-            <div className="text-white/70 text-[11px] uppercase tracking-wide mt-1">
+            <div className="text-white/70 text-[10px] uppercase tracking-[0.18em] mt-1 font-semibold">
               {gestureFeedback.type === 'brightness'
                 ? '🔆 Brightness'
                 : '🔊 Volume'}
@@ -1288,10 +1359,12 @@ function ImmersivePlayer({
               toggleLock();
             }}
             aria-label="Unlock"
-            className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-14 h-14 rounded-full flex items-center justify-center active:scale-95"
+            className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-14 h-14 rounded-full flex items-center justify-center active:scale-90 transition-transform"
             style={{
-              backgroundColor: 'rgba(0,0,0,0.6)',
-              border: '1px solid rgba(255,255,255,0.15)',
+              backgroundColor: 'rgba(0,0,0,0.65)',
+              border: '1px solid rgba(255,255,255,0.18)',
+              backdropFilter: 'blur(12px)',
+              WebkitBackdropFilter: 'blur(12px)',
             }}
           >
             <svg
@@ -1300,8 +1373,9 @@ function ImmersivePlayer({
               viewBox="0 0 24 24"
               fill="none"
               stroke="white"
-              strokeWidth="2"
+              strokeWidth="2.2"
               strokeLinecap="round"
+              strokeLinejoin="round"
             >
               <rect x="5" y="11" width="14" height="10" rx="2" />
               <path d="M8 11V7a4 4 0 0 1 8 0v4" />
@@ -1309,14 +1383,17 @@ function ImmersivePlayer({
           </button>
         )}
 
-        {/* ────────── TOP BAR (back, title, settings) ────────── */}
+        {/* ────────── TOP BAR (glass, premium) ────────── */}
         <div
           className="absolute top-0 left-0 right-0 px-3 pt-3 pb-8 flex items-center gap-2 transition-opacity duration-200"
           style={{
             opacity: showControls && !isLocked ? 1 : 0,
             pointerEvents: showControls && !isLocked ? 'auto' : 'none',
             background:
-              'linear-gradient(180deg, rgba(0,0,0,0.65) 0%, transparent 100%)',
+              'linear-gradient(180deg, rgba(0,0,0,0.72) 0%, rgba(0,0,0,0.32) 60%, transparent 100%)',
+            backdropFilter: showControls && !isLocked ? 'blur(8px)' : 'none',
+            WebkitBackdropFilter:
+              showControls && !isLocked ? 'blur(8px)' : 'none',
           }}
         >
           <button
@@ -1327,8 +1404,11 @@ function ImmersivePlayer({
               onClose();
             }}
             aria-label="Close player"
-            className="w-11 h-11 rounded-full flex items-center justify-center active:opacity-70"
-            style={{ backgroundColor: 'rgba(0,0,0,0.45)' }}
+            className="w-11 h-11 rounded-full flex items-center justify-center active:scale-90 transition-transform"
+            style={{
+              backgroundColor: 'rgba(255,255,255,0.08)',
+              border: '1px solid rgba(255,255,255,0.12)',
+            }}
           >
             <svg
               width="20"
@@ -1336,15 +1416,17 @@ function ImmersivePlayer({
               viewBox="0 0 24 24"
               fill="none"
               stroke="white"
-              strokeWidth="2"
+              strokeWidth="2.2"
               strokeLinecap="round"
+              strokeLinejoin="round"
             >
               <path d="M19 12H5M12 19l-7-7 7-7" />
             </svg>
           </button>
           <p
-            className="text-white text-sm font-medium truncate flex-1 px-2"
+            className="text-white text-sm font-semibold truncate flex-1 px-2"
             title={video.name}
+            style={{ letterSpacing: '-0.005em' }}
           >
             {video.name}
           </p>
@@ -1357,8 +1439,13 @@ function ImmersivePlayer({
               toggleLock();
             }}
             aria-label={isLocked ? 'Unlock' : 'Lock'}
-            className="w-11 h-11 rounded-full flex items-center justify-center active:opacity-70"
-            style={{ backgroundColor: 'rgba(0,0,0,0.45)' }}
+            className="w-11 h-11 rounded-full flex items-center justify-center active:scale-90 transition-transform"
+            style={{
+              backgroundColor: isLocked
+                ? 'rgba(124, 58, 237, 0.55)'
+                : 'rgba(255,255,255,0.08)',
+              border: '1px solid rgba(255,255,255,0.12)',
+            }}
           >
             <svg
               width="18"
@@ -1366,8 +1453,9 @@ function ImmersivePlayer({
               viewBox="0 0 24 24"
               fill="none"
               stroke="white"
-              strokeWidth="2"
+              strokeWidth="2.2"
               strokeLinecap="round"
+              strokeLinejoin="round"
             >
               {isLocked ? (
                 <>
@@ -1392,8 +1480,11 @@ function ImmersivePlayer({
               resetHideTimer();
             }}
             aria-label="Settings"
-            className="w-11 h-11 rounded-full flex items-center justify-center active:opacity-70"
-            style={{ backgroundColor: 'rgba(0,0,0,0.45)' }}
+            className="w-11 h-11 rounded-full flex items-center justify-center active:scale-90 transition-transform"
+            style={{
+              backgroundColor: 'rgba(255,255,255,0.08)',
+              border: '1px solid rgba(255,255,255,0.12)',
+            }}
           >
             <svg
               width="20"
@@ -1408,20 +1499,23 @@ function ImmersivePlayer({
           </button>
         </div>
 
-        {/* ────────── SPEED MENU (slide-down panel) ────────── */}
+        {/* ────────── SPEED MENU (glass, premium) ────────── */}
         {showSpeedMenu && !isLocked && (
           <div
-            className="absolute top-16 right-3 rounded-2xl overflow-hidden"
+            className="absolute top-16 right-3 rounded-2xl overflow-hidden pn-menu-pop"
             style={{
-              backgroundColor: 'rgba(20,20,20,0.95)',
-              border: '1px solid #2A2A2A',
-              backdropFilter: 'none',
-              minWidth: 160,
+              backgroundColor: 'rgba(20, 20, 38, 0.92)',
+              border: '1px solid rgba(124, 58, 237, 0.30)',
+              backdropFilter: 'blur(20px) saturate(140%)',
+              WebkitBackdropFilter: 'blur(20px) saturate(140%)',
+              boxShadow:
+                '0 16px 48px rgba(0,0,0,0.7), 0 0 0 1px rgba(124,58,237,0.10), 0 0 40px rgba(124,58,237,0.15)',
+              minWidth: 180,
             }}
             data-control
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="px-4 pt-3 pb-2 text-[#9A9A9A] text-[11px] uppercase tracking-wide">
+            <div className="px-4 pt-3 pb-2 text-[#A8A8C0] text-[10px] uppercase tracking-[0.18em] font-semibold">
               Playback Speed
             </div>
             {PLAYBACK_SPEEDS.map((s) => (
@@ -1429,18 +1523,19 @@ function ImmersivePlayer({
                 key={s}
                 type="button"
                 onClick={() => changeSpeed(s)}
-                className="w-full px-4 py-3 flex items-center justify-between text-white text-sm active:bg-[#1F1F1F]"
+                className="w-full px-4 py-3 flex items-center justify-between text-white text-sm active:bg-white/[0.10] hover:bg-white/[0.06] transition-colors"
               >
-                <span>{s.toFixed(1)}x</span>
+                <span className="font-medium">{s.toFixed(1)}x</span>
                 {playbackRate === s && (
                   <svg
                     width="16"
                     height="16"
                     viewBox="0 0 24 24"
                     fill="none"
-                    stroke="#7C3AED"
+                    stroke="#A78BFA"
                     strokeWidth="3"
                     strokeLinecap="round"
+                    strokeLinejoin="round"
                   >
                     <polyline points="20 6 9 17 4 12" />
                   </svg>
@@ -1450,7 +1545,7 @@ function ImmersivePlayer({
           </div>
         )}
 
-        {/* ────────── CENTER PLAY/PAUSE TAP TARGET (large) ────────── */}
+        {/* ────────── CENTER PLAY/PAUSE TAP TARGET (premium gradient) ────────── */}
         {showControls && !isLocked && (
           <button
             type="button"
@@ -1460,43 +1555,41 @@ function ImmersivePlayer({
               togglePlay();
             }}
             aria-label={isPlaying ? 'Pause' : 'Play'}
-            className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-20 h-20 rounded-full flex items-center justify-center active:scale-95 transition-transform"
+            className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-20 h-20 rounded-full flex items-center justify-center active:scale-90 transition-transform"
             style={{
-              backgroundColor: 'rgba(0,0,0,0.55)',
-              border: '1px solid rgba(255,255,255,0.15)',
+              background:
+                'linear-gradient(135deg, rgba(139, 92, 246, 0.85) 0%, rgba(124, 58, 237, 0.85) 50%, rgba(76, 29, 149, 0.85) 100%)',
+              border: '1px solid rgba(255,255,255,0.18)',
+              backdropFilter: 'blur(12px)',
+              WebkitBackdropFilter: 'blur(12px)',
+              boxShadow:
+                '0 8px 32px rgba(124, 58, 237, 0.55), 0 0 0 1px rgba(124, 58, 237, 0.30)',
             }}
           >
             {isPlaying ? (
-              <svg
-                width="32"
-                height="32"
-                viewBox="0 0 24 24"
-                fill="white"
-              >
-                <rect x="6" y="5" width="4" height="14" rx="1" />
-                <rect x="14" y="5" width="4" height="14" rx="1" />
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="white">
+                <rect x="6" y="5" width="4" height="14" rx="1.5" />
+                <rect x="14" y="5" width="4" height="14" rx="1.5" />
               </svg>
             ) : (
-              <svg
-                width="32"
-                height="32"
-                viewBox="0 0 24 24"
-                fill="white"
-              >
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="white">
                 <polygon points="6 4 20 12 6 20 6 4" />
               </svg>
             )}
           </button>
         )}
 
-        {/* ────────── BOTTOM CONTROL BAR ────────── */}
+        {/* ────────── BOTTOM CONTROL BAR (premium glass) ────────── */}
         <div
           className="absolute bottom-0 left-0 right-0 px-3 pb-4 pt-10 transition-opacity duration-200"
           style={{
             opacity: showControls && !isLocked ? 1 : 0,
             pointerEvents: showControls && !isLocked ? 'auto' : 'none',
             background:
-              'linear-gradient(0deg, rgba(0,0,0,0.75) 0%, transparent 100%)',
+              'linear-gradient(0deg, rgba(0,0,0,0.85) 0%, rgba(0,0,0,0.35) 60%, transparent 100%)',
+            backdropFilter: showControls && !isLocked ? 'blur(8px)' : 'none',
+            WebkitBackdropFilter:
+              showControls && !isLocked ? 'blur(8px)' : 'none',
           }}
         >
           {/* Seekbar */}
@@ -1505,7 +1598,10 @@ function ImmersivePlayer({
             data-control
             onClick={(e) => e.stopPropagation()}
           >
-            <span className="text-white text-xs font-mono w-12 text-right">
+            <span
+              className="text-white text-xs font-mono w-12 text-right font-medium"
+              style={{ letterSpacing: '0.02em' }}
+            >
               {formatTime(currentTime)}
             </span>
             <Seekbar
@@ -1514,14 +1610,17 @@ function ImmersivePlayer({
               onSeek={seekTo}
               duration={duration}
             />
-            <span className="text-white text-xs font-mono w-12">
+            <span
+              className="text-white/70 text-xs font-mono w-12"
+              style={{ letterSpacing: '0.02em' }}
+            >
               {formatTime(duration)}
             </span>
           </div>
 
           {/* Buttons row */}
           <div
-            className="flex items-center justify-center gap-6"
+            className="flex items-center justify-center gap-7"
             data-control
             onClick={(e) => e.stopPropagation()}
           >
@@ -1530,14 +1629,9 @@ function ImmersivePlayer({
               onClick={onPrev}
               disabled={!hasPrev}
               aria-label="Previous"
-              className="w-11 h-11 flex items-center justify-center active:opacity-70 disabled:opacity-30"
+              className="w-11 h-11 flex items-center justify-center active:scale-90 transition-transform disabled:opacity-30"
             >
-              <svg
-                width="24"
-                height="24"
-                viewBox="0 0 24 24"
-                fill="white"
-              >
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="white">
                 <polygon points="19 5 9 12 19 19 19 5" />
                 <rect x="6" y="5" width="2" height="14" />
               </svg>
@@ -1547,7 +1641,7 @@ function ImmersivePlayer({
               type="button"
               onClick={() => skipRelative(-10)}
               aria-label="Back 10s"
-              className="w-11 h-11 flex items-center justify-center active:opacity-70"
+              className="w-11 h-11 flex items-center justify-center active:scale-90 transition-transform"
             >
               <svg
                 width="26"
@@ -1555,11 +1649,12 @@ function ImmersivePlayer({
                 viewBox="0 0 24 24"
                 fill="none"
                 stroke="white"
-                strokeWidth="2"
+                strokeWidth="2.2"
                 strokeLinecap="round"
+                strokeLinejoin="round"
               >
                 <path d="M12 5V2L7 6l5 4V7a6 6 0 1 1-6 6" />
-                <text x="12" y="16" fontSize="7" fill="white" stroke="none" textAnchor="middle">10</text>
+                <text x="12" y="16" fontSize="7" fill="white" stroke="none" textAnchor="middle" fontWeight="700">10</text>
               </svg>
             </button>
 
@@ -1567,29 +1662,21 @@ function ImmersivePlayer({
               type="button"
               onClick={togglePlay}
               aria-label={isPlaying ? 'Pause' : 'Play'}
-              className="w-14 h-14 rounded-full flex items-center justify-center active:scale-95 transition-transform"
+              className="w-16 h-16 rounded-full flex items-center justify-center active:scale-90 transition-transform"
               style={{
-                backgroundColor: '#7C3AED',
-                boxShadow: '0 4px 18px rgba(124, 58, 237, 0.4)',
+                background:
+                  'linear-gradient(135deg, #8B5CF6 0%, #7C3AED 50%, #6D28D9 100%)',
+                border: '1px solid rgba(255,255,255,0.18)',
+                boxShadow: '0 8px 24px rgba(124, 58, 237, 0.55)',
               }}
             >
               {isPlaying ? (
-                <svg
-                  width="26"
-                  height="26"
-                  viewBox="0 0 24 24"
-                  fill="white"
-                >
-                  <rect x="6" y="5" width="4" height="14" rx="1" />
-                  <rect x="14" y="5" width="4" height="14" rx="1" />
+                <svg width="26" height="26" viewBox="0 0 24 24" fill="white">
+                  <rect x="6" y="5" width="4" height="14" rx="1.5" />
+                  <rect x="14" y="5" width="4" height="14" rx="1.5" />
                 </svg>
               ) : (
-                <svg
-                  width="26"
-                  height="26"
-                  viewBox="0 0 24 24"
-                  fill="white"
-                >
+                <svg width="26" height="26" viewBox="0 0 24 24" fill="white">
                   <polygon points="6 4 20 12 6 20 6 4" />
                 </svg>
               )}
@@ -1599,7 +1686,7 @@ function ImmersivePlayer({
               type="button"
               onClick={() => skipRelative(10)}
               aria-label="Forward 10s"
-              className="w-11 h-11 flex items-center justify-center active:opacity-70"
+              className="w-11 h-11 flex items-center justify-center active:scale-90 transition-transform"
             >
               <svg
                 width="26"
@@ -1607,11 +1694,12 @@ function ImmersivePlayer({
                 viewBox="0 0 24 24"
                 fill="none"
                 stroke="white"
-                strokeWidth="2"
+                strokeWidth="2.2"
                 strokeLinecap="round"
+                strokeLinejoin="round"
               >
                 <path d="M12 5V2l5 4-5 4V7a6 6 0 1 0 6 6" />
-                <text x="12" y="16" fontSize="7" fill="white" stroke="none" textAnchor="middle">10</text>
+                <text x="12" y="16" fontSize="7" fill="white" stroke="none" textAnchor="middle" fontWeight="700">10</text>
               </svg>
             </button>
 
@@ -1620,30 +1708,28 @@ function ImmersivePlayer({
               onClick={onNext}
               disabled={!hasNext}
               aria-label="Next"
-              className="w-11 h-11 flex items-center justify-center active:opacity-70 disabled:opacity-30"
+              className="w-11 h-11 flex items-center justify-center active:scale-90 transition-transform disabled:opacity-30"
             >
-              <svg
-                width="24"
-                height="24"
-                viewBox="0 0 24 24"
-                fill="white"
-              >
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="white">
                 <polygon points="5 5 15 12 5 19 5 5" />
                 <rect x="16" y="5" width="2" height="14" />
               </svg>
             </button>
           </div>
 
-          {/* Speed + size hints */}
+          {/* Speed + gesture hints */}
           <div className="flex items-center justify-center gap-3 mt-3">
             <span
-              className="text-[#9A9A9A] text-[11px] px-2 py-0.5 rounded-full"
-              style={{ backgroundColor: 'rgba(255,255,255,0.08)' }}
+              className="text-[#A8A8C0] text-[11px] px-2.5 py-1 rounded-full font-semibold"
+              style={{
+                backgroundColor: 'rgba(124, 58, 237, 0.18)',
+                border: '1px solid rgba(124, 58, 237, 0.35)',
+              }}
             >
               {playbackRate.toFixed(1)}x
             </span>
-            <span className="text-[#5A5A5A] text-[11px]">
-              Tap sides to adjust · 2-finger swipe to seek
+            <span className="text-[#5A5A6A] text-[11px]">
+              Swipe left = brightness · right = volume
             </span>
           </div>
         </div>
@@ -1733,8 +1819,8 @@ function Seekbar({
       <div
         className="relative w-full rounded-full"
         style={{
-          height: 4,
-          backgroundColor: 'rgba(255,255,255,0.18)',
+          height: 5,
+          backgroundColor: 'rgba(255,255,255,0.12)',
         }}
       >
         {/* Buffered */}
@@ -1742,28 +1828,31 @@ function Seekbar({
           className="absolute top-0 left-0 h-full rounded-full"
           style={{
             width: `${bufferedPct}%`,
-            backgroundColor: 'rgba(255,255,255,0.35)',
+            backgroundColor: 'rgba(255,255,255,0.30)',
           }}
         />
-        {/* Progress */}
+        {/* Progress — premium gradient */}
         <div
           className="absolute top-0 left-0 h-full rounded-full"
           style={{
             width: `${pct}%`,
-            backgroundColor: '#7C3AED',
+            background:
+              'linear-gradient(90deg, #8B5CF6 0%, #7C3AED 50%, #A78BFA 100%)',
+            boxShadow: '0 0 12px rgba(124, 58, 237, 0.6)',
           }}
         />
       </div>
-      {/* Thumb */}
+      {/* Thumb — premium glowing dot */}
       <div
         className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 rounded-full transition-transform"
         style={{
           left: `${pct}%`,
-          width: dragging ? 18 : 14,
-          height: dragging ? 18 : 14,
+          width: dragging ? 20 : 16,
+          height: dragging ? 20 : 16,
           backgroundColor: 'white',
-          boxShadow: '0 2px 8px rgba(0,0,0,0.4)',
-          transform: `translate(-50%, -50%) scale(${dragging ? 1.1 : 1})`,
+          boxShadow:
+            '0 2px 10px rgba(0,0,0,0.5), 0 0 14px rgba(124, 58, 237, 0.7)',
+          transform: `translate(-50%, -50%) scale(${dragging ? 1.15 : 1})`,
         }}
       />
     </div>

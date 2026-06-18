@@ -525,3 +525,87 @@ Stage Summary:
 - REFRESH: Button still active — calls clear() on scanner + lsClearCachedVideos() + re-triggers scan/pick. User gets a true fresh start.
 - NATIVE vs WEB: On native (content:// URIs) the cache is fully functional across sessions. On web (blob: URLs) the cards still display for visual continuity but tapping a stale blob URL will fail to play — expected browser behavior.
 - FILES MODIFIED: src/components/video/LocalVideoPlayer.tsx only (no CSS changes needed)
+
+---
+Task ID: 5
+Agent: Main Agent
+Task: Premium Redesign of Local Music Player & Local Video Player (Senior Dev pass — keep all functionality, level up visuals)
+
+Work Log:
+- Read both player files in full (Music: 1851 lines, Video: 1772 lines) to inventory what was there
+- Verified parent page contracts: src/app/music/page.tsx + src/app/video/page.tsx only pass `onBack` prop — so I had full freedom to redesign internally without breaking parent integrations
+- Audited existing CSS keyframes in src/app/globals.css (pn-eq-bar, pn-aurora-drift, pn-glyph-pulse, pn-art-pulse, pn-sheet-up, pn-fade-up, pn-btn-glow, pn-marquee, etc.) — reused where possible
+- Added 9 new CSS keyframes/utilities to src/app/globals.css for premium polish:
+  • pn-vinyl-record-spin (18s slow vinyl rotation, paused by default, runs when .is-playing class applied)
+  • pn-float-breath (subtle 5s breath for floating mini player pill)
+  • pn-shimmer (premium skeleton loading shimmer for video grid)
+  • pn-card-lift (smooth card hover lift for video cards)
+  • pn-play-pulse (breathing pulse on the play button overlay of video cards)
+  • pn-cine-up (cinematic slide-up entrance for video immersive player)
+  • pn-halo-drift (slow halo drift for paused album art in music player)
+  • pn-menu-pop (snappy pop-in for video speed menu)
+  • pn-buffer-ring (premium buffering spinner with purple glow)
+
+LOCAL MUSIC PLAYER REDESIGN:
+- LibraryView header: bumped title to 22px with -0.02em tracking, subtitle to 11px with "songs · 100% offline" wording, refresh button now purple-tinted (rgba(124,58,237,0.12) + #C4B5FD stroke) matching the app's accent identity
+- SongList row: completely reworked — 52px album thumb with multi-stop gradient + subtle vinyl ring texture overlay, gradient active row background (left-to-right translucent purple), 1px purple border + glow shadow on active row, "Playing" pill badge with pulsing dot when active+playing, taller rows (68px) for breathing room, 15px semibold title, 12px muted subtitle
+- LiveEqualizer: upgraded from 4 to 5 bars, taller (h-6), each bar gets gradient fill (white→#C4B5FD), rounded-full, glow shadow — looks like a real DJ visualizer
+- Dropdown menu: 180px min-width, deeper backdrop blur (20px), neon-purple box-shadow halo, hover state 0.08 white
+- MiniPlayer: completely redesigned as floating rounded-3xl pill with margin around it, glassmorphism with 24px backdrop blur, premium gradient progress strip on top with #A78BFA glow, 48px rounded-2xl album thumb with vinyl rings overlay + glow border, marquee title with larger 14px font, premium gradient play/pause button (12px bigger) with pn-btn-glow animation when playing, subtle pn-float-breath animation on the whole pill
+- ExpandedPlayer album art: replaced frosted-glass square with a REAL VINYL RECORD design — circular disc with radial gradient (#1A1A2E → #0E0E1A → #050510), repeating-radial-gradient vinyl grooves, diagonal light sheen, neon-purple border, center label (38% diameter) with gradient + spindle hole + music glyph that pulses via pn-glyph-pulse when playing, outer pn-art-pulse halo when playing (or pn-halo-drift when paused), 360px max size, disc rotates via pn-vinyl-record-spin ONLY when playing
+- Title block: bumped to 26px font with -0.02em tracking and stronger text-shadow glow, artist at 14px in #A8A8C0
+- Seekbar timestamps: currentTime at 65% white + medium weight, duration at 45% white — better visual hierarchy
+- Controls row: refined — shuffle/repeat get brighter active glow (0.55 opacity + 20px box-shadow), all buttons 90% scale-down on active, 2.2 stroke-width on all icons for crisp premium feel, larger 14px shadow on play button when paused
+
+LOCAL VIDEO PLAYER REDESIGN:
+- LibraryView header: matched music player's premium glass treatment (rgba(12,13,25,0.72) + 20px backdrop blur + purple-tinted border), bumped title to 22px with -0.02em tracking, purple-tinted refresh button
+- Library background: switched from flat #0A0A0A to the same premium gradient as music (#0c0d19 → #0a0b14 → #06070c) for visual consistency across both players
+- VideoCard: complete overhaul — pn-card-lift class for hover translateY(-2px), 16:9 thumbnail with inner radial vignette so the play button pops, premium play button with multi-stop purple gradient + pn-play-pulse breathing animation + glow shadow + 1px white border, duration badge bottom-right with backdrop-blur + monospace font, 13px semibold title with -0.005em tracking, deeper card shadow
+- LoadingGrid: replaced static linear-gradient skeleton with premium pn-shimmer animation (sweeping highlight), matching card border styling for visual consistency
+- EmptyState: replaced flat #7C3AED buttons with premium multi-stop gradient (8B5CF6 → 7C3AED → 6D28D9) + 0.45 purple glow shadow, radial purple halo around the empty icon, text-shadow on title
+- ImmersivePlayer: complete visual polish pass
+  • Added pn-cine-up entrance animation (scale 1.02 → 1 with opacity fade-in, 320ms)
+  • Buffering spinner: upgraded to pn-buffer-ring with 3px border, purple #A78BFA top border, 24px purple glow shadow, larger 14px size
+  • Gesture feedback pill: rounded to 18px, added 1px white border + backdrop-blur + box-shadow + larger 3xl font + 0.18em tracking on label
+  • Lock icon button: rounded glass with backdrop-blur, smoother transition
+  • Top bar: 3-stop gradient overlay (0.72 → 0.32 → transparent) + backdrop-blur(8px), all control buttons upgraded to glass pills (rgba(255,255,255,0.08) bg + 0.12 white border + 90% active scale), lock button turns purple when active
+  • Speed menu: glass treatment with rgba(20,20,38,0.92) + 20px backdrop-blur + saturate(140%) + purple border + 3-layer box-shadow halo, pn-menu-pop entrance animation, 10px uppercase tracking label, hover state on rows
+  • Center play/pause button: upgraded from flat black to premium gradient (rgba purple 85% + solid purple + dark purple), backdrop-blur(12px), neon glow box-shadow with 2 layers (32px purple glow + 1px ring)
+  • Bottom control bar: 3-stop gradient overlay (0.85 → 0.35 → transparent) + backdrop-blur(8px)
+  • Seekbar timestamps: 0.02em tracking, current time full white + medium weight, duration at 70% white
+  • Bottom buttons: all 90% scale-down on active, skip-10 buttons get 2.2 stroke-width, larger 64px play/pause button (was 56px) with full multi-stop gradient + 1px white border + 24px purple glow
+  • Speed badge: upgraded to purple-tinted pill (rgba(124,58,237,0.18) + 0.35 purple border) + 11px font + bold weight
+  • Hint text: clearer wording "Swipe left = brightness · right = volume"
+- Seekbar: thicker 5px track (was 4px), premium gradient progress bar (purple multi-stop) + purple glow shadow, larger thumb (16px normal, 20px dragging) with stronger purple glow shadow
+
+VERIFICATION:
+- TypeScript: `npx tsc --noEmit --skipLibCheck | grep -E "LocalMusicPlayer|LocalVideoPlayer"` returns ZERO errors
+- Production build: `npx next build` SUCCESS — all 30+ routes compile including /music, /music/player, /video
+- Build warnings: only 6 pre-existing warnings in unrelated files (useGameDownload.ts + useDeviceMedia.ts), zero warnings in player files
+- Dev server smoke test: HTTP 200 on /music, /video, /music/player — pages render expected content
+- CSS bundle verification: all 9 new CSS classes (pn-vinyl-record-spin, pn-float-breath, pn-shimmer, pn-card-lift, pn-play-pulse, pn-cine-up, pn-halo-drift, pn-menu-pop, pn-buffer-ring) confirmed present in compiled CSS chunk
+
+PRESERVED (NOT TOUCHED):
+- All imports + props + exports in both files
+- localStorage cache logic (playnexa_cached_songs + playnexa_cached_videos keys)
+- useMusicPlayer hook integration (audio playback, shuffle, repeat, next/prev, seek)
+- useLocalMediaScanner hook integration (web file picker + native MediaStore scan)
+- All event wiring (timeupdate, durationchange, loadedmetadata, ended, error, play, pause, waiting, playing, canplay, progress)
+- All gestures in video player (left=brightness, right=volume, tap toggles controls, lock freezes)
+- All auto-hide controls logic
+- Marquee text component for long song titles
+- Drag-down-to-close on music expanded sheet
+- Drag-to-seek on both seekbars with pointer capture
+- Memory management (URL.revokeObjectURL on video switch)
+- accessibility (aria-label, role="button", tabIndex, aria-pressed for toggle states)
+- Both parent page integrations (src/app/music/page.tsx + src/app/video/page.tsx) — only pass onBack prop, untouched
+- No changes to any other file outside the 2 player components + globals.css
+
+Stage Summary:
+- DELIVERED: Premium redesign of both LocalMusicPlayer.tsx + LocalVideoPlayer.tsx
+- Music player: cinematic vinyl record full-sheet player with multi-color ambient aurora, floating glass mini player pill, refined library list with 5-bar equalizer + "Playing" pill badge
+- Video player: premium card grid with shimmer skeletons + breathing play overlays + duration badges, cinematic immersive player with glass top/bottom bars + premium gradient center play button + purple-glow seekbar
+- Both players share a consistent visual language: deep dark gradient (#0c0d19 → #06070c), purple accent (#7C3AED + #8B5CF6 + #A78BFA), glassmorphism, premium gradient buttons with glow shadows
+- ALL functionality preserved: localStorage caching, audio playback, scan/pick, gestures, lock, speed control, shuffle/repeat, next/prev, seek, marquee, drag-to-dismiss
+- Build: SUCCESS, no errors, no new warnings, all routes compile
+- Files modified: src/components/music/LocalMusicPlayer.tsx, src/components/video/LocalVideoPlayer.tsx, src/app/globals.css (only additions, no removals of existing CSS)
