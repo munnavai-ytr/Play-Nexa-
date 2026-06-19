@@ -64,12 +64,49 @@ export default function AdminLoginPage() {
   return (
     <div className="min-h-screen bg-black flex items-center justify-center p-4">
       <div className="w-full max-w-sm">
-        {/* Header */}
-        <div className="text-center mb-8">
+        {/* Top bar: back to profile */}
+      <div className="flex items-center justify-between mb-6">
+        <button
+          onClick={() => router.push('/profile')}
+            className="flex items-center gap-1.5 text-[#9CA3AF] hover:text-white text-xs font-medium transition-colors duration-150 min-h-[44px] px-2 -ml-2"
+          aria-label="Back to Profile"
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M15 18l-6-6 6-6" />
+          </svg>
+          Back to Profile
+        </button>
+      </div>
+
+      {/* Header */}
+        <div className="text-center mb-6">
+          <div className="w-14 h-14 rounded-2xl bg-[#7C3AED]/15 border border-[#7C3AED]/40 flex items-center justify-center mx-auto mb-4">
+            <svg
+              width="26"
+              height="26"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="#A78BFA"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+              <path d="M9 12l2 2 4-4" />
+            </svg>
+          </div>
           <h1 className="text-white font-bold text-2xl">
             <span className="text-[#7C3AED]">Play</span> Nexa
           </h1>
           <p className="text-[#9CA3AF] text-sm mt-1">Admin Login</p>
+        </div>
+
+        {/* Clarification banner */}
+        <div className="bg-[#1A1A24] border border-[#2A2A3A] rounded-xl px-4 py-3 mb-5 text-[#A1A1B3] text-xs leading-relaxed">
+          <span className="text-[#C4B5FD] font-semibold">Note:</span> This is the
+          admin-only login. Use your <span className="text-white font-medium">admin email &amp; password</span> —
+          not your Google account. Admin credentials are managed separately from
+          the regular app login.
         </div>
 
         {/* Form */}
@@ -82,7 +119,7 @@ export default function AdminLoginPage() {
 
           <div>
             <label className="block text-[#9CA3AF] text-xs font-medium mb-1.5">
-              Email
+              Admin Email
             </label>
             <input
               type="email"
@@ -114,7 +151,7 @@ export default function AdminLoginPage() {
             disabled={isSubmitting}
             className="w-full h-12 bg-[#7C3AED] hover:bg-[#6D28D9] text-white text-sm font-semibold rounded-xl transition-colors duration-150 min-h-[44px] disabled:opacity-50"
           >
-            {isSubmitting ? 'Signing in…' : 'Sign In'}
+            {isSubmitting ? 'Signing in…' : 'Sign In to Admin Panel'}
           </button>
         </form>
       </div>

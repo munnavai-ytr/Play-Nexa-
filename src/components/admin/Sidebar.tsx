@@ -85,6 +85,22 @@ export default function AdminSidebar({ adminEmail }: AdminSidebarProps = { admin
 
       {/* Footer */}
       <div className="px-3 py-3 border-t border-[#1A1A1A]">
+        {/* Back to App — returns to the regular Play Nexa app (Profile page)
+            without clearing the admin session, so the user can come back to
+            the admin panel later without re-logging in. */}
+        <button
+          onClick={() => router.push('/profile')}
+          className="w-full flex items-center gap-3 px-3 py-3 text-sm text-[#9CA3AF] hover:text-white hover:bg-[#1A1A1A] rounded-lg transition-colors duration-150 min-h-[44px] mb-1"
+          aria-label="Back to App"
+        >
+          <span className="text-base shrink-0">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M15 18l-6-6 6-6" />
+            </svg>
+          </span>
+          {!collapsed && <span>Back to App</span>}
+        </button>
+
         <button
           onClick={() => {
             localStorage.removeItem('pna_admin_id')

@@ -609,3 +609,66 @@ Stage Summary:
 - ALL functionality preserved: localStorage caching, audio playback, scan/pick, gestures, lock, speed control, shuffle/repeat, next/prev, seek, marquee, drag-to-dismiss
 - Build: SUCCESS, no errors, no new warnings, all routes compile
 - Files modified: src/components/music/LocalMusicPlayer.tsx, src/components/video/LocalVideoPlayer.tsx, src/app/globals.css (only additions, no removals of existing CSS)
+
+---
+Task ID: 6
+Agent: Main Agent
+Task: Add Admin Panel entry button to Profile page — visible only when logged in with groppro2025@gmail.com Google account. Direct access from Profile/Settings to Admin Panel on both Web & Android. Admin login uses separate Supabase credentials (not Google). Must not break any other feature/design/performance.
+
+Work Log:
+- Read previous worklog (Tasks 1-5) to understand current state: music/video players already redesigned; this task is independent of those.
+- Explored architecture: Firebase = regular user auth (Google sign-in); Supabase = admin auth (separate email+password via pna_admin_* localStorage keys). Admin Layout already guards /admin/* with isAdminAuthenticated(); /admin/login already uses supabase.auth.signInWithPassword.
+- Read src/app/profile/page.tsx (826 lines) — found structure: header → guest state OR logged-in state (avatar → stats → achievements → activity → quick settings → invite → account → sign out). Identified insertion point: between "Activity" section and "Quick Settings" section (the natural "settings zone" the user referenced).
+- Read src/app/admin/login/page.tsx (123 lines) — confirmed existing form uses Supabase signInWithPassword + setAdminSession. No back button or clarification note existed.
+- Read src/components/admin/Sidebar.tsx (105 lines) — confirmed footer has only Logout button. No way to return to the regular app without clearing admin session.
+- Read src/lib/adminAuth.ts + src/lib/supabaseAdmin.ts + src/lib/firebaseAuth.ts + src/hooks/useAuth.ts — confirmed admin session lives in localStorage (pna_admin_id/email/role/token), independent from Firebase user; useAuth hook exposes user.email from Firebase.
+
+CHANGES:
+
+FILE 1: src/app/profile/page.tsx
+- Added module-level constant ADMIN_ACCESS_EMAIL = 'groppro2025@gmail.com' (with comment block explaining it gates VISIBILITY of the entry button, not admin auth itself).
+- Updated file header docstring to document the new Admin Panel entry behavior + Web/Android parity.
+- Inside ProfilePage component, added derived boolean `isAdminAccessEligible = !!user?.email && user.email.toLowerCase() === ADMIN_ACCESS_EMAIL` (case-insensitive match, derived from live auth state so it auto-updates on sign-in/out).
+- Added handler `handleOpenAdminPanel = () => router.push('/admin/login')`.
+- Added new "Admin" section JSX (placed between Activity and Quick Settings) that conditionally renders ONLY when isAdminAccessEligible is true. Design: gradient-bordered (purple→cyan) button-card with shield-check SVG icon, "Admin Panel" title, "Admin" pill badge, subtitle listing admin capabilities (Channels · Movies · Games · Users · API Keys), and chevron arrow. Premium glow shadow. 44px min touch target. aria-label for accessibility.
+
+FILE 2: src/app/admin/login/page.tsx
+- Added top "Back to Profile" link button (chevron-left SVG + label, routes to /profile, 44px min touch target).
+- Added a shield-check icon tile above the title for visual identity.
+- Added a clarification banner: "Note: This is the admin-only login. Use your admin email & password — not your Google account. Admin credentials are managed separately from the regular app login."
+- Renamed email label "Email" → "Admin Email" for clarity.
+- Renamed submit button "Sign In" → "Sign In to Admin Panel".
+- All existing logic preserved: handleSubmit still calls supabase.auth.signInWithPassword + setAdminSession + router.replace('/admin'); useEffect still redirects to /admin if already authenticated.
+
+FILE 3: src/components/admin/Sidebar.tsx
+- Added "Back to App" button above the existing Logout button in the footer.
+- Routes to /profile WITHOUT clearing admin session, so user can return to admin panel later without re-logging in (admin token persists in localStorage).
+- Uses chevron-left SVG (matching the login page back button) + 44px min touch target + same hover styling as other sidebar items.
+- Existing Logout button logic preserved (clears all pna_admin_* keys + cookie, then routes to /admin/login).
+
+VERIFICATION:
+- TypeScript check (npx tsc --noEmit --skipLibCheck): zero errors in profile/page.tsx, admin/login/page.tsx, admin/Sidebar.tsx.
+- Production build (npx next build): SUCCESS — all 30+ routes compile, including /profile and /admin/* and /admin/login. Only 6 pre-existing warnings remain (in useGameDownload.ts + useDeviceMedia.ts — both unrelated to this task).
+- Dev server smoke test: HTTP 200 on /profile, /admin/login, /admin — all routes render successfully.
+
+PRESERVED (NOT TOUCHED):
+- All other profile page sections (guest state, avatar, stats, achievements, activity, quick settings, invite friends, account, sign-out modal).
+- All other admin pages (dashboard, channels, movies, games, users, keys, vault, chat, feedback, yt-importer, features, notifications, analytics, settings).
+- All admin API routes (untouched).
+- useAuth hook + Firebase auth + Supabase auth integration (untouched).
+- useMusicPlayer + useLocalMediaScanner + LocalMusicPlayer + LocalVideoPlayer (untouched — previous Task 5 redesign intact).
+- All other components, hooks, lib files (untouched).
+- No CSS changes (used inline styles + Tailwind classes only).
+- No new dependencies added.
+
+ARCHITECTURE NOTES:
+- The visibility gate is CLIENT-SIDE only (Firebase user.email match). This is acceptable because: (1) the actual admin auth (Supabase signInWithPassword) is a separate, fully-protected flow; (2) the admin layout's auth guard still runs on every /admin/* route; (3) hiding the button is purely UX convenience — even if someone manually navigates to /admin/login, they still need valid admin credentials.
+- Web + Android parity: identical Next.js client-side router.push() navigation works in both browsers and Capacitor WebView. No platform-specific code needed.
+- The admin session (pna_admin_token) persists across app↔admin transitions, so the user can freely bounce between the regular app and the admin panel without re-logging in each time, until they explicitly hit "Logout" in the admin sidebar.
+
+Stage Summary:
+- DELIVERED: Admin Panel entry button added to Profile page, visible only to groppro2025@gmail.com Google login.
+- UX FLOW: User logs in with groppro2025@gmail.com → visits Profile → sees premium "Admin Panel" button → taps it → arrives at /admin/login → enters SEPARATE admin email+password → lands in /admin dashboard. To return: hits "Back to App" in admin sidebar → returns to /profile (admin session preserved for next time).
+- WORKS ON: Web + Android (Capacitor) — no platform-specific code needed.
+- 3 files modified: src/app/profile/page.tsx, src/app/admin/login/page.tsx, src/components/admin/Sidebar.tsx.
+- 0 features broken, 0 design regressions, 0 performance impacts. Build + TS checks all green.

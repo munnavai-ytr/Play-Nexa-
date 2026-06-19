@@ -11,6 +11,11 @@
 //   invite friends with real generated referral code + copy/share,
 //   Security row that triggers real Firebase resetPassword, Sign Out
 //   with confirm modal that calls real Firebase logout.
+// - Admin Panel entry button — only shown when logged-in Firebase email
+//   matches ADMIN_ACCESS_EMAIL. Tapping it routes to /admin/login where
+//   the user enters SEPARATE admin credentials (Supabase auth, independent
+//   from the Firebase Google login). Works identically on Web and the
+//   Android (Capacitor) build — same client-side Next.js router.
 // - App version pulled from Capacitor App.getInfo() with web fallback.
 // - Min 44px touch targets, AMOLED dark base (#0D0D0D), no backdrop-blur.
 // ============================================================================
@@ -24,6 +29,15 @@ import { logout, resetPassword } from '@/lib/firebaseAuth';
 import { supabase } from '@/lib/supabase';
 import StatCounter from '@/components/profile/StatCounter';
 import AchievementBadge from '@/components/profile/AchievementBadge';
+
+// ---------------------------------------------------------------------------
+// Admin access gate.
+// Only this Firebase Google account sees the Admin Panel entry button on
+// the Profile page. The admin login itself uses SEPARATE Supabase-managed
+// credentials at /admin/login — this constant only controls visibility of
+// the entry button, not the admin auth.
+// ---------------------------------------------------------------------------
+const ADMIN_ACCESS_EMAIL = 'groppro2025@gmail.com';
 
 // Lazy-load Capacitor App plugin (not installed in web build).
 async function getCapApp(): Promise<{
@@ -387,6 +401,23 @@ export default function ProfilePage() {
     }
   };
 
+  // ---------------------------------------------------------------------
+  // Admin access eligibility.
+  // Case-insensitive match against the authorized Firebase email. Derived
+  // (not stored in state) so it stays in sync with the live auth state —
+  // if the user signs out and signs in with a different Google account,
+  // the button disappears automatically on the next render.
+  // ---------------------------------------------------------------------
+  const isAdminAccessEligible =
+    !!user?.email && user.email.toLowerCase() === ADMIN_ACCESS_EMAIL;
+
+  const handleOpenAdminPanel = () => {
+    // Routes to the admin login page. The admin layout's auth guard takes
+    // over from there — if the user already has a valid admin session
+    // (pna_admin_token in localStorage) they skip straight to /admin.
+    router.push('/admin/login');
+  };
+
   // ----------------------------------------------------------------------
   // Loading state.
   // ----------------------------------------------------------------------
@@ -596,6 +627,86 @@ export default function ProfilePage() {
               ))}
             </div>
           </div>
+
+          {/* Admin Panel entry — visible only to the authorized admin email. */}
+          {isAdminAccessEligible && (
+            <div className="mb-6">
+              <p className="text-white font-semibold text-sm mb-3">Admin</p>
+              <button
+                onClick={handleOpenAdminPanel}
+                className="w-full relative overflow-hidden rounded-2xl p-[1px] active:opacity-90 transition-opacity min-h-[44px]"
+                style={{
+                  background:
+                    'linear-gradient(135deg, #7C3AED 0%, #06B6D4 100%)',
+                  boxShadow:
+                    '0 8px 24px -8px rgba(124,58,237,0.45), 0 2px 6px rgba(6,182,212,0.18)',
+                }}
+                aria-label="Open Admin Panel"
+              >
+                <div className="rounded-2xl bg-[#0F0F12] px-4 py-3.5 flex items-center gap-3.5">
+                  {/* Icon tile */}
+                  <div
+                    className="w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0"
+                    style={{
+                      background:
+                        'linear-gradient(135deg, rgba(124,58,237,0.22), rgba(6,182,212,0.22))',
+                      border: '1px solid rgba(124,58,237,0.40)',
+                    }}
+                  >
+                    <svg
+                      width="20"
+                      height="20"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="#C4B5FD"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+                      <path d="M9 12l2 2 4-4" />
+                    </svg>
+                  </div>
+
+                  {/* Label + subtitle */}
+                  <div className="flex-1 text-left min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-white font-bold text-sm">
+                        Admin Panel
+                      </span>
+                      <span
+                        className="text-[9px] font-bold uppercase tracking-wider text-[#C4B5FD] rounded-full px-1.5 py-[1px]"
+                        style={{
+                          background: 'rgba(124,58,237,0.18)',
+                          border: '1px solid rgba(124,58,237,0.45)',
+                        }}
+                      >
+                        Admin
+                      </span>
+                    </div>
+                    <p className="text-[#9CA3AF] text-xs mt-0.5 truncate">
+                      Channels · Movies · Games · Users · API Keys
+                    </p>
+                  </div>
+
+                  {/* Chevron */}
+                  <svg
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="#C4B5FD"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    className="flex-shrink-0"
+                  >
+                    <path d="M9 18l6-6-6-6" />
+                  </svg>
+                </div>
+              </button>
+            </div>
+          )}
 
           {/* Quick Settings */}
           <QuickSettingsSection

@@ -1,0 +1,826 @@
+     1→// src/app/profile/page.tsx
+     2→// ============================================================================
+     3→// Play Nexa — Profile page (complete rebuild)
+     4→//
+     5→// - NO coins, NO subscription tiers anywhere — this is a 100% free app.
+     6→// - Guest state: Sign In / Create Account CTAs + quick settings visible.
+     7→// - Logged-in: gradient-ring avatar, count-up stats from real Supabase
+     8→//   counts + localStorage download log, achievements computed from real
+     9→//   thresholds, activity list with 5 real navigable routes, quick
+    10→//   settings (Dark Mode / Notifications / Language / Help / Rate / Share),
+    11→//   invite friends with real generated referral code + copy/share,
+    12→//   Security row that triggers real Firebase resetPassword, Sign Out
+    13→//   with confirm modal that calls real Firebase logout.
+    14→// - App version pulled from Capacitor App.getInfo() with web fallback.
+    15→// - Min 44px touch targets, AMOLED dark base (#0D0D0D), no backdrop-blur.
+    16→// ============================================================================
+    17→
+    18→'use client';
+    19→
+    20→import { useState, useEffect } from 'react';
+    21→import { useRouter } from 'next/navigation';
+    22→import { useAuth } from '@/hooks/useAuth';
+    23→import { logout, resetPassword } from '@/lib/firebaseAuth';
+    24→import { supabase } from '@/lib/supabase';
+    25→import StatCounter from '@/components/profile/StatCounter';
+    26→import AchievementBadge from '@/components/profile/AchievementBadge';
+    27→
+    28→// Lazy-load Capacitor App plugin (not installed in web build).
+    29→async function getCapApp(): Promise<{
+    30→  getInfo: () => Promise<{ version: string; build: string }>;
+    31→} | null> {
+    32→  try {
+    33→    if (typeof window === 'undefined') return null;
+    34→    const cap = (window as unknown as { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor;
+    35→    if (!cap?.isNativePlatform?.()) return null;
+    36→    // String variable so TS/bundler can't resolve the module at build time.
+    37→    const mod = 'app';
+    38→    const path = `@capacitor/${mod}`;
+    39→    const imported = await import(/* webpackIgnore: true */ /* @vite-ignore */ path);
+    40→    return imported.App as unknown as {
+    41→      getInfo: () => Promise<{ version: string; build: string }>;
+    42→    };
+    43→  } catch {
+    44→    return null;
+    45→  }
+    46→}
+    47→
+    48→// Lazy-load Capacitor Push Notifications plugin.
+    49→async function getPushNotifications(): Promise<{
+    50→  requestPermissions: () => Promise<{ receive: 'granted' | 'denied' }>;
+    51→  register: () => Promise<void>;
+    52→} | null> {
+    53→  try {
+    54→    if (typeof window === 'undefined') return null;
+    55→    const cap = (window as unknown as { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor;
+    56→    if (!cap?.isNativePlatform?.()) return null;
+    57→    const mod = 'push-notifications';
+    58→    const path = `@capacitor/${mod}`;
+    59→    const imported = await import(/* webpackIgnore: true */ /* @vite-ignore */ path);
+    60→    return imported.PushNotifications as unknown as {
+    61→      requestPermissions: () => Promise<{ receive: 'granted' | 'denied' }>;
+    62→      register: () => Promise<void>;
+    63→    };
+    64→  } catch {
+    65→    return null;
+    66→  }
+    67→}
+    68→
+    69→interface ProfileStats {
+    70→  downloads: number;
+    71→  saved: number;
+    72→  played: number;
+    73→}
+    74→
+    75→interface QuickSettingsProps {
+    76→  darkMode: boolean;
+    77→  onToggleDark: () => void;
+    78→  notifEnabled: boolean;
+    79→  onToggleNotif: () => void;
+    80→  language: 'bn' | 'en';
+    81→  onToggleLanguage: () => void;
+    82→  onRate: () => void;
+    83→  onShare: () => void;
+    84→  router: ReturnType<typeof useRouter>;
+    85→}
+    86→
+    87→export default function ProfilePage() {
+    88→  const router = useRouter();
+    89→  const { user, supabaseProfile, isLoading, isLoggedIn } = useAuth();
+    90→
+    91→  const [stats, setStats] = useState<ProfileStats>({
+    92→    downloads: 0,
+    93→    saved: 0,
+    94→    played: 0,
+    95→  });
+    96→  const [statsLoaded, setStatsLoaded] = useState(false);
+    97→  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+    98→  const [darkMode, setDarkMode] = useState(true);
+    99→  const [notifEnabled, setNotifEnabled] = useState(false);
+   100→  const [language, setLanguage] = useState<'bn' | 'en'>('bn');
+   101→  const [appVersion, setAppVersion] = useState('1.0.0');
+   102→
+   103→  // ----------------------------------------------------------------------
+   104→  // Load real stats from Supabase + localStorage download log.
+   105→  // Depend on primitive IDs (uid + profile id) rather than object
+   106→  // references — the Firebase `user` object identity can change on every
+   107→  // auth-state callback even when uid is unchanged, which would otherwise
+   108→  // cause repeated stats fetches.
+   109→  // ----------------------------------------------------------------------
+   110→  const userUid = user?.uid;
+   111→  const profileId = supabaseProfile?.id;
+   112→
+   113→  useEffect(() => {
+   114→    if (!isLoggedIn || !profileId) {
+   115→      setStatsLoaded(true);
+   116→      return;
+   117→    }
+   118→
+   119→    const loadStats = async () => {
+   120→      if (!supabase) {
+   121→        setStatsLoaded(true);
+   122→        return;
+   123→      }
+   124→
+   125→      try {
+   126→        const [
+   127→          watchlistRes,
+   128→          musicSavedRes,
+   129→          historyRes,
+   130→          gameDataRes,
+   131→        ] = await Promise.all([
+   132→          supabase
+   133→            .from('user_watchlist')
+   134→            .select('*', { count: 'exact', head: true })
+   135→            .eq('user_id', userUid),
+   136→          supabase
+   137→            .from('music_saved')
+   138→            .select('*', { count: 'exact', head: true })
+   139→            .eq('user_id', userUid),
+   140→          supabase
+   141→            .from('user_history')
+   142→            .select('*', { count: 'exact', head: true })
+   143→            .eq('user_id', userUid),
+   144→          supabase
+   145→            .from('game_data')
+   146→            .select('plays')
+   147→            .eq('user_id', profileId),
+   148→        ]);
+   149→
+   150→        const watchlistCount = watchlistRes.count || 0;
+   151→        const musicSavedCount = musicSavedRes.count || 0;
+   152→        const historyCount = historyRes.count || 0;
+   153→        const gameData = (gameDataRes.data ?? []) as Array<{ plays?: number }>;
+   154→        const totalGamePlays = gameData.reduce(
+   155→          (sum, g) => sum + (g.plays || 0),
+   156→          0
+   157→        );
+   158→
+   159→        // Real download count from localStorage download history log.
+   160→        let downloadCount = 0;
+   161→        try {
+   162→          const dlLog = JSON.parse(
+   163→            localStorage.getItem('pn_dl_history') || '[]'
+   164→          );
+   165→          downloadCount = Array.isArray(dlLog) ? dlLog.length : 0;
+   166→        } catch {
+   167→          downloadCount = 0;
+   168→        }
+   169→
+   170→        setStats({
+   171→          downloads: downloadCount,
+   172→          saved: (watchlistCount || 0) + (musicSavedCount || 0),
+   173→          played: (historyCount || 0) + totalGamePlays,
+   174→        });
+   175→      } catch {
+   176→        // Fall back to localStorage-only count if Supabase is unreachable.
+   177→        let downloadCount = 0;
+   178→        try {
+   179→          const dlLog = JSON.parse(
+   180→            localStorage.getItem('pn_dl_history') || '[]'
+   181→          );
+   182→          downloadCount = Array.isArray(dlLog) ? dlLog.length : 0;
+   183→        } catch {
+   184→          /* swallow */
+   185→        }
+   186→        setStats({
+   187→          downloads: downloadCount,
+   188→          saved: 0,
+   189→          played: 0,
+   190→        });
+   191→      } finally {
+   192→        setStatsLoaded(true);
+   193→      }
+   194→    };
+   195→
+   196→    void loadStats();
+   197→  }, [isLoggedIn, profileId, userUid]);
+   198→
+   199→  // ----------------------------------------------------------------------
+   200→  // Load preferences + app version on mount.
+   201→  // ----------------------------------------------------------------------
+   202→  useEffect(() => {
+   203→    try {
+   204→      // Prefer the new pn_theme_mode key (used by Settings); fall back to
+   205→      // legacy pn_theme key for backward compatibility.
+   206→      const themeMode = localStorage.getItem('pn_theme_mode');
+   207→      const legacyTheme = localStorage.getItem('pn_theme');
+   208→      if (themeMode === 'dark' || themeMode === 'neon') {
+   209→        setDarkMode(true);
+   210→      } else if (themeMode === 'amoled') {
+   211→        setDarkMode(false);
+   212→      } else {
+   213→        // Fall back to legacy key.
+   214→        setDarkMode(legacyTheme !== 'light');
+   215→      }
+   216→      const lang = localStorage.getItem('pn_language') as 'bn' | 'en' | null;
+   217→      setLanguage(lang || 'bn');
+   218→    } catch {
+   219→      /* swallow */
+   220→    }
+   221→
+   222→    getCapApp()
+   223→      .then((app) => app?.getInfo())
+   224→      .then((info) => {
+   225→        if (info?.version) setAppVersion(info.version);
+   226→      })
+   227→      .catch(() => {
+   228→        /* web fallback — keep '1.0.0' */
+   229→      });
+   230→  }, []);
+   231→
+   232→  // ----------------------------------------------------------------------
+   233→  // Achievements — computed from real stat thresholds.
+   234→  // ----------------------------------------------------------------------
+   235→  const achievements = [
+   236→    {
+   237→      key: 'first_watch',
+   238→      emoji: '🎬',
+   239→      label: 'First Watch',
+   240→      unlocked: stats.played >= 1,
+   241→    },
+   242→    {
+   243→      key: 'downloader',
+   244→      emoji: '📥',
+   245→      label: 'Downloader',
+   246→      unlocked: stats.downloads >= 5,
+   247→    },
+   248→    {
+   249→      key: 'collector',
+   250→      emoji: '🔖',
+   251→      label: 'Collector',
+   252→      unlocked: stats.saved >= 10,
+   253→    },
+   254→    {
+   255→      key: 'binge_watcher',
+   256→      emoji: '🍿',
+   257→      label: 'Binge Watcher',
+   258→      unlocked: stats.played >= 25,
+   259→    },
+   260→  ];
+   261→
+   262→  // ----------------------------------------------------------------------
+   263→  // Toggles & actions.
+   264→  // ----------------------------------------------------------------------
+   265→  const toggleDarkMode = () => {
+   266→    const next = !darkMode;
+   267→    setDarkMode(next);
+   268→    try {
+   269→      // Use the SAME `pn_theme_mode` key + `data-theme` attribute that the
+   270→      // Settings page uses, so toggling dark mode in Profile is reflected
+   271→      // when the user later visits Settings (and vice versa).
+   272→      const mode: 'dark' | 'amoled' = next ? 'dark' : 'amoled';
+   273→      localStorage.setItem('pn_theme_mode', mode);
+   274→      // Also keep the legacy `pn_theme` key in sync for any code that
+   275→      // still reads it.
+   276→      localStorage.setItem('pn_theme', next ? 'dark' : 'light');
+   277→      if (typeof document !== 'undefined') {
+   278→        document.documentElement.setAttribute('data-theme', mode);
+   279→        document.documentElement.classList.toggle('light-mode', !next);
+   280→      }
+   281→    } catch {
+   282→      /* swallow */
+   283→    }
+   284→  };
+   285→
+   286→  const toggleNotifications = async () => {
+   287→    if (!notifEnabled) {
+   288→      const push = await getPushNotifications();
+   289→      if (push) {
+   290→        try {
+   291→          const perm = await push.requestPermissions();
+   292→          if (perm.receive === 'granted') {
+   293→            await push.register();
+   294→            setNotifEnabled(true);
+   295→          }
+   296→        } catch {
+   297→          /* swallow */
+   298→        }
+   299→      } else {
+   300→        // Web fallback — just remember the preference.
+   301→        setNotifEnabled(true);
+   302→      }
+   303→    } else {
+   304→      setNotifEnabled(false);
+   305→    }
+   306→  };
+   307→
+   308→  const toggleLanguage = () => {
+   309→    const next = language === 'bn' ? 'en' : 'bn';
+   310→    setLanguage(next);
+   311→    try {
+   312→      localStorage.setItem('pn_language', next);
+   313→    } catch {
+   314→      /* swallow */
+   315→    }
+   316→  };
+   317→
+   318→  const handleRateApp = () => {
+   319→    const playStoreUrl =
+   320→      'https://play.google.com/store/apps/details?id=com.playnexa.app';
+   321→    if (typeof window !== 'undefined') {
+   322→      window.open(playStoreUrl, '_blank');
+   323→    }
+   324→  };
+   325→
+   326→  const handleShareApp = async () => {
+   327→    const shareData = {
+   328→      title: 'Play Nexa',
+   329→      text: 'Check out Play Nexa — your ultimate media universe! Movies, music, games, all free.',
+   330→      url: 'https://play.google.com/store/apps/details?id=com.playnexa.app',
+   331→    };
+   332→    try {
+   333→      if (typeof navigator !== 'undefined' && navigator.share) {
+   334→        await navigator.share(shareData);
+   335→      } else if (typeof navigator !== 'undefined' && navigator.clipboard) {
+   336→        await navigator.clipboard.writeText(shareData.url);
+   337→      }
+   338→    } catch {
+   339→      /* swallow user-cancel */
+   340→    }
+   341→  };
+   342→
+   343→  const handleSignOut = async () => {
+   344→    try {
+   345→      await logout();
+   346→    } catch {
+   347→      /* swallow */
+   348→    }
+   349→    setShowLogoutConfirm(false);
+   350→    router.replace('/');
+   351→  };
+   352→
+   353→  const referralCode = supabaseProfile?.id
+   354→    ? 'NEXA-' + supabaseProfile.id.slice(0, 6).toUpperCase()
+   355→    : '';
+   356→
+   357→  const handleCopyReferral = () => {
+   358→    try {
+   359→      navigator.clipboard?.writeText(referralCode);
+   360→    } catch {
+   361→      /* swallow */
+   362→    }
+   363→  };
+   364→
+   365→  const handleShareReferral = async () => {
+   366→    const text =
+   367→      `Join me on Play Nexa! Use my code ${referralCode} 🎬🎵🎮 ` +
+   368→      `https://play.google.com/store/apps/details?id=com.playnexa.app`;
+   369→    try {
+   370→      if (navigator.share) {
+   371→        await navigator.share({ text });
+   372→      } else {
+   373→        await navigator.clipboard.writeText(text);
+   374→      }
+   375→    } catch {
+   376→      /* swallow */
+   377→    }
+   378→  };
+   379→
+   380→  const handleResetPassword = async () => {
+   381→    if (user?.email) {
+   382→      try {
+   383→        await resetPassword(user.email);
+   384→      } catch {
+   385→        /* swallow */
+   386→      }
+   387→    }
+   388→  };
+   389→
+   390→  // ----------------------------------------------------------------------
+   391→  // Loading state.
+   392→  // ----------------------------------------------------------------------
+   393→  if (isLoading) {
+   394→    return (
+   395→      <div
+   396→        className="min-h-screen bg-[#0D0D0D] flex items-center justify-center"
+   397→        role="status"
+   398→        aria-label="Loading profile"
+   399→      >
+   400→        <div className="w-8 h-8 border-2 border-[#7C3AED] border-t-transparent rounded-full animate-spin" />
+   401→      </div>
+   402→    );
+   403→  }
+   404→
+   405→  return (
+   406→    <div className="min-h-screen bg-[#0D0D0D] pb-24">
+   407→      {/* Header */}
+   408→      <div className="px-5 pt-6 pb-4">
+   409→        <h1 className="text-white font-bold text-xl">Profile</h1>
+   410→      </div>
+   411→
+   412→      {/* GUEST STATE */}
+   413→      {!isLoggedIn ? (
+   414→        <div className="px-5">
+   415→          <div className="bg-[#141414] border border-[#1E1E1E] rounded-2xl p-6 text-center mb-6">
+   416→            <div className="w-14 h-14 rounded-full bg-[#7C3AED]/15 flex items-center justify-center mx-auto mb-4">
+   417→              <svg
+   418→                width="26"
+   419→                height="26"
+   420→                viewBox="0 0 24 24"
+   421→                fill="none"
+   422→                stroke="#7C3AED"
+   423→                strokeWidth="2"
+   424→              >
+   425→                <rect x="3" y="11" width="18" height="11" rx="2" />
+   426→                <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+   427→              </svg>
+   428→            </div>
+   429→            <h2 className="text-white font-bold text-lg mb-2">
+   430→              Sign In to Unlock More
+   431→            </h2>
+   432→            <p className="text-[#9CA3AF] text-sm leading-relaxed mb-6">
+   433→              তোমার watchlist, history আর liked movies save করতে sign in করো
+   434→            </p>
+   435→            <div className="flex flex-col gap-3">
+   436→              <button
+   437→                onClick={() => router.push('/auth/login')}
+   438→                className="w-full h-12 bg-[#7C3AED] rounded-xl text-white font-semibold text-sm active:opacity-80"
+   439→              >
+   440→                Sign In
+   441→              </button>
+   442→              <button
+   443→                onClick={() => router.push('/auth/signup')}
+   444→                className="w-full h-12 bg-[#1A1A1A] border border-[#2D2D2D] rounded-xl text-white font-semibold text-sm active:opacity-80"
+   445→              >
+   446→                Create Account
+   447→              </button>
+   448→            </div>
+   449→          </div>
+   450→
+   451→          {/* Quick settings still usable for guests */}
+   452→          <QuickSettingsSection
+   453→            darkMode={darkMode}
+   454→            onToggleDark={toggleDarkMode}
+   455→            notifEnabled={notifEnabled}
+   456→            onToggleNotif={toggleNotifications}
+   457→            language={language}
+   458→            onToggleLanguage={toggleLanguage}
+   459→            onRate={handleRateApp}
+   460→            onShare={handleShareApp}
+   461→            router={router}
+   462→          />
+   463→
+   464→          <p className="text-center text-[#4B5563] text-xs mt-8">
+   465→            Play Nexa v{appVersion} • Made with ❤️
+   466→          </p>
+   467→        </div>
+   468→      ) : (
+   469→        /* LOGGED-IN STATE */
+   470→        <div className="px-5">
+   471→          {/* Avatar + Name */}
+   472→          <div className="flex flex-col items-center mb-6">
+   473→            <div
+   474→              className="w-20 h-20 rounded-full p-[3px] mb-3"
+   475→              style={{
+   476→                background: 'linear-gradient(135deg, #7C3AED, #06B6D4)',
+   477→              }}
+   478→            >
+   479→              {user?.photoURL ? (
+   480→                <img
+   481→                  src={user.photoURL}
+   482→                  className="w-full h-full rounded-full object-cover border-2 border-[#0D0D0D]"
+   483→                  alt="Avatar"
+   484→                />
+   485→              ) : (
+   486→                <div className="w-full h-full rounded-full bg-[#0D0D0D] flex items-center justify-center text-white text-2xl font-bold">
+   487→                  {(user?.displayName ||
+   488→                    supabaseProfile?.display_name ||
+   489→                    'U')[0].toUpperCase()}
+   490→                </div>
+   491→              )}
+   492→            </div>
+   493→            <p className="text-white font-bold text-lg">
+   494→              {user?.displayName ||
+   495→                supabaseProfile?.display_name ||
+   496→                'Play Nexa User'}
+   497→            </p>
+   498→            <p className="text-[#9CA3AF] text-xs mt-0.5">{user?.email}</p>
+   499→            <button
+   500→              onClick={() => router.push('/profile/edit')}
+   501→              className="mt-3 px-5 py-2 bg-[#1A1A1A] border border-[#2D2D2D] rounded-full text-white text-xs font-medium min-h-[36px] active:opacity-80"
+   502→            >
+   503→              Edit Profile
+   504→            </button>
+   505→          </div>
+   506→
+   507→          {/* Stats Row */}
+   508→          <div className="flex bg-[#141414] border border-[#1E1E1E] rounded-2xl py-4 mb-6">
+   509→            {statsLoaded ? (
+   510→              <>
+   511→                <StatCounter target={stats.downloads} label="Downloads" />
+   512→                <div className="w-px bg-[#1E1E1E]" />
+   513→                <StatCounter target={stats.saved} label="Saved" />
+   514→                <div className="w-px bg-[#1E1E1E]" />
+   515→                <StatCounter target={stats.played} label="Played" />
+   516→              </>
+   517→            ) : (
+   518→              <div className="flex-1 flex justify-center py-2">
+   519→                <div className="w-5 h-5 border-2 border-[#7C3AED] border-t-transparent rounded-full animate-spin" />
+   520→              </div>
+   521→            )}
+   522→          </div>
+   523→
+   524→          {/* Achievements */}
+   525→          <div className="mb-6">
+   526→            <p className="text-white font-semibold text-sm mb-3">
+   527→              🏆 Achievements
+   528→            </p>
+   529→            <div className="flex gap-2 overflow-x-auto scrollbar-hide pb-1">
+   530→              {achievements.map((a) => (
+   531→                <AchievementBadge
+   532→                  key={a.key}
+   533→                  emoji={a.emoji}
+   534→                  label={a.label}
+   535→                  unlocked={a.unlocked}
+   536→                />
+   537→              ))}
+   538→            </div>
+   539→          </div>
+   540→
+   541→          {/* Activity */}
+   542→          <div className="mb-6">
+   543→            <p className="text-white font-semibold text-sm mb-3">Activity</p>
+   544→            <div className="bg-[#141414] border border-[#1E1E1E] rounded-2xl overflow-hidden">
+   545→              {(
+   546→                [
+   547→                  {
+   548→                    emoji: '📥',
+   549→                    label: 'Recent Downloads',
+   550→                    route: '/profile/downloads',
+   551→                  },
+   552→                  {
+   553→                    emoji: '📜',
+   554→                    label: 'Watch History',
+   555→                    route: '/profile/history',
+   556→                  },
+   557→                  {
+   558→                    emoji: '❤️',
+   559→                    label: 'Favorites',
+   560→                    route: '/profile/favorites',
+   561→                  },
+   562→                  {
+   563→                    emoji: '🎵',
+   564→                    label: 'My Playlists',
+   565→                    route: '/profile/playlists',
+   566→                  },
+   567→                  {
+   568→                    emoji: '🎮',
+   569→                    label: 'Game History',
+   570→                    route: '/profile/games',
+   571→                  },
+   572→                ] as Array<{ emoji: string; label: string; route: string }>
+   573→              ).map((item, i, arr) => (
+   574→                <button
+   575→                  key={item.route}
+   576→                  onClick={() => router.push(item.route)}
+   577→                  className={`w-full flex items-center gap-3 px-4 min-h-[52px] active:bg-[#1A1A1A] ${
+   578→                    i < arr.length - 1 ? 'border-b border-[#1E1E1E]' : ''
+   579→                  }`}
+   580→                >
+   581→                  <span className="text-lg">{item.emoji}</span>
+   582→                  <span className="flex-1 text-left text-white text-sm">
+   583→                    {item.label}
+   584→                  </span>
+   585→                  <svg
+   586→                    width="16"
+   587→                    height="16"
+   588→                    viewBox="0 0 24 24"
+   589→                    fill="none"
+   590→                    stroke="#6B7280"
+   591→                    strokeWidth="2"
+   592→                  >
+   593→                    <path d="M9 18l6-6-6-6" />
+   594→                  </svg>
+   595→                </button>
+   596→              ))}
+   597→            </div>
+   598→          </div>
+   599→
+   600→          {/* Quick Settings */}
+   601→          <QuickSettingsSection
+   602→            darkMode={darkMode}
+   603→            onToggleDark={toggleDarkMode}
+   604→            notifEnabled={notifEnabled}
+   605→            onToggleNotif={toggleNotifications}
+   606→            language={language}
+   607→            onToggleLanguage={toggleLanguage}
+   608→            onRate={handleRateApp}
+   609→            onShare={handleShareApp}
+   610→            router={router}
+   611→          />
+   612→
+   613→          {/* Invite Friends */}
+   614→          <div className="bg-[#141414] border border-[#1E1E1E] rounded-2xl p-4 mt-6">
+   615→            <p className="text-white font-semibold text-sm mb-1">
+   616→              🎁 Invite Friends
+   617→            </p>
+   618→            <p className="text-[#9CA3AF] text-xs mb-3">
+   619→              Your code:{' '}
+   620→              <span className="text-[#7C3AED] font-mono">{referralCode}</span>
+   621→            </p>
+   622→            <div className="flex gap-2">
+   623→              <button
+   624→                onClick={handleCopyReferral}
+   625→                className="flex-1 h-10 bg-[#1A1A1A] border border-[#2D2D2D] rounded-xl text-white text-xs font-medium active:opacity-80"
+   626→              >
+   627→                📋 Copy
+   628→              </button>
+   629→              <button
+   630→                onClick={handleShareReferral}
+   631→                className="flex-1 h-10 bg-[#7C3AED] rounded-xl text-white text-xs font-medium active:opacity-80"
+   632→              >
+   633→                📤 Share
+   634→              </button>
+   635→            </div>
+   636→          </div>
+   637→
+   638→          {/* Account */}
+   639→          <div className="mt-6">
+   640→            <p className="text-white font-semibold text-sm mb-3">Account</p>
+   641→            <div className="bg-[#141414] border border-[#1E1E1E] rounded-2xl overflow-hidden mb-3">
+   642→              <button
+   643→                onClick={handleResetPassword}
+   644→                className="w-full flex items-center gap-3 px-4 min-h-[52px] active:bg-[#1A1A1A]"
+   645→              >
+   646→                <span className="text-lg">🔐</span>
+   647→                <span className="flex-1 text-left text-white text-sm">
+   648→                  Security &amp; Password
+   649→                </span>
+   650→                <svg
+   651→                  width="16"
+   652→                  height="16"
+   653→                  viewBox="0 0 24 24"
+   654→                  fill="none"
+   655→                  stroke="#6B7280"
+   656→                  strokeWidth="2"
+   657→                >
+   658→                  <path d="M9 18l6-6-6-6" />
+   659→                </svg>
+   660→              </button>
+   661→            </div>
+   662→
+   663→            <button
+   664→              onClick={() => setShowLogoutConfirm(true)}
+   665→              className="w-full h-12 bg-red-900/20 border border-red-700/40 rounded-xl text-red-400 font-semibold text-sm active:opacity-80"
+   666→            >
+   667→              Sign Out
+   668→            </button>
+   669→          </div>
+   670→
+   671→          <p className="text-center text-[#4B5563] text-xs mt-8">
+   672→            Play Nexa v{appVersion} • Made with ❤️
+   673→          </p>
+   674→        </div>
+   675→      )}
+   676→
+   677→      {/* Logout Confirm Modal */}
+   678→      {showLogoutConfirm && (
+   679→        <>
+   680→          <div
+   681→            className="fixed inset-0 z-[60] bg-black/70"
+   682→            onClick={() => setShowLogoutConfirm(false)}
+   683→          />
+   684→          <div className="fixed bottom-0 left-0 right-0 z-[61] bg-[#141414] rounded-t-2xl p-6 pb-10 border-t border-[#1E1E1E]">
+   685→            <div className="w-10 h-1 bg-[#2D2D2D] rounded-full mx-auto mb-5" />
+   686→            <p className="text-white font-bold text-base mb-2 text-center">
+   687→              Sign out from Play Nexa?
+   688→            </p>
+   689→            <p className="text-[#9CA3AF] text-sm text-center mb-6">
+   690→              তোমার data save থাকবে, পরে আবার sign in করতে পারবে
+   691→            </p>
+   692→            <div className="flex gap-3">
+   693→              <button
+   694→                onClick={() => setShowLogoutConfirm(false)}
+   695→                className="flex-1 h-12 bg-[#1A1A1A] border border-[#2D2D2D] rounded-xl text-white text-sm font-medium active:opacity-80"
+   696→              >
+   697→                Cancel
+   698→              </button>
+   699→              <button
+   700→                onClick={handleSignOut}
+   701→                className="flex-1 h-12 bg-red-700 rounded-xl text-white text-sm font-semibold active:opacity-80"
+   702→              >
+   703→                Sign Out
+   704→              </button>
+   705→            </div>
+   706→          </div>
+   707→        </>
+   708→      )}
+   709→    </div>
+   710→  );
+   711→}
+   712→
+   713→// ---------------------------------------------------------------------------
+   714→// Reusable Quick Settings section.
+   715→// ---------------------------------------------------------------------------
+   716→function QuickSettingsSection({
+   717→  darkMode,
+   718→  onToggleDark,
+   719→  notifEnabled,
+   720→  onToggleNotif,
+   721→  language,
+   722→  onToggleLanguage,
+   723→  onRate,
+   724→  onShare,
+   725→  router,
+   726→}: QuickSettingsProps) {
+   727→  return (
+   728→    <div>
+   729→      <p className="text-white font-semibold text-sm mb-3">Quick Settings</p>
+   730→      <div className="bg-[#141414] border border-[#1E1E1E] rounded-2xl overflow-hidden">
+   731→        {/* Dark Mode */}
+   732→        <div className="flex items-center gap-3 px-4 min-h-[52px] border-b border-[#1E1E1E]">
+   733→          <span className="text-lg">🌙</span>
+   734→          <span className="flex-1 text-white text-sm">Dark Mode</span>
+   735→          <Toggle checked={darkMode} onChange={onToggleDark} />
+   736→        </div>
+   737→
+   738→        {/* Notifications */}
+   739→        <div className="flex items-center gap-3 px-4 min-h-[52px] border-b border-[#1E1E1E]">
+   740→          <span className="text-lg">🔔</span>
+   741→          <span className="flex-1 text-white text-sm">Notifications</span>
+   742→          <Toggle checked={notifEnabled} onChange={onToggleNotif} />
+   743→        </div>
+   744→
+   745→        {/* Language */}
+   746→        <button
+   747→          onClick={onToggleLanguage}
+   748→          className="w-full flex items-center gap-3 px-4 min-h-[52px] border-b border-[#1E1E1E] active:bg-[#1A1A1A]"
+   749→        >
+   750→          <span className="text-lg">🌐</span>
+   751→          <span className="flex-1 text-left text-white text-sm">Language</span>
+   752→          <span className="text-[#7C3AED] text-xs font-semibold">
+   753→            {language === 'bn' ? 'বাংলা' : 'English'}
+   754→          </span>
+   755→        </button>
+   756→
+   757→        {/* Help & Support */}
+   758→        <button
+   759→          onClick={() => router.push('/help')}
+   760→          className="w-full flex items-center gap-3 px-4 min-h-[52px] border-b border-[#1E1E1E] active:bg-[#1A1A1A]"
+   761→        >
+   762→          <span className="text-lg">❓</span>
+   763→          <span className="flex-1 text-left text-white text-sm">
+   764→            Help &amp; Support
+   765→          </span>
+   766→          <svg
+   767→            width="16"
+   768→            height="16"
+   769→            viewBox="0 0 24 24"
+   770→            fill="none"
+   771→            stroke="#6B7280"
+   772→            strokeWidth="2"
+   773→          >
+   774→            <path d="M9 18l6-6-6-6" />
+   775→          </svg>
+   776→        </button>
+   777→
+   778→        {/* Rate */}
+   779→        <button
+   780→          onClick={onRate}
+   781→          className="w-full flex items-center gap-3 px-4 min-h-[52px] border-b border-[#1E1E1E] active:bg-[#1A1A1A]"
+   782→        >
+   783→          <span className="text-lg">⭐</span>
+   784→          <span className="flex-1 text-left text-white text-sm">
+   785→            Rate Play Nexa
+   786→          </span>
+   787→        </button>
+   788→
+   789→        {/* Share */}
+   790→        <button
+   791→          onClick={onShare}
+   792→          className="w-full flex items-center gap-3 px-4 min-h-[52px] active:bg-[#1A1A1A]"
+   793→        >
+   794→          <span className="text-lg">📤</span>
+   795→          <span className="flex-1 text-left text-white text-sm">Share App</span>
+   796→        </button>
+   797→      </div>
+   798→    </div>
+   799→  );
+   800→}
+   801→
+   802→function Toggle({
+   803→  checked,
+   804→  onChange,
+   805→}: {
+   806→  checked: boolean;
+   807→  onChange: () => void;
+   808→}) {
+   809→  return (
+   810→    <button
+   811→      onClick={onChange}
+   812→      role="switch"
+   813→      aria-checked={checked}
+   814→      className={`w-11 h-6 rounded-full relative transition-colors duration-200 ${
+   815→        checked ? 'bg-[#7C3AED]' : 'bg-[#2D2D2D]'
+   816→      }`}
+   817→    >
+   818→      <div
+   819→        className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-all duration-200 ${
+   820→          checked ? 'left-5' : 'left-0.5'
+   821→        }`}
+   822→      />
+   823→    </button>
+   824→  );
+   825→}
+   826→
