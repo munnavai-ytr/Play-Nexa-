@@ -4,9 +4,23 @@
 // Automatic 429/error fallback — switches to next key and retries
 // Server-side ONLY — zero client-side overhead
 // Optimized for 2GB RAM — no memory leaks, minimal allocations
+//
+//  KEY SOURCING (priority):
+//    1. Supabase `ai_key_vault` table (dynamic, multi-key rotation)
+//    2. GEMINI_KEY_1..5 env vars (legacy fallback)
+//
+//  AUTO-ROTATION:
+//    On 429 from a vault key, calls markKeyRateLimited('gemini')
+//    which advances the active_key_index in the vault.
+
+import {
+  getActiveKey,
+  markKeyRateLimited,
+  markKeyDead,
+} from '@/lib/ai-vault'
 
 // ════════════════════════════════════════════════════════════
-//  KEY POOL — 5 Gemini API Keys from environment
+//  KEY POOL — 5 Gemini API Keys from environment (FALLBACK ONLY)
 // ════════════════════════════════════════════════════════════
 
 const GEMINI_KEYS = [
@@ -142,11 +156,12 @@ export interface GeminiResponse {
  * Call Gemini API with automatic 5-key lottery rotation.
  *
  * Flow:
- * 1. Pick a random available key (lottery)
- * 2. Send the request
- * 3. If 429 → mark key as rate-limited, pick next key, retry
- * 4. If other error → try next key
- * 5. If success → mark key healthy, return response
+ * 1. Try vault key first (if vault has keys for 'gemini')
+ * 2. If vault empty or all vault keys fail → fall back to env key pool
+ * 3. Send the request
+ * 4. If 429 → mark key as rate-limited, pick next key, retry
+ * 5. If other error → try next key
+ * 6. If success → mark key healthy, return response
  *
  * Retries up to MAX_RETRIES (5) times across different keys.
  */
@@ -154,11 +169,116 @@ export const callGemini = async (
   prompt: string,
   options: GeminiRequestOptions = {},
 ): Promise<GeminiResponse> => {
-  if (keyPool.length === 0) {
-    throw new Error('Play Nexa: No Gemini API keys configured. Set GEMINI_KEY_1 through GEMINI_KEY_5 in .env')
+  const model = options.model || DEFAULT_MODEL
+
+  // ════════════════════════════════════════════════════════════
+  //  PATH A: VAULT KEY (priority) — try up to 2 vault keys
+  // ════════════════════════════════════════════════════════════
+  for (let vaultAttempt = 0; vaultAttempt < 2; vaultAttempt++) {
+    const vaultKey = await getActiveKey('gemini')
+    if (!vaultKey) break // vault empty → fall through to env pool
+
+    try {
+      const url = `${GEMINI_BASE_URL}/models/${model}:generateContent?key=${vaultKey}`
+      const body: Record<string, unknown> = {
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: {
+          temperature: options.temperature ?? 0.7,
+          maxOutputTokens: options.maxTokens ?? 2048,
+          topP: options.topP ?? 0.95,
+        },
+      }
+      if (options.systemInstruction) {
+        body.systemInstruction = { parts: [{ text: options.systemInstruction }] }
+      }
+      if (options.responseMimeType) {
+        body.generationConfig = {
+          ...body.generationConfig as object,
+          responseMimeType: options.responseMimeType,
+        }
+      }
+
+      const controller = new AbortController()
+      const timer = setTimeout(() => controller.abort(), 30_000)
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      })
+      clearTimeout(timer)
+
+      // ── 401 → mark dead, retry once with next vault key ──
+      if (res.status === 401) {
+        await markKeyDead('gemini').catch(() => {})
+        if (vaultAttempt === 0) {
+          console.warn('[gemini] 401 on vault key — marking dead, retrying')
+          continue
+        }
+        throw new Error('Gemini 401 Unauthorized — vault key invalid. Check /admin/key-vault')
+      }
+
+      // ── 429 → mark rate-limited, rotate, retry once ──
+      if (res.status === 429) {
+        await markKeyRateLimited('gemini').catch(() => {})
+        if (vaultAttempt === 0) {
+          console.warn('[gemini] 429 on vault key — rotating to next key')
+          continue
+        }
+        // Vault keys exhausted — fall through to env pool
+        break
+      }
+
+      if (!res.ok) {
+        const errText = await res.text().catch(() => 'unknown')
+        throw new Error(`Gemini HTTP ${res.status}: ${errText.slice(0, 200)}`)
+      }
+
+      const data = await res.json()
+      const text = data?.candidates?.[0]?.content?.parts?.[0]?.text
+      if (!text) {
+        const reason = data?.candidates?.[0]?.finishReason
+        if (reason === 'SAFETY') {
+          throw new Error('Play Nexa Gemini: Response blocked by safety filters')
+        }
+        throw new Error('Play Nexa Gemini: Empty response from model')
+      }
+
+      return {
+        text,
+        keyIndex: -1, // -1 = vault key (not env-pool index)
+        model,
+        usageMetadata: data?.usageMetadata
+          ? {
+              promptTokenCount: data.usageMetadata.promptTokenCount || 0,
+              candidatesTokenCount: data.usageMetadata.candidatesTokenCount || 0,
+              totalTokenCount: data.usageMetadata.totalTokenCount || 0,
+            }
+          : undefined,
+      }
+    } catch (err: any) {
+      if (err?.name === 'AbortError') {
+        throw new Error('Gemini: vault request timed out after 30s')
+      }
+      // If it's a safety/parse error, throw — don't fall through
+      if (err instanceof Error && err.message.startsWith('Play Nexa Gemini:')) {
+        throw err
+      }
+      // Other errors → fall through to env pool
+      console.warn('[gemini] vault attempt failed, falling back to env pool:', err?.message)
+      break
+    }
   }
 
-  const model = options.model || DEFAULT_MODEL
+  // ════════════════════════════════════════════════════════════
+  //  PATH B: ENV KEY POOL (fallback) — original 5-key lottery
+  // ════════════════════════════════════════════════════════════
+  if (keyPool.length === 0) {
+    throw new Error(
+      'Play Nexa: No Gemini keys configured. Add keys at /admin/key-vault, or set GEMINI_KEY_1..5 in .env'
+    )
+  }
+
   const excludedIndexes = new Set<number>()
   let lastError: Error | null = null
 
@@ -360,5 +480,12 @@ export const getKeyPoolStatus = (): KeyPoolStatus => {
   }
 }
 
-/** Check if any Gemini keys are configured */
+/** Check if any Gemini keys are configured (env pool). Vault check is async. */
 export const isGeminiReady = (): boolean => keyPool.length > 0
+
+/** Async readiness check — also checks the vault table. */
+export const isGeminiReadyAsync = async (): Promise<boolean> => {
+  if (keyPool.length > 0) return true
+  const vaultKey = await getActiveKey('gemini')
+  return !!vaultKey
+}

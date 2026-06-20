@@ -1,0 +1,1413 @@
+You are a Senior Full-Stack Developer (20 years exp)
+building Movie Hub PRO v2.0 for Play Nexa app.
+100% real Supabase data, ZERO YouTube API quota
+usage, ZERO mock/fake data anywhere.
+
+Stack: Next.js 14 App Router, TypeScript,
+Tailwind CSS 4, Supabase JS v2 (with Realtime),
+Capacitor (ScreenOrientation, Filesystem).
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🔴 ABSOLUTE RULES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. NEVER modify .env.local
+2. NEVER delete existing keys (Supabase/Gemini/
+   Firebase)
+3. ONLY create/modify:
+   → src/app/watch/[id]/page.tsx (NEW)
+   → src/app/channel/[id]/page.tsx (NEW)
+   → src/app/search/page.tsx (NEW)
+   → src/components/watch/VideoPlayer.tsx (NEW)
+   → src/components/watch/GestureOverlay.tsx (NEW)
+   → src/components/watch/ActionBar.tsx (NEW)
+   → src/components/watch/ChannelRow.tsx (NEW)
+   → src/components/watch/SuggestedFeed.tsx (NEW)
+   → src/components/channel/ChannelHeader.tsx (NEW)
+   → src/components/channel/MovieGrid.tsx (NEW)
+   → src/components/search/RecentSearches.tsx (NEW)
+   → src/components/search/LiveResults.tsx (NEW)
+   → src/lib/recommendationEngine.ts (NEW)
+   → src/lib/audioOnlyMode.ts (NEW)
+4. DO NOT touch any other file
+5. NO Description block. NO Comment system.
+   These features are explicitly excluded —
+   do not build them, do not leave placeholders
+   for them.
+6. ZERO mock/fake/placeholder data — every
+   number, every list, every state comes from
+   real Supabase queries or real localStorage
+   data. If a query returns empty, show a real
+   empty state, never fake content.
+7. No backdrop-blur anywhere — use solid cards
+   with subtle border-glow instead
+8. Min 44px touch targets
+9. All transitions max 200ms
+10. AMOLED dark-violet theme: bg-[#0B0B1E]
+11. content-visibility: auto on all grids/lists
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🗄️ SQL — Run in Supabase FIRST
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Print this SQL at the top of your response:
+
+-- ═══════════════════════════════════
+-- MOVIE HUB PRO v2.0 — New Tables
+-- ═══════════════════════════════════
+
+-- Like / Dislike (no counts shown publicly,
+-- but we store the value to know dislikes too)
+CREATE TABLE IF NOT EXISTS movie_reactions (
+  id          UUID DEFAULT gen_random_uuid()
+              PRIMARY KEY,
+  user_id     UUID NOT NULL REFERENCES
+              auth.users(id) ON DELETE CASCADE,
+  video_id    UUID NOT NULL REFERENCES
+              movies(id) ON DELETE CASCADE,
+  reaction    TEXT NOT NULL
+              CHECK (reaction IN ('like','dislike')),
+  created_at  TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(user_id, video_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_reactions_video
+  ON movie_reactions (video_id);
+CREATE INDEX IF NOT EXISTS idx_reactions_user
+  ON movie_reactions (user_id);
+
+ALTER TABLE movie_reactions
+  ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "reactions_own"
+  ON movie_reactions FOR ALL
+  USING (auth.uid() = user_id);
+
+CREATE POLICY "reactions_public_read"
+  ON movie_reactions FOR SELECT
+  USING (true);
+
+-- Search history
+CREATE TABLE IF NOT EXISTS search_history (
+  id          UUID DEFAULT gen_random_uuid()
+              PRIMARY KEY,
+  user_id     UUID NOT NULL REFERENCES
+              auth.users(id) ON DELETE CASCADE,
+  query       TEXT NOT NULL,
+  searched_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_search_user
+  ON search_history (user_id, searched_at DESC);
+
+ALTER TABLE search_history
+  ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "search_history_own"
+  ON search_history FOR ALL
+  USING (auth.uid() = user_id);
+
+-- Followed channels
+CREATE TABLE IF NOT EXISTS followed_channels (
+  id          UUID DEFAULT gen_random_uuid()
+              PRIMARY KEY,
+  user_id     UUID NOT NULL REFERENCES
+              auth.users(id) ON DELETE CASCADE,
+  channel_id  TEXT NOT NULL,
+  followed_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(user_id, channel_id)
+);
+
+ALTER TABLE followed_channels
+  ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "followed_channels_own"
+  ON followed_channels FOR ALL
+  USING (auth.uid() = user_id);
+
+-- Enable Realtime on reactions (for live like
+-- state sync, even though counts aren't shown
+-- — needed for cross-device consistency)
+ALTER PUBLICATION supabase_realtime
+  ADD TABLE movie_reactions;
+
+-- ═══════════════════════════════════
+-- ✅ Run this, then proceed to Z.ai build
+-- ═══════════════════════════════════
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📺 MODULE 1 — VIDEO PLAYER PAGE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+File: src/app/watch/[id]/page.tsx
+
+Page structure (top to bottom, NO description,
+NO comments):
+
+1. VideoPlayer (player + gestures + sizing)
+2. Title + genre chips + year
+3. ChannelRow (avatar, name, verified, follow)
+4. ActionBar (Like/Dislike, Share, Save, 
+   Download-soon, Lock, Audio-only)
+5. SuggestedFeed (vertical recommendations)
+
+Fetch real movie data:
+  const { data: movie } = await supabase
+    .from('movies')
+    .select('*, source_channel_id')
+    .eq('id', params.id)
+    .single()
+
+If movie not found → real "Movie not found" 
+empty state with back button, never fake content.
+
+On mount, record real watch history:
+  await supabase.from('user_history').upsert([{
+    user_id: authUserId,
+    movie_id: movie.id,
+    youtube_id: movie.youtube_id,
+    watched_at: new Date().toISOString(),
+  }], { onConflict: 'user_id,movie_id' })
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🎮 VIDEO PLAYER + GESTURE COMPONENT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+File: src/components/watch/VideoPlayer.tsx
+File: src/components/watch/GestureOverlay.tsx
+
+'use client'
+import { useState, useRef, useEffect, useCallback }
+  from 'react'
+import { ScreenOrientation } from 
+  '@capacitor/screen-orientation'
+
+interface VideoPlayerProps {
+  youtubeId: string
+  title: string
+  onAudioOnlyToggle: (enabled: boolean) => void
+}
+
+type SizeMode = 'fit' | 'stretch' | 'zoom'
+
+export default function VideoPlayer({
+  youtubeId, title, onAudioOnlyToggle
+}: VideoPlayerProps) {
+  const [isLandscape, setIsLandscape] = useState(false)
+  const [sizeMode, setSizeMode] = useState<
+    SizeMode>('fit')
+  const [showSizeMenu, setShowSizeMenu] = useState(false)
+  const [isLocked, setIsLocked] = useState(false)
+  const [showLockHint, setShowLockHint] = useState(false)
+  const [isAudioOnly, setIsAudioOnly] = useState(false)
+  const [controlsVisible, setControlsVisible] = 
+    useState(true)
+  const [seekFeedback, setSeekFeedback] = useState<
+    { side: 'left' | 'right'; show: boolean }>(
+    { side: 'left', show: false })
+  const playerRef = useRef<HTMLDivElement>(null)
+  const hideTimerRef = useRef<NodeJS.Timeout>()
+
+  // ── LOCK SCREEN — PlayIt-style ──
+  // When locked: ALL taps/gestures do nothing
+  // except long-press to unlock
+  const handleContainerTap = useCallback(() => {
+    if (isLocked) {
+      setShowLockHint(true)
+      setTimeout(() => setShowLockHint(false), 1500)
+      return
+    }
+    setControlsVisible(v => !v)
+    resetHideTimer()
+  }, [isLocked])
+
+  const resetHideTimer = () => {
+    if (hideTimerRef.current) 
+      clearTimeout(hideTimerRef.current)
+    hideTimerRef.current = setTimeout(() => {
+      setControlsVisible(false)
+    }, 3000)
+  }
+
+  let unlockPressTimer: NodeJS.Timeout
+  const handleLockIconPressStart = () => {
+    unlockPressTimer = setTimeout(() => {
+      setIsLocked(false)
+    }, 1000)
+  }
+  const handleLockIconPressEnd = () => {
+    clearTimeout(unlockPressTimer)
+  }
+
+  // ── DOUBLE-TAP SEEK — width-relative zones ──
+  // Works correctly in portrait AND landscape
+  // because zones are % of CURRENT container width
+  const lastTapRef = useRef<{ 
+    time: number; x: number }>({ time: 0, x: 0 })
+
+  const handleZoneTap = (
+    e: React.MouseEvent<HTMLDivElement>
+  ) => {
+    if (isLocked) {
+      handleContainerTap()
+      return
+    }
+
+    const rect = playerRef.current
+      ?.getBoundingClientRect()
+    if (!rect) return
+
+    const tapX = e.clientX - rect.left
+    const widthPercent = (tapX / rect.width) * 100
+    const now = Date.now()
+    const isDoubleTap = 
+      now - lastTapRef.current.time < 300
+
+    if (isDoubleTap) {
+      if (widthPercent <= 40) {
+        seekRelative(-10)
+        triggerSeekFeedback('left')
+      } else if (widthPercent >= 60) {
+        seekRelative(10)
+        triggerSeekFeedback('right')
+      }
+    } else {
+      // Single tap → toggle controls
+      // (only fires if no second tap follows)
+      setTimeout(() => {
+        if (Date.now() - lastTapRef.current.time 
+          >= 300) {
+          handleContainerTap()
+        }
+      }, 300)
+    }
+
+    lastTapRef.current = { time: now, x: tapX }
+  }
+
+  const triggerSeekFeedback = (
+    side: 'left' | 'right'
+  ) => {
+    setSeekFeedback({ side, show: true })
+    setTimeout(() => 
+      setSeekFeedback(s => ({ ...s, show: false })), 
+      600)
+  }
+
+  const seekRelative = (seconds: number) => {
+    // Real postMessage to YouTube iframe API
+    const iframe = document.getElementById(
+      'yt-player') as HTMLIFrameElement
+    iframe?.contentWindow?.postMessage(
+      JSON.stringify({
+        event: 'command',
+        func: 'seekTo',
+        args: [seconds, true],
+      }), '*')
+  }
+
+  // ── LANDSCAPE TOGGLE ──
+  const toggleLandscape = async () => {
+    try {
+      if (!isLandscape) {
+        await ScreenOrientation.lock({
+          orientation: 'landscape' })
+        setIsLandscape(true)
+      } else {
+        await ScreenOrientation.lock({
+          orientation: 'portrait' })
+        setIsLandscape(false)
+      }
+    } catch {
+      // Web fallback — just toggle visual state
+      setIsLandscape(!isLandscape)
+    }
+  }
+
+  useEffect(() => {
+    return () => {
+      ScreenOrientation.unlock().catch(() => {})
+      if (hideTimerRef.current) 
+        clearTimeout(hideTimerRef.current)
+    }
+  }, [])
+
+  // ── AUDIO-ONLY MODE — screen off, audio plays ──
+  const handleAudioOnlyToggle = () => {
+    const next = !isAudioOnly
+    setIsAudioOnly(next)
+    onAudioOnlyToggle(next)
+  }
+
+  const sizeModeClass = {
+    fit: 'object-contain',
+    stretch: 'object-fill',
+    zoom: 'object-cover',
+  }[sizeMode]
+
+  return (
+    <div
+      ref={playerRef}
+      className={`relative bg-black overflow-hidden
+        ${isLandscape 
+          ? 'fixed inset-0 z-[70]' 
+          : 'aspect-video w-full'}
+        ${isAudioOnly ? 'hidden' : ''}`}
+      onClick={handleZoneTap}
+    >
+      {/* YouTube iframe */}
+      <iframe
+        id="yt-player"
+        src={`https://www.youtube.com/embed/` +
+          `${youtubeId}?autoplay=1&controls=0` +
+          `&modestbranding=1&rel=0&playsinline=1` +
+          `&enablejsapi=1`}
+        className={`w-full h-full border-0 ` +
+          `${sizeModeClass}`}
+        allow="autoplay; encrypted-media"
+        title={title}
+      />
+
+      {/* LOCK OVERLAY — blocks all interaction */}
+      {isLocked && (
+        <div className="absolute inset-0 z-20"
+          onClick={(e) => {
+            e.stopPropagation()
+            handleContainerTap()
+          }}>
+          {showLockHint && (
+            <div className="absolute top-1/2 
+              left-1/2 -translate-x-1/2 
+              -translate-y-1/2 bg-black/70
+              rounded-2xl px-5 py-3 flex 
+              items-center gap-2">
+              <svg width="18" height="18"
+                viewBox="0 0 24 24" fill="none"
+                stroke="white" strokeWidth="2">
+                <rect x="3" y="11" width="18"
+                  height="11" rx="2"/>
+                <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+              </svg>
+              <span className="text-white text-sm">
+                Screen Locked
+              </span>
+            </div>
+          )}
+          {/* Unlock button always visible */}
+          <button
+            onMouseDown={handleLockIconPressStart}
+            onMouseUp={handleLockIconPressEnd}
+            onTouchStart={handleLockIconPressStart}
+            onTouchEnd={handleLockIconPressEnd}
+            onClick={(e) => e.stopPropagation()}
+            className="absolute bottom-6 right-6
+              w-12 h-12 rounded-full bg-black/60
+              flex items-center justify-center
+              active:scale-90 transition-transform"
+          >
+            <svg width="20" height="20"
+              viewBox="0 0 24 24" fill="none"
+              stroke="white" strokeWidth="2">
+              <rect x="3" y="11" width="18"
+                height="11" rx="2"/>
+              <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+            </svg>
+          </button>
+        </div>
+      )}
+
+      {/* Seek feedback ripples */}
+      {seekFeedback.show && (
+        <div className={`absolute top-0 bottom-0
+          ${seekFeedback.side === 'left' 
+            ? 'left-0 w-2/5' : 'right-0 w-2/5'}
+          flex items-center justify-center
+          bg-white/5 animate-pulse`}>
+          <div className="flex items-center gap-1
+            text-white">
+            {seekFeedback.side === 'left' ? (
+              <>⏪ <span className="text-sm">10s</span></>
+            ) : (
+              <><span className="text-sm">10s</span> ⏩</>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* CONTROLS (hidden when locked) */}
+      {!isLocked && controlsVisible && (
+        <div className="absolute inset-0 z-10
+          pointer-events-none">
+          
+          {/* Top bar */}
+          <div className="absolute top-0 left-0
+            right-0 flex items-center justify-between
+            px-3 py-3 pointer-events-auto"
+            style={{ background: 
+              'linear-gradient(#000000aa, transparent)'
+            }}>
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                if (isLandscape) toggleLandscape()
+                else window.history.back()
+              }}
+              className="w-10 h-10 rounded-full
+                bg-black/40 flex items-center
+                justify-center active:opacity-70">
+              <svg width="18" height="18"
+                viewBox="0 0 24 24" fill="none"
+                stroke="white" strokeWidth="2.5">
+                <path d="M19 12H5M12 5l-7 7 7 7"/>
+              </svg>
+            </button>
+
+            <div className="flex items-center gap-2">
+              {/* Lock button */}
+              <button
+                onClick={(e) => {
+                  e.stopPropagation()
+                  setIsLocked(true)
+                }}
+                className="w-10 h-10 rounded-full
+                  bg-black/40 flex items-center
+                  justify-center active:opacity-70">
+                <svg width="16" height="16"
+                  viewBox="0 0 24 24" fill="none"
+                  stroke="white" strokeWidth="2">
+                  <rect x="3" y="11" width="18"
+                    height="11" rx="2"/>
+                  <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+                </svg>
+              </button>
+
+              {/* Size mode */}
+              <button
+                onClick={(e) => {
+                  e.stopPropagation()
+                  setShowSizeMenu(!showSizeMenu)
+                }}
+                className="w-10 h-10 rounded-full
+                  bg-black/40 flex items-center
+                  justify-center active:opacity-70">
+                <svg width="16" height="16"
+                  viewBox="0 0 24 24" fill="none"
+                  stroke="white" strokeWidth="2">
+                  <rect x="3" y="3" width="18"
+                    height="18" rx="2"/>
+                  <path d="M9 3v18M3 9h18"/>
+                </svg>
+              </button>
+
+              {/* Landscape toggle */}
+              <button
+                onClick={(e) => {
+                  e.stopPropagation()
+                  toggleLandscape()
+                }}
+                className="w-10 h-10 rounded-full
+                  bg-black/40 flex items-center
+                  justify-center active:opacity-70">
+                <svg width="16" height="16"
+                  viewBox="0 0 24 24" fill="none"
+                  stroke="white" strokeWidth="2">
+                  <rect x="2" y="6" width="20"
+                    height="12" rx="2"
+                    transform={isLandscape 
+                      ? 'rotate(90 12 12)' : ''}/>
+                </svg>
+              </button>
+            </div>
+          </div>
+
+          {/* Size mode popover */}
+          {showSizeMenu && (
+            <div className="absolute top-16 right-3
+              bg-[#141420] rounded-xl p-1.5
+              pointer-events-auto border
+              border-[#2D2D44]">
+              {(['fit','stretch','zoom'] as 
+                SizeMode[]).map(mode => (
+                <button
+                  key={mode}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    setSizeMode(mode)
+                    setShowSizeMenu(false)
+                  }}
+                  className={`block w-full text-left
+                    px-4 py-2.5 rounded-lg text-sm
+                    capitalize min-h-[40px]
+                    ${sizeMode === mode
+                      ? 'bg-[#7C3AED] text-white'
+                      : 'text-[#9CA3AF]'
+                    }`}>
+                  {mode === 'zoom' 
+                    ? 'Zoom to Fill' : mode}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* Bottom: Audio-only quick toggle */}
+          <div className="absolute bottom-3 right-3
+            pointer-events-auto">
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                handleAudioOnlyToggle()
+              }}
+              className="flex items-center gap-1.5
+                bg-black/40 rounded-full px-3 py-2
+                active:opacity-70">
+              <svg width="14" height="14"
+                viewBox="0 0 24 24" fill="none"
+                stroke="white" strokeWidth="2">
+                <path d="M9 18V5l12-2v13"/>
+                <circle cx="6" cy="18" r="3"/>
+                <circle cx="18" cy="16" r="3"/>
+              </svg>
+              <span className="text-white text-xs">
+                Audio Only
+              </span>
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🎧 AUDIO-ONLY MODE LIBRARY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+File: src/lib/audioOnlyMode.ts
+
+// Real implementation: when audio-only is on,
+// the video <iframe> stays hidden (display:none
+// is wrong since YouTube pauses hidden iframes
+// on some Android WebViews) — instead we move
+// it off-screen but keep it rendered + playing,
+// and show a "Now Playing" mini bar with screen-
+// off capability via Capacitor's Keep Awake OFF
+// (so screen CAN turn off while audio continues,
+// matching PlayIt's real behavior)
+
+import { KeepAwake } from '@capacitor-community/keep-awake'
+
+export const enableAudioOnlyMode = async (
+  movieTitle: string
+) => {
+  // Allow screen to turn off (don't keep awake)
+  try {
+    await KeepAwake.allowSleep()
+  } catch {}
+
+  // Real background audio requires the iframe to
+  // stay mounted off-screen, not removed from DOM
+  return {
+    containerStyle: {
+      position: 'fixed' as const,
+      top: '-9999px',
+      left: '-9999px',
+      width: '1px',
+      height: '1px',
+      opacity: 0,
+      pointerEvents: 'none' as const,
+    }
+  }
+}
+
+export const disableAudioOnlyMode = async () => {
+  try {
+    await KeepAwake.keepAwake()
+  } catch {}
+}
+
+NOTE for Z.ai: If @capacitor-community/keep-awake
+is not installed, install it:
+  npm install @capacitor-community/keep-awake
+This is required for real screen-off audio
+playback — without it, audio-only mode would
+just be a hidden video, not actual PlayIt-style
+background audio.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+👍👎 ACTION BAR — LIKE/DISLIKE + REAL ACTIONS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+File: src/components/watch/ActionBar.tsx
+
+'use client'
+import { useState, useEffect } from 'react'
+import { supabase } from '@/lib/supabase'
+
+interface ActionBarProps {
+  movieId: string
+  movieTitle: string
+  youtubeId: string
+  authUserId: string | null
+  isAudioOnly: boolean
+  onToggleAudioOnly: () => void
+}
+
+export default function ActionBar({
+  movieId, movieTitle, youtubeId, authUserId,
+  isAudioOnly, onToggleAudioOnly
+}: ActionBarProps) {
+  const [reaction, setReaction] = useState<
+    'like' | 'dislike' | null>(null)
+  const [isSaved, setIsSaved] = useState(false)
+  const [isLoading, setIsLoading] = useState(true)
+
+  // Load REAL current state from Supabase
+  useEffect(() => {
+    if (!authUserId) {
+      setIsLoading(false)
+      return
+    }
+
+    const loadState = async () => {
+      const [{ data: reactionData }, 
+        { data: watchlistData }] = await Promise.all([
+        supabase
+          .from('movie_reactions')
+          .select('reaction')
+          .eq('user_id', authUserId)
+          .eq('video_id', movieId)
+          .maybeSingle(),
+        supabase
+          .from('user_watchlist')
+          .select('id')
+          .eq('user_id', authUserId)
+          .eq('movie_id', movieId)
+          .maybeSingle(),
+      ])
+
+      setReaction(
+        (reactionData?.reaction as any) || null)
+      setIsSaved(!!watchlistData)
+      setIsLoading(false)
+    }
+
+    loadState()
+  }, [movieId, authUserId])
+
+  const handleReaction = async (
+    type: 'like' | 'dislike'
+  ) => {
+    if (!authUserId) return
+
+    const isRemoving = reaction === type
+    const next = isRemoving ? null : type
+
+    // Optimistic update
+    setReaction(next)
+
+    if (isRemoving) {
+      await supabase
+        .from('movie_reactions')
+        .delete()
+        .eq('user_id', authUserId)
+        .eq('video_id', movieId)
+    } else {
+      await supabase
+        .from('movie_reactions')
+        .upsert([{
+          user_id: authUserId,
+          video_id: movieId,
+          reaction: type,
+        }], { onConflict: 'user_id,video_id' })
+    }
+  }
+
+  const handleSave = async () => {
+    if (!authUserId) return
+    const next = !isSaved
+    setIsSaved(next)
+
+    if (next) {
+      await supabase.from('user_watchlist').upsert([{
+        user_id: authUserId,
+        movie_id: movieId,
+      }], { onConflict: 'user_id,movie_id' })
+    } else {
+      await supabase
+        .from('user_watchlist')
+        .delete()
+        .eq('user_id', authUserId)
+        .eq('movie_id', movieId)
+    }
+  }
+
+  const handleShare = async () => {
+    const shareUrl = 
+      `${window.location.origin}/watch/${movieId}`
+    const shareData = {
+      title: movieTitle,
+      url: shareUrl,
+    }
+    try {
+      if (navigator.share) {
+        await navigator.share(shareData)
+      } else {
+        await navigator.clipboard.writeText(shareUrl)
+      }
+    } catch {}
+  }
+
+  if (!authUserId) {
+    // Real guest state — no fake interaction
+    return (
+      <div className="px-4 py-3 bg-[#141420]
+        rounded-xl text-center">
+        <p className="text-[#9CA3AF] text-sm">
+          Sign in to like, save & react to movies
+        </p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex items-center gap-2 
+      overflow-x-auto scrollbar-hide px-1">
+      
+      {/* Like/Dislike grouped pill */}
+      <div className="flex items-center bg-[#141420]
+        rounded-full overflow-hidden flex-shrink-0
+        border border-[#2D2D44]">
+        <button
+          onClick={() => handleReaction('like')}
+          disabled={isLoading}
+          className={`flex items-center gap-1.5
+            px-4 h-11 transition-colors duration-150
+            ${reaction === 'like'
+              ? 'text-[#7C3AED]'
+              : 'text-[#9CA3AF]'
+            }`}
+          style={reaction === 'like' ? {
+            textShadow: '0 0 8px #7C3AED'
+          } : {}}
+        >
+          <svg width="18" height="18"
+            viewBox="0 0 24 24"
+            fill={reaction === 'like' 
+              ? 'currentColor' : 'none'}
+            stroke="currentColor" strokeWidth="2">
+            <path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11
+              h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0
+              0 0-2-2.3H14z"/>
+            <path d="M7 22H4a2 2 0 0 1-2-2v-7a2 2 0
+              0 1 2-2h3"/>
+          </svg>
+        </button>
+        <div className="w-px h-6 bg-[#2D2D44]"/>
+        <button
+          onClick={() => handleReaction('dislike')}
+          disabled={isLoading}
+          className={`flex items-center gap-1.5
+            px-4 h-11 transition-colors duration-150
+            ${reaction === 'dislike'
+              ? 'text-red-400'
+              : 'text-[#9CA3AF]'
+            }`}
+        >
+          <svg width="18" height="18"
+            viewBox="0 0 24 24"
+            fill={reaction === 'dislike' 
+              ? 'currentColor' : 'none'}
+            stroke="currentColor" strokeWidth="2">
+            <path d="M10 15v4a3 3 0 0 0 3 3l4-9V2
+              H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0
+              0 0 2 2.3H10z"/>
+            <path d="M17 2h3a2 2 0 0 1 2 2v7a2 2 0
+              0 1-2 2h-3"/>
+          </svg>
+        </button>
+      </div>
+
+      {/* Share */}
+      <button
+        onClick={handleShare}
+        className="flex items-center gap-1.5
+          bg-[#141420] border border-[#2D2D44]
+          rounded-full px-4 h-11 text-[#9CA3AF]
+          text-sm flex-shrink-0 active:opacity-70">
+        <svg width="16" height="16"
+          viewBox="0 0 24 24" fill="none"
+          stroke="currentColor" strokeWidth="2">
+          <circle cx="18" cy="5" r="3"/>
+          <circle cx="6" cy="12" r="3"/>
+          <circle cx="18" cy="19" r="3"/>
+          <line x1="8.59" y1="13.51" x2="15.42"
+            y2="17.49"/>
+          <line x1="15.41" y1="6.51" x2="8.59"
+            y2="10.49"/>
+        </svg>
+        Share
+      </button>
+
+      {/* Save */}
+      <button
+        onClick={handleSave}
+        className={`flex items-center gap-1.5
+          rounded-full px-4 h-11 text-sm
+          flex-shrink-0 active:opacity-70
+          border
+          ${isSaved
+            ? 'bg-[#7C3AED]/15 border-[#7C3AED]
+              text-[#A78BFA]'
+            : 'bg-[#141420] border-[#2D2D44]
+              text-[#9CA3AF]'
+          }`}>
+        <svg width="16" height="16"
+          viewBox="0 0 24 24"
+          fill={isSaved ? 'currentColor' : 'none'}
+          stroke="currentColor" strokeWidth="2">
+          <path d="M19 21l-7-5-7 5V5a2 2 0 0 1
+            2-2h10a2 2 0 0 1 2 2z"/>
+        </svg>
+        {isSaved ? 'Saved' : 'Save'}
+      </button>
+
+      {/* Download — soon badge, real disabled state */}
+      <button
+        disabled
+        className="flex items-center gap-1.5
+          bg-[#141420] border border-[#2D2D44]
+          rounded-full px-4 h-11 text-[#4B5563]
+          text-sm flex-shrink-0 relative
+          opacity-60 cursor-not-allowed">
+        <svg width="16" height="16"
+          viewBox="0 0 24 24" fill="none"
+          stroke="currentColor" strokeWidth="2">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5
+            a2 2 0 0 1-2-2v-4"/>
+          <polyline points="7 10 12 15 17 10"/>
+          <line x1="12" y1="15" x2="12" y2="3"/>
+        </svg>
+        Download
+        <span className="absolute -top-1.5 -right-1.5
+          bg-[#7C3AED] text-white text-[9px]
+          px-1.5 py-0.5 rounded-full font-medium">
+          Soon
+        </span>
+      </button>
+    </div>
+  )
+}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📡 CHANNEL ROW COMPONENT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+File: src/components/watch/ChannelRow.tsx
+
+interface ChannelRowProps {
+  channelId: string
+  channelName: string
+  channelAvatar: string | null
+  authUserId: string | null
+}
+
+export default function ChannelRow({
+  channelId, channelName, channelAvatar, authUserId
+}: ChannelRowProps) {
+  const router = useRouter()
+  const [isFollowing, setIsFollowing] = useState(false)
+
+  useEffect(() => {
+    if (!authUserId) return
+    supabase
+      .from('followed_channels')
+      .select('id')
+      .eq('user_id', authUserId)
+      .eq('channel_id', channelId)
+      .maybeSingle()
+      .then(({ data }) => setIsFollowing(!!data))
+  }, [channelId, authUserId])
+
+  const toggleFollow = async (
+    e: React.MouseEvent
+  ) => {
+    e.stopPropagation()
+    if (!authUserId) return
+    const next = !isFollowing
+    setIsFollowing(next)
+
+    if (next) {
+      await supabase.from('followed_channels')
+        .upsert([{
+          user_id: authUserId,
+          channel_id: channelId,
+        }], { onConflict: 'user_id,channel_id' })
+    } else {
+      await supabase.from('followed_channels')
+        .delete()
+        .eq('user_id', authUserId)
+        .eq('channel_id', channelId)
+    }
+  }
+
+  return (
+    <button
+      onClick={() => router.push(`/channel/${channelId}`)}
+      className="w-full flex items-center gap-3
+        py-3 active:opacity-80">
+      {channelAvatar ? (
+        <img src={channelAvatar}
+          className="w-11 h-11 rounded-full
+            object-cover flex-shrink-0"
+          alt={channelName}/>
+      ) : (
+        <div className="w-11 h-11 rounded-full
+          bg-[#7C3AED]/20 flex items-center
+          justify-center text-[#A78BFA] font-bold
+          flex-shrink-0">
+          {channelName[0]?.toUpperCase()}
+        </div>
+      )}
+      <div className="flex-1 text-left">
+        <p className="text-white text-sm font-medium">
+          {channelName}
+        </p>
+        <p className="text-green-400 text-xs flex
+          items-center gap-1">
+          🟢 Verified Creator
+        </p>
+      </div>
+      {authUserId && (
+        <span
+          onClick={toggleFollow}
+          className={`px-4 py-2 rounded-full text-xs
+            font-semibold min-h-[36px] flex
+            items-center
+            ${isFollowing
+              ? 'bg-[#1E1E2E] text-[#9CA3AF]
+                border border-[#2D2D44]'
+              : 'bg-[#7C3AED] text-white'
+            }`}>
+          {isFollowing ? 'Following' : 'Follow'}
+        </span>
+      )}
+    </button>
+  )
+}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🧠 RECOMMENDATION ENGINE (REAL, NO MOCK)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+File: src/lib/recommendationEngine.ts
+
+import { supabase } from './supabase'
+
+export interface RecommendedMovie {
+  id: string
+  title: string
+  thumbnail: string
+  channel_name: string
+  channel_id: string
+  genre?: string[]
+}
+
+export const getSuggestedMovies = async (
+  currentMovieId: string,
+  currentGenre: string[],
+  authUserId: string | null
+): Promise<RecommendedMovie[]> => {
+  
+  // ── 50% — Same genre as currently playing ──
+  let genreMatches: RecommendedMovie[] = []
+  if (currentGenre?.length) {
+    const { data } = await supabase
+      .from('movies')
+      .select('id, title, thumbnail, channel_name,
+        channel_id, genre')
+      .neq('id', currentMovieId)
+      .overlaps('genre', currentGenre)
+      .eq('is_hidden', false)
+      .limit(20)
+
+    genreMatches = shuffleArray(data || []).slice(0, 5)
+  }
+
+  // ── 50% — User's top historical genre ──
+  let historyMatches: RecommendedMovie[] = []
+
+  if (authUserId) {
+    // Real query: get user's watch history genres
+    const { data: historyRows } = await supabase
+      .from('user_history')
+      .select('movie_id, movies(genre)')
+      .eq('user_id', authUserId)
+      .order('watched_at', { ascending: false })
+      .limit(20)
+
+    const genreCounts: Record<string, number> = {}
+    for (const row of historyRows || []) {
+      const genres = (row as any).movies?.genre || []
+      for (const g of genres) {
+        genreCounts[g] = (genreCounts[g] || 0) + 1
+      }
+    }
+
+    const topGenre = Object.entries(genreCounts)
+      .sort((a, b) => b[1] - a[1])[0]?.[0]
+
+    if (topGenre) {
+      const { data } = await supabase
+        .from('movies')
+        .select('id, title, thumbnail, channel_name,
+          channel_id, genre')
+        .neq('id', currentMovieId)
+        .contains('genre', [topGenre])
+        .eq('is_hidden', false)
+        .order('like_count', { ascending: false })
+        .limit(10)
+
+      historyMatches = shuffleArray(data || [])
+        .slice(0, 5)
+    }
+  }
+
+  // ── REAL fallback for new users with no history ──
+  // Trending = most liked in last 7 days (real query,
+  // not fake "trending" data)
+  if (historyMatches.length === 0) {
+    const sevenDaysAgo = new Date(
+      Date.now() - 7 * 86400000).toISOString()
+
+    const { data: trendingReactions } = await supabase
+      .from('movie_reactions')
+      .select('video_id')
+      .eq('reaction', 'like')
+      .gte('created_at', sevenDaysAgo)
+
+    const videoIds = [...new Set(
+      (trendingReactions || []).map(r => r.video_id)
+    )]
+
+    if (videoIds.length > 0) {
+      const { data } = await supabase
+        .from('movies')
+        .select('id, title, thumbnail, channel_name,
+          channel_id, genre')
+        .in('id', videoIds)
+        .neq('id', currentMovieId)
+        .limit(10)
+
+      historyMatches = shuffleArray(data || [])
+        .slice(0, 5)
+    } else {
+      // Real fallback if even that's empty:
+      // most recently added movies (real data,
+      // not fake placeholder)
+      const { data } = await supabase
+        .from('movies')
+        .select('id, title, thumbnail, channel_name,
+          channel_id, genre')
+        .neq('id', currentMovieId)
+        .order('created_at', { ascending: false })
+        .limit(5)
+      historyMatches = data || []
+    }
+  }
+
+  // ── Merge, dedupe, shuffle ──
+  const combined = [...genreMatches, ...historyMatches]
+  const unique = Array.from(
+    new Map(combined.map(m => [m.id, m])).values()
+  )
+  return shuffleArray(unique).slice(0, 10)
+}
+
+function shuffleArray<T>(arr: T[]): T[] {
+  const a = [...arr]
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1))
+    [a[i], a[j]] = [a[j], a[i]]
+  }
+  return a
+}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📜 SUGGESTED FEED COMPONENT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+File: src/components/watch/SuggestedFeed.tsx
+
+interface SuggestedFeedProps {
+  movies: RecommendedMovie[]
+  isLoading: boolean
+}
+
+export default function SuggestedFeed({
+  movies, isLoading
+}: SuggestedFeedProps) {
+  const router = useRouter()
+
+  if (isLoading) {
+    return (
+      <div className="space-y-3">
+        {[1,2,3].map(i => (
+          <div key={i} className="flex gap-3">
+            <div className="w-32 aspect-video
+              bg-[#1A1A2E] rounded-lg
+              animate-pulse"/>
+            <div className="flex-1 space-y-2 py-1">
+              <div className="h-3 bg-[#1A1A2E]
+                rounded animate-pulse w-3/4"/>
+              <div className="h-2 bg-[#1A1A2E]
+                rounded animate-pulse w-1/2"/>
+            </div>
+          </div>
+        ))}
+      </div>
+    )
+  }
+
+  if (movies.length === 0) {
+    return (
+      <p className="text-[#6B7280] text-sm
+        text-center py-6">
+        No suggestions available yet
+      </p>
+    )
+  }
+
+  return (
+    <div className="space-y-3"
+      style={{ contentVisibility: 'auto' }}>
+      <p className="text-white font-semibold
+        text-sm mb-2">🔥 Suggested Movies</p>
+      {movies.map(movie => (
+        <button
+          key={movie.id}
+          onClick={() => 
+            router.push(`/watch/${movie.id}`)}
+          className="flex gap-3 w-full text-left
+            active:opacity-80">
+          <div className="w-32 flex-shrink-0
+            aspect-video rounded-lg overflow-hidden
+            bg-[#1A1A2E]">
+            <img src={movie.thumbnail}
+              loading="lazy"
+              className="w-full h-full object-cover"
+              alt={movie.title}/>
+          </div>
+          <div className="flex-1 min-w-0 py-0.5">
+            <p className="text-white text-sm
+              font-medium line-clamp-2">
+              {movie.title}
+            </p>
+            <p className="text-[#9CA3AF] text-xs
+              mt-1">
+              {movie.genre?.[0]} • {movie.channel_name}
+            </p>
+          </div>
+        </button>
+      ))}
+    </div>
+  )
+}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📡 MODULE 2 — CHANNEL SHOWCASE PAGE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+File: src/app/channel/[id]/page.tsx
+File: src/components/channel/ChannelHeader.tsx
+File: src/components/channel/MovieGrid.tsx
+
+Fetch REAL channel data + REAL movie list:
+
+const { data: channelInfo } = await supabase
+  .from('channel_display_with_info')
+  .select('*')
+  .eq('channel_id', params.id)
+  .single()
+
+const { data: topMovie } = await supabase
+  .from('movies')
+  .select('thumbnail')
+  .eq('channel_id', params.id)
+  .order('like_count', { ascending: false })
+  .limit(1)
+  .maybeSingle()
+
+ChannelHeader.tsx:
+  - Backdrop: topMovie.thumbnail, blurred via
+    CSS filter: blur(20px) scale(1.1) — NOT
+    backdrop-blur (different — this blurs the
+    image itself via filter, not a glass layer,
+    so it's allowed and performant)
+  - Large circular avatar overlapping backdrop
+  - Channel name + 🟢 Verified Creator badge
+  - [▶ Play Latest] → fetches most recent movie
+    from this channel, navigates to /watch/[id]
+  - [Follow/Following] → same logic as ChannelRow
+
+Genre chips (scoped to this channel only):
+  const { data: genres } = await supabase
+    .from('movies')
+    .select('genre')
+    .eq('channel_id', params.id)
+  
+  // Flatten + dedupe genre arrays client-side
+  const uniqueGenres = [...new Set(
+    (genres || []).flatMap(g => g.genre || [])
+  )]
+  
+  Render as chips: [All] + uniqueGenres
+  Clicking a chip filters the grid query:
+    .contains('genre', [selectedGenre])
+
+MovieGrid.tsx:
+  3-column grid (mobile), poster aspect ratio,
+  content-visibility: auto, queries ONLY
+  movies WHERE channel_id = params.id
+  AND is_hidden = false
+  Empty state if channel has 0 movies imported
+  (real empty state, not fake placeholder posters)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🔍 MODULE 3 — SEARCH PAGE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+File: src/app/search/page.tsx
+File: src/components/search/RecentSearches.tsx
+File: src/components/search/LiveResults.tsx
+
+RecentSearches.tsx:
+  Real query, last 5 by current user:
+  
+  const { data } = await supabase
+    .from('search_history')
+    .select('*')
+    .eq('user_id', authUserId)
+    .order('searched_at', { ascending: false })
+    .limit(5)
+
+  Delete single item (✕ button):
+    await supabase.from('search_history')
+      .delete().eq('id', historyItem.id)
+
+  Card style (solid, NOT backdrop-blur):
+    bg-[#141420] border border-[#2D2D44]
+    rounded-2xl, subtle box-shadow glow:
+    shadow-[0_0_20px_rgba(124,58,237,0.08)]
+
+LiveResults.tsx:
+  300ms debounce, real Supabase query:
+
+  useEffect(() => {
+    const timer = setTimeout(async () => {
+      if (!query.trim()) return
+      const { data } = await supabase
+        .from('movies')
+        .select('id, title, thumbnail, channel_name')
+        .or(`title.ilike.%${query}%`)
+        .eq('is_hidden', false)
+        .limit(20)
+      setResults(data || [])
+    }, 300)
+    return () => clearTimeout(timer)
+  }, [query])
+
+  On submit (Enter or selecting a result),
+  save to search_history:
+    await supabase.from('search_history').insert([{
+      user_id: authUserId,
+      query: query.trim(),
+    }])
+
+  History card slides up & fades out 
+  (200ms, max transition rule) the instant
+  query.length > 0; slides back when cleared.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📋 FINAL CHECKLIST
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+EXCLUDED FEATURES (must NOT exist anywhere):
+□ No Description block on watch page
+□ No Comment system/input/list anywhere
+□ No movie_comments table created
+
+VIDEO PLAYER:
+□ Double-tap zones are % of current width
+  (works in portrait AND landscape)
+□ Landscape toggle uses Capacitor 
+  ScreenOrientation, real fullscreen
+□ 3 size modes (Fit/Stretch/Zoom) all functional
+□ Lock screen: ALL taps blocked except 
+  long-press (1s) on unlock icon — exactly 
+  like PlayIt
+□ Lock hint shows briefly when locked screen tapped
+□ Audio-only mode: iframe stays mounted off-screen
+  (not display:none), KeepAwake.allowSleep() called
+  so screen can actually turn off
+□ Seek feedback ripple animation on double-tap
+
+ACTION BAR:
+□ Like AND Dislike both implemented (mutually
+  exclusive, grouped pill like YouTube)
+□ No counts shown anywhere (as required)
+□ Reaction state loaded from REAL Supabase query
+  on mount, not assumed/fake
+□ Guest (not logged in) sees real sign-in prompt,
+  not fake/disabled buttons pretending to work
+□ Share uses navigator.share with clipboard fallback
+□ Save toggles real user_watchlist row
+□ Download shows real disabled state + Soon badge
+
+CHANNEL ROW + PAGE:
+□ Channel row appears under title on watch page
+□ Follow button writes/deletes followed_channels
+□ Channel page backdrop uses CSS filter:blur 
+  (not backdrop-blur layer)
+□ Genre chips scoped to that channel's real genres
+□ Movie grid queries ONLY that channel's movies
+□ Real empty state if channel has 0 movies
+
+RECOMMENDATION ENGINE:
+□ 50% genre match — real query, same genre as
+  currently playing
+□ 50% history match — real query from 
+  user_history + genre counting
+□ Real Trending fallback for new users 
+  (no fake data)
+□ Real "recently added" fallback if even 
+  Trending is empty
+□ Results merged, deduped, shuffled, capped at 10
+□ Loading skeleton shown while fetching (not fake
+  content, just a real loading state)
+
+SEARCH PAGE:
+□ Recent searches: real query, last 5, 
+  per-item delete works
+□ Solid card + glow (NOT backdrop-blur)
+□ 300ms debounce on live search
+□ History slides out the instant typing starts
+□ Selecting/submitting a search saves to 
+  search_history table
+
+SQL:
+□ movie_reactions table (like/dislike, unique
+  per user+video)
+□ search_history table
+□ followed_channels table
+□ Realtime enabled on movie_reactions
+□ All RLS policies in place
+
+GENERAL:
+□ .env.local completely untouched
+□ Zero mock/fake/placeholder data anywhere —
+  every empty state is a REAL empty state
+□ All touch targets min 44px
+□ No backdrop-blur anywhere (filter:blur on
+  images is fine, backdrop-filter is not)
+□ All transitions max 200ms
+□ content-visibility: auto on all grids/lists

@@ -1,0 +1,929 @@
+You are a Senior Full-Stack Developer (20 years exp)
+building YT Music PRO v2.5 for Play Nexa, styled
+exactly like the real Google YT Music app.
+
+Stack: Next.js 14 App Router, TypeScript,
+Tailwind CSS 4, Supabase JS v2.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🔴 ABSOLUTE RULES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. NEVER modify .env.local or delete existing keys
+2. ONLY create/modify:
+   → src/app/ytmusic/page.tsx
+   → src/app/ytmusic/search/page.tsx
+   → src/components/ytmusic/MusicHub.tsx
+   → src/components/ytmusic/TrackCard.tsx
+   → src/components/ytmusic/MusicPlayerView.tsx
+   → src/components/ytmusic/MusicMiniPlayer.tsx
+   → src/components/ytmusic/PlaylistsSheet.tsx
+   → src/components/ytmusic/HistorySheet.tsx
+   → src/components/ytmusic/SoundWaves.tsx
+3. DO NOT build any local file scanning here —
+   that belongs to the separate "Local Music"
+   offline feature (already built) and the
+   separate "Local Song" community feature
+   (built in Prompt 2). This module is 100%
+   ONLINE cloud content from music_tracks table.
+4. NO backdrop-blur anywhere — solid cards with
+   border-glow instead (shadow with purple tint)
+5. ZERO mock/fake data — every list, count, and
+   state comes from a real Supabase query
+6. Min 44px touch targets, max 200ms transitions
+7. content-visibility: auto on all scrollable lists
+8. AMOLED dark theme: bg-[#0B0B1E]
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🗄️ SQL — Run in Supabase FIRST
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+-- ═══════════════════════════════════
+-- YT MUSIC PRO v2.5 — Tables
+-- ═══════════════════════════════════
+
+CREATE TABLE IF NOT EXISTS music_playlists (
+  id            UUID DEFAULT gen_random_uuid()
+                PRIMARY KEY,
+  user_id       UUID NOT NULL REFERENCES
+                auth.users(id) ON DELETE CASCADE,
+  playlist_name TEXT NOT NULL,
+  created_at    TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS playlist_tracks (
+  id            UUID DEFAULT gen_random_uuid()
+                PRIMARY KEY,
+  playlist_id   UUID NOT NULL REFERENCES
+                music_playlists(id) ON DELETE CASCADE,
+  track_id      UUID NOT NULL REFERENCES
+                music_tracks(id) ON DELETE CASCADE,
+  added_at      TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(playlist_id, track_id)
+);
+
+CREATE TABLE IF NOT EXISTS music_history (
+  id          UUID DEFAULT gen_random_uuid()
+              PRIMARY KEY,
+  user_id     UUID NOT NULL REFERENCES
+              auth.users(id) ON DELETE CASCADE,
+  track_id    UUID NOT NULL REFERENCES
+              music_tracks(id) ON DELETE CASCADE,
+  played_at   TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(user_id, track_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_music_history_user
+  ON music_history (user_id, played_at DESC);
+CREATE INDEX IF NOT EXISTS idx_playlist_tracks_pid
+  ON playlist_tracks (playlist_id);
+
+ALTER TABLE music_playlists ENABLE ROW LEVEL SECURITY;
+ALTER TABLE playlist_tracks ENABLE ROW LEVEL SECURITY;
+ALTER TABLE music_history ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "playlists_own" ON music_playlists
+  FOR ALL USING (auth.uid() = user_id);
+
+CREATE POLICY "playlist_tracks_via_playlist"
+  ON playlist_tracks FOR ALL
+  USING (playlist_id IN (
+    SELECT id FROM music_playlists
+    WHERE user_id = auth.uid()));
+
+CREATE POLICY "music_history_own" ON music_history
+  FOR ALL USING (auth.uid() = user_id);
+
+-- ═══════════════════════════════════
+-- ✅ Run this, then proceed to build
+-- ═══════════════════════════════════
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📡 MODULE 1 — TOP CONTROL BAR
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+File: src/components/ytmusic/MusicHub.tsx
+(top section)
+
+Header layout:
+┌─────────────────────────────────┐
+│ 🎵[Playlists] YT Music 🕐[Hist] │
+└─────────────────────────────────┘
+
+const [showPlaylists, setShowPlaylists] = 
+  useState(false)
+const [showHistory, setShowHistory] = useState(false)
+
+<div className="flex items-center justify-between
+  px-4 h-14">
+  <button onClick={() => setShowPlaylists(true)}
+    className="w-11 h-11 rounded-full bg-[#141420]
+      flex items-center justify-center
+      active:opacity-70">
+    <svg width="20" height="20" viewBox="0 0 24 24"
+      fill="none" stroke="white" strokeWidth="2">
+      <path d="M9 18V5l12-2v13"/>
+      <circle cx="6" cy="18" r="3"/>
+      <circle cx="18" cy="16" r="3"/>
+    </svg>
+  </button>
+  <h1 className="text-white font-bold text-lg">
+    YT Music</h1>
+  <button onClick={() => setShowHistory(true)}
+    className="w-11 h-11 rounded-full bg-[#141420]
+      flex items-center justify-center
+      active:opacity-70">
+    <svg width="20" height="20" viewBox="0 0 24 24"
+      fill="none" stroke="white" strokeWidth="2">
+      <circle cx="12" cy="12" r="10"/>
+      <polyline points="12 6 12 12 16 14"/>
+    </svg>
+  </button>
+</div>
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📁 PLAYLISTS SHEET (solid card, no blur)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+File: src/components/ytmusic/PlaylistsSheet.tsx
+
+'use client'
+import { useState, useEffect } from 'react'
+import { supabase } from '@/lib/supabase'
+
+interface PlaylistsSheetProps {
+  onClose: () => void
+  authUserId: string | null
+}
+
+export default function PlaylistsSheet({
+  onClose, authUserId
+}: PlaylistsSheetProps) {
+  const [playlists, setPlaylists] = useState<
+    Array<{ id: string; playlist_name: string;
+      trackCount: number }>>([])
+  const [likedCount, setLikedCount] = useState(0)
+  const [isLoading, setIsLoading] = useState(true)
+  const [showCreateModal, setShowCreateModal] = 
+    useState(false)
+  const [newPlaylistName, setNewPlaylistName] = 
+    useState('')
+
+  useEffect(() => {
+    if (!authUserId) {
+      setIsLoading(false)
+      return
+    }
+    loadPlaylists()
+  }, [authUserId])
+
+  const loadPlaylists = async () => {
+    setIsLoading(true)
+
+    const { count: liked } = await supabase
+      .from('music_likes')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', authUserId)
+    setLikedCount(liked || 0)
+
+    const { data: lists } = await supabase
+      .from('music_playlists')
+      .select('id, playlist_name')
+      .eq('user_id', authUserId)
+      .order('created_at', { ascending: false })
+
+    const withCounts = await Promise.all(
+      (lists || []).map(async (p) => {
+        const { count } = await supabase
+          .from('playlist_tracks')
+          .select('*', { count: 'exact', head: true })
+          .eq('playlist_id', p.id)
+        return { ...p, trackCount: count || 0 }
+      })
+    )
+
+    setPlaylists(withCounts)
+    setIsLoading(false)
+  }
+
+  const createPlaylist = async () => {
+    if (!newPlaylistName.trim() || !authUserId) return
+    await supabase.from('music_playlists').insert([{
+      user_id: authUserId,
+      playlist_name: newPlaylistName.trim(),
+    }])
+    setNewPlaylistName('')
+    setShowCreateModal(false)
+    loadPlaylists()
+  }
+
+  return (
+    <>
+      <div className="fixed inset-0 z-[55] bg-black/70"
+        onClick={onClose}/>
+      <div className="fixed bottom-0 left-0 right-0
+        z-[56] bg-[#0F0F1A] rounded-t-3xl
+        border-t border-[#2D2D44] max-h-[75vh]
+        flex flex-col">
+
+        <div className="flex items-center justify-between
+          px-5 py-4 border-b border-[#1E1E2E]
+          flex-shrink-0">
+          <h2 className="text-white font-bold text-lg">
+            Your Playlists</h2>
+          <button onClick={() => setShowCreateModal(true)}
+            className="w-9 h-9 rounded-full bg-[#7C3AED]
+              flex items-center justify-center
+              active:opacity-70">
+            <svg width="16" height="16" viewBox="0 0 24 24"
+              fill="none" stroke="white" strokeWidth="2.5">
+              <line x1="12" y1="5" x2="12" y2="19"/>
+              <line x1="5" y1="12" x2="19" y2="12"/>
+            </svg>
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-5 py-4"
+          style={{ contentVisibility: 'auto' }}>
+          {!authUserId ? (
+            <p className="text-[#9CA3AF] text-sm text-center
+              py-8">Sign in to see your playlists</p>
+          ) : isLoading ? (
+            <div className="flex justify-center py-8">
+              <div className="w-7 h-7 border-2
+                border-[#7C3AED] border-t-transparent
+                rounded-full animate-spin"/>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <button className="w-full flex items-center
+                gap-3 p-3 bg-[#141420] rounded-xl
+                active:opacity-80 min-h-[60px]">
+                <div className="w-12 h-12 rounded-lg
+                  bg-gradient-to-br from-[#7C3AED]
+                  to-[#EC4899] flex items-center
+                  justify-center flex-shrink-0">
+                  <svg width="20" height="20"
+                    viewBox="0 0 24 24" fill="white">
+                    <path d="M12 21.35l-1.45-1.32C5.4
+                      15.36 2 12.28 2 8.5 2 5.42
+                      4.42 3 7.5 3c1.74 0 3.41.81
+                      4.5 2.09C13.09 3.81 14.76 3
+                      16.5 3 19.58 3 22 5.42 22
+                      8.5c0 3.78-3.4 6.86-8.55
+                      11.54L12 21.35z"/>
+                  </svg>
+                </div>
+                <div className="text-left flex-1">
+                  <p className="text-white text-sm
+                    font-medium">Liked Songs</p>
+                  <p className="text-[#9CA3AF] text-xs">
+                    {likedCount} songs</p>
+                </div>
+              </button>
+
+              {playlists.map(p => (
+                <button key={p.id}
+                  className="w-full flex items-center
+                    gap-3 p-3 bg-[#141420] rounded-xl
+                    active:opacity-80 min-h-[60px]">
+                  <div className="w-12 h-12 rounded-lg
+                    bg-[#1E1E2E] flex items-center
+                    justify-center flex-shrink-0">
+                    <svg width="18" height="18"
+                      viewBox="0 0 24 24" fill="none"
+                      stroke="#7C3AED" strokeWidth="2">
+                      <path d="M9 18V5l12-2v13"/>
+                      <circle cx="6" cy="18" r="3"/>
+                      <circle cx="18" cy="16" r="3"/>
+                    </svg>
+                  </div>
+                  <div className="text-left flex-1">
+                    <p className="text-white text-sm
+                      font-medium">{p.playlist_name}</p>
+                    <p className="text-[#9CA3AF] text-xs">
+                      {p.trackCount} songs</p>
+                  </div>
+                </button>
+              ))}
+
+              {playlists.length === 0 && (
+                <p className="text-[#6B7280] text-sm
+                  text-center py-6">
+                  No playlists yet. Tap + to create one.
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {showCreateModal && (
+        <>
+          <div className="fixed inset-0 z-[60] bg-black/70"
+            onClick={() => setShowCreateModal(false)}/>
+          <div className="fixed bottom-0 left-0 right-0
+            z-[61] bg-[#0F0F1A] rounded-t-3xl p-6 pb-10
+            border-t border-[#2D2D44]">
+            <p className="text-white font-bold text-lg
+              mb-4">New Playlist</p>
+            <input
+              type="text"
+              value={newPlaylistName}
+              onChange={e => 
+                setNewPlaylistName(e.target.value)}
+              placeholder="Playlist name"
+              className="w-full h-12 bg-[#141420]
+                border border-[#2D2D44] rounded-xl px-4
+                text-white text-sm outline-none mb-4
+                focus:border-[#7C3AED]"
+            />
+            <button onClick={createPlaylist}
+              className="w-full h-12 bg-[#7C3AED]
+                rounded-xl text-white font-semibold
+                text-sm active:opacity-80">
+              Create
+            </button>
+          </div>
+        </>
+      )}
+    </>
+  )
+}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🕐 HISTORY SHEET
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+File: src/components/ytmusic/HistorySheet.tsx
+
+Real query, no fake data:
+
+const { data } = await supabase
+  .from('music_history')
+  .select('played_at, music_tracks(*)')
+  .eq('user_id', authUserId)
+  .order('played_at', { ascending: false })
+  .limit(30)
+
+Clear all button:
+  await supabase.from('music_history')
+    .delete().eq('user_id', authUserId)
+
+Layout: same sheet pattern as PlaylistsSheet,
+list of [thumbnail] Title / Channel • timeAgo
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🔍 MODULE 2 — SEARCH (SINGLE BAR ONLY)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+File: src/app/ytmusic/search/page.tsx
+
+This searches ONLY music_tracks (cloud content).
+It must NOT search local device files or local_songs
+— those are separate features with their own search.
+
+'use client'
+import { useState, useEffect } from 'react'
+import { supabase } from '@/lib/supabase'
+
+export default function YTMusicSearchPage() {
+  const [query, setQuery] = useState('')
+  const [results, setResults] = useState<any[]>([])
+  const [recentSearches, setRecentSearches] = 
+    useState<string[]>(() => {
+    try {
+      return JSON.parse(localStorage.getItem(
+        'pn_ytmusic_searches') || '[]')
+    } catch { return [] }
+  })
+  const [isSearching, setIsSearching] = useState(false)
+
+  useEffect(() => {
+    if (!query.trim()) {
+      setResults([])
+      return
+    }
+    setIsSearching(true)
+    const timer = setTimeout(async () => {
+      const { data } = await supabase
+        .from('music_tracks')
+        .select('*')
+        .or(`title.ilike.%${query}%,` +
+          `channel_name.ilike.%${query}%`)
+        .eq('is_hidden', false)
+        .limit(30)
+      setResults(data || [])
+      setIsSearching(false)
+    }, 300)
+    return () => clearTimeout(timer)
+  }, [query])
+
+  const saveSearch = (q: string) => {
+    const updated = [q, ...recentSearches
+      .filter(s => s !== q)].slice(0, 5)
+    setRecentSearches(updated)
+    localStorage.setItem('pn_ytmusic_searches',
+      JSON.stringify(updated))
+  }
+
+  const removeSearch = (q: string) => {
+    const updated = recentSearches.filter(s => s !== q)
+    setRecentSearches(updated)
+    localStorage.setItem('pn_ytmusic_searches',
+      JSON.stringify(updated))
+  }
+
+  const MOODS = [
+    { emoji: '😊', label: 'Happy' },
+    { emoji: '😢', label: 'Sad' },
+    { emoji: '⚡', label: 'Energy' },
+    { emoji: '🌊', label: 'Chill' },
+    { emoji: '🎉', label: 'Party' },
+    { emoji: '❤️', label: 'Romantic' },
+  ]
+
+  return (
+    <div className="min-h-screen bg-[#0B0B1E] pb-24">
+      <div className="px-4 pt-5">
+        <div className="flex items-center gap-3
+          bg-[#141420] border border-[#2D2D44]
+          rounded-xl px-4 h-12
+          focus-within:border-[#7C3AED]">
+          <svg width="18" height="18"
+            viewBox="0 0 24 24" fill="none"
+            stroke="#9CA3AF" strokeWidth="2">
+            <circle cx="11" cy="11" r="8"/>
+            <path d="m21 21-4.35-4.35"/>
+          </svg>
+          <input
+            type="text"
+            value={query}
+            onChange={e => setQuery(e.target.value)}
+            onKeyDown={e => {
+              if (e.key === 'Enter' && query.trim()) {
+                saveSearch(query.trim())
+              }
+            }}
+            placeholder="Search songs, artists..."
+            className="flex-1 bg-transparent text-white
+              text-sm outline-none placeholder-[#4B5563]"
+          />
+          {query && (
+            <button onClick={() => setQuery('')}
+              className="text-[#9CA3AF]">✕</button>
+          )}
+        </div>
+      </div>
+
+      {!query.trim() ? (
+        <div className="px-4 mt-6 space-y-6">
+          {recentSearches.length > 0 && (
+            <div>
+              <div className="flex items-center
+                justify-between mb-3">
+                <p className="text-white font-semibold
+                  text-sm">Recent Searches</p>
+                <button onClick={() => {
+                  setRecentSearches([])
+                  localStorage.removeItem(
+                    'pn_ytmusic_searches')
+                }} className="text-[#7C3AED] text-xs">
+                  Clear</button>
+              </div>
+              <div className="space-y-2">
+                {recentSearches.map(s => (
+                  <div key={s}
+                    className="flex items-center gap-3
+                      bg-[#141420] rounded-xl px-4
+                      h-11">
+                    <span className="text-sm">🕐</span>
+                    <button
+                      onClick={() => setQuery(s)}
+                      className="flex-1 text-left
+                        text-[#9CA3AF] text-sm truncate">
+                      {s}
+                    </button>
+                    <button onClick={() => removeSearch(s)}
+                      className="text-[#6B7280] text-sm
+                        w-6 h-6 flex items-center
+                        justify-center">✕</button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div>
+            <p className="text-white font-semibold
+              text-sm mb-3">Browse by Mood</p>
+            <div className="grid grid-cols-3 gap-2">
+              {MOODS.map(m => (
+                <button key={m.label}
+                  onClick={() => {
+                    setQuery(m.label)
+                    saveSearch(m.label)
+                  }}
+                  className="flex flex-col items-center
+                    gap-1.5 py-4 bg-[#141420] rounded-xl
+                    min-h-[72px]">
+                  <span className="text-2xl">{m.emoji}</span>
+                  <span className="text-[#9CA3AF] text-xs">
+                    {m.label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="px-4 mt-4 space-y-2"
+          style={{ contentVisibility: 'auto' }}>
+          {isSearching ? (
+            <div className="flex justify-center py-8">
+              <div className="w-7 h-7 border-2
+                border-[#7C3AED] border-t-transparent
+                rounded-full animate-spin"/>
+            </div>
+          ) : results.length === 0 ? (
+            <p className="text-[#6B7280] text-sm
+              text-center py-8">No results found</p>
+          ) : (
+            results.map(track => (
+              <TrackCard key={track.id} track={track}
+                variant="list"/>
+            ))
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🎧 MODULE 3 — LUXURY PLAYER VIEW
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+File: src/components/ytmusic/MusicPlayerView.tsx
+
+CRITICAL TECHNICAL NOTE: There is only ONE
+YouTube iframe. Song Mode and Video Mode do NOT
+create/destroy separate players — the SAME
+iframe is resized via CSS, so audio playback
+NEVER restarts or pauses during the switch.
+
+'use client'
+import { useState, useRef } from 'react'
+import SoundWaves from './SoundWaves'
+
+interface MusicPlayerViewProps {
+  track: { id: string; title: string;
+    channel_name: string; youtube_id: string;
+    thumbnail: string }
+  isPlaying: boolean
+  onTogglePlay: () => void
+  onClose: () => void
+  currentTime: number
+  duration: number
+  onSeek: (time: number) => void
+}
+
+export default function MusicPlayerView({
+  track, isPlaying, onTogglePlay, onClose,
+  currentTime, duration, onSeek
+}: MusicPlayerViewProps) {
+  const [mode, setMode] = useState<'song' | 'video'>(
+    'song')
+
+  const progress = duration > 0
+    ? (currentTime / duration) * 100 : 0
+
+  return (
+    <div className="fixed inset-0 z-[70]
+      bg-[#0B0B1E] flex flex-col">
+
+      {/* Top bar */}
+      <div className="flex items-center justify-between
+        px-4 h-14 flex-shrink-0">
+        <button onClick={onClose}
+          className="w-10 h-10 flex items-center
+            justify-center text-white">
+          <svg width="20" height="20"
+            viewBox="0 0 24 24" fill="none"
+            stroke="currentColor" strokeWidth="2.5">
+            <path d="M19 12H5M12 5l-7 7 7 7"/>
+          </svg>
+        </button>
+        <span className="text-[#9CA3AF] text-xs">
+          Now Playing</span>
+        <div className="w-10"/>
+      </div>
+
+      {/* Capsule toggle — your idea, kept exactly */}
+      <div className="flex justify-center mb-6">
+        <div className="flex bg-[#141420] rounded-full
+          p-1 border border-[#2D2D44]">
+          <button
+            onClick={() => setMode('song')}
+            className={`flex items-center gap-1.5
+              px-4 py-2 rounded-full text-xs
+              font-medium min-h-[36px]
+              transition-colors duration-150
+              ${mode === 'song'
+                ? 'bg-[#7C3AED] text-white'
+                : 'text-[#9CA3AF]'
+              }`}>
+            🎵 Song
+          </button>
+          <button
+            onClick={() => setMode('video')}
+            className={`flex items-center gap-1.5
+              px-4 py-2 rounded-full text-xs
+              font-medium min-h-[36px]
+              transition-colors duration-150
+              ${mode === 'video'
+                ? 'bg-[#7C3AED] text-white'
+                : 'text-[#9CA3AF]'
+              }`}>
+            📺 Video
+          </button>
+        </div>
+      </div>
+
+      {/* Player area — SAME iframe always mounted */}
+      <div className="flex-1 flex items-center
+        justify-center px-8 relative">
+
+        {/* SONG MODE: circular art + sound waves */}
+        <div className={`absolute inset-0 flex
+          flex-col items-center justify-center
+          transition-opacity duration-200
+          ${mode === 'song' 
+            ? 'opacity-100 z-10' 
+            : 'opacity-0 z-0 pointer-events-none'
+          }`}>
+          <div className="relative w-64 h-64
+            rounded-full flex items-center
+            justify-center"
+            style={{
+              boxShadow: isPlaying
+                ? '0 0 60px rgba(124,58,237,0.5)'
+                : '0 0 20px rgba(124,58,237,0.2)',
+              transition: 'box-shadow 300ms'
+            }}>
+            <SoundWaves isPlaying={isPlaying}/>
+            <img src={track.thumbnail}
+              alt={track.title}
+              className="w-48 h-48 rounded-full
+                object-cover border-4
+                border-[#0B0B1E] relative z-10"
+            />
+          </div>
+        </div>
+
+        {/* VIDEO MODE + iframe container —
+            ALWAYS rendered, just resized via CSS */}
+        <div className={
+          mode === 'video'
+            ? 'absolute inset-x-4 aspect-video z-10'
+            : 'absolute w-px h-px opacity-0 -z-10 ' +
+              'pointer-events-none overflow-hidden'
+        }>
+          <iframe
+            id="ytmusic-player"
+            src={`https://www.youtube.com/embed/` +
+              `${track.youtube_id}?autoplay=1` +
+              `&controls=0&modestbranding=1&rel=0` +
+              `&playsinline=1&enablejsapi=1`}
+            className="w-full h-full border-0 rounded-xl"
+            allow="autoplay; encrypted-media"
+            title={track.title}
+          />
+        </div>
+      </div>
+
+      {/* Track info */}
+      <div className="px-6 text-center mb-4">
+        <p className="text-white font-bold text-xl
+          truncate">{track.title}</p>
+        <p className="text-[#9CA3AF] text-sm mt-1">
+          {track.channel_name}</p>
+      </div>
+
+      {/* Progress deck */}
+      <div className="px-6 mb-2">
+        <div className="relative h-1 bg-[#2D2D44]
+          rounded-full">
+          <div className="absolute h-full
+            bg-[#7C3AED] rounded-full"
+            style={{ 
+              width: `${progress}%`,
+              boxShadow: '0 0 8px #7C3AED'
+            }}/>
+          <div className="absolute top-1/2 w-3 h-3
+            bg-white rounded-full shadow-lg
+            -translate-y-1/2"
+            style={{
+              left: `${progress}%`,
+              transform: 'translate(-50%, -50%)',
+              boxShadow: '0 0 10px #7C3AED'
+            }}/>
+          <input type="range" min={0} max={duration}
+            value={currentTime}
+            onChange={e => onSeek(Number(e.target.value))}
+            className="absolute inset-0 opacity-0
+              cursor-pointer w-full h-full"/>
+        </div>
+        <div className="flex justify-between mt-2
+          text-xs text-[#6B7280]">
+          <span>{formatTime(currentTime)}</span>
+          <span>{formatTime(duration)}</span>
+        </div>
+      </div>
+
+      {/* Controls */}
+      <div className="flex items-center justify-center
+        gap-6 px-6 pb-10">
+        <button className="text-[#9CA3AF]">
+          <svg width="20" height="20"
+            viewBox="0 0 24 24" fill="currentColor">
+            <polyline points="17 1 21 5 17 9"
+              fill="none" stroke="currentColor"
+              strokeWidth="2"/>
+            <path d="M3 11V9a4 4 0 0 1 4-4h14M7
+              23l-4-4 4-4M21 13v2a4 4 0 0 1-4 4H3"
+              fill="none" stroke="currentColor"
+              strokeWidth="2"/>
+          </svg>
+        </button>
+        <button className="text-white">
+          <svg width="26" height="26"
+            viewBox="0 0 24 24" fill="white">
+            <polygon points="19 20 9 12 19 4"/>
+            <rect x="5" y="4" width="2" height="16"/>
+          </svg>
+        </button>
+        <button onClick={onTogglePlay}
+          className="w-16 h-16 rounded-full
+            bg-[#7C3AED] flex items-center
+            justify-center active:scale-95
+            transition-transform"
+          style={{ boxShadow: 
+            '0 0 24px rgba(124,58,237,0.6)' }}>
+          {isPlaying ? (
+            <svg width="24" height="24"
+              viewBox="0 0 24 24" fill="white">
+              <rect x="6" y="4" width="4" height="16"/>
+              <rect x="14" y="4" width="4" height="16"/>
+            </svg>
+          ) : (
+            <svg width="24" height="24"
+              viewBox="0 0 24 24" fill="white">
+              <polygon points="5 3 19 12 5 21"/>
+            </svg>
+          )}
+        </button>
+        <button className="text-white">
+          <svg width="26" height="26"
+            viewBox="0 0 24 24" fill="white">
+            <polygon points="5 4 15 12 5 20"/>
+            <rect x="17" y="4" width="2" height="16"/>
+          </svg>
+        </button>
+        <button className="text-[#9CA3AF]">
+          <svg width="20" height="20"
+            viewBox="0 0 24 24" fill="none"
+            stroke="currentColor" strokeWidth="2">
+            <polyline points="17 1 21 5 17 9"/>
+            <path d="M3 11V9a4 4 0 0 1 4-4h14"/>
+            <polyline points="7 23 3 19 7 15"/>
+            <path d="M21 13v2a4 4 0 0 1-4 4H3"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function formatTime(seconds: number): string {
+  const m = Math.floor(seconds / 60)
+  const s = Math.floor(seconds % 60)
+  return `${m}:${s.toString().padStart(2, '0')}`
+}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🌊 SOUND WAVES — CSS ONLY, HONEST IMPLEMENTATION
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+File: src/components/ytmusic/SoundWaves.tsx
+
+IMPORTANT: This reflects REAL play state
+(animates when isPlaying=true, freezes when
+false). It is NOT fake "audio-reactive" frequency
+analysis — YouTube iframes don't expose that data.
+This is an honest, real CSS pulse tied to actual
+playback state.
+
+interface SoundWavesProps {
+  isPlaying: boolean
+}
+
+export default function SoundWaves({
+  isPlaying
+}: SoundWavesProps) {
+  return (
+    <div className="absolute inset-0 flex
+      items-center justify-center">
+      {[0, 1, 2].map(ring => (
+        <div key={ring}
+          className="absolute rounded-full
+            border-2 border-[#7C3AED]"
+          style={{
+            width: `${260 + ring * 30}px`,
+            height: `${260 + ring * 30}px`,
+            opacity: isPlaying ? 0.4 - ring * 0.1 : 0,
+            animation: isPlaying
+              ? `pn-wave-pulse 2s ease-out infinite`
+              : 'none',
+            animationDelay: `${ring * 0.4}s`,
+          }}
+        />
+      ))}
+      <style jsx global>{`
+        @keyframes pn-wave-pulse {
+          0% { transform: scale(0.85); opacity: 0.5; }
+          100% { transform: scale(1.15); opacity: 0; }
+        }
+      `}</style>
+    </div>
+  )
+}
+
+NOTE for Z.ai: This is the ONE exception where
+a <style> tag for keyframes is needed since
+Tailwind doesn't support dynamic animation-delay
+per-element easily. Keep this minimal and scoped
+only to this component.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🎵 MINI PLAYER (persistent, bottom)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+File: src/components/ytmusic/MusicMiniPlayer.tsx
+
+Fixed bottom, above bottom nav, z-index 45.
+Tapping anywhere opens MusicPlayerView (same
+iframe, no restart — pass currentTime state up
+to a parent context/hook that both MiniPlayer
+and full PlayerView read from).
+
+<div className="fixed bottom-16 left-0 right-0
+  z-45 bg-[#141420] border-t border-[#2D2D44]">
+  <div className="h-0.5 bg-[#2D2D44]">
+    <div className="h-full bg-[#7C3AED]"
+      style={{ width: `${progress}%` }}/>
+  </div>
+  <button onClick={onExpand}
+    className="w-full flex items-center gap-3
+      px-4 h-16 active:bg-[#1A1A2E]">
+    <img src={track.thumbnail}
+      className="w-11 h-11 rounded-lg object-cover"
+      alt={track.title}/>
+    <div className="flex-1 text-left min-w-0">
+      <p className="text-white text-sm truncate">
+        {track.title}</p>
+      <p className="text-[#9CA3AF] text-xs truncate">
+        {track.channel_name}</p>
+    </div>
+    <button onClick={(e) => {
+      e.stopPropagation(); onTogglePlay()
+    }} className="w-10 h-10 flex items-center
+      justify-center text-white">
+      {isPlaying ? '⏸' : '▶'}
+    </button>
+    <button onClick={(e) => {
+      e.stopPropagation(); onNext()
+    }} className="w-10 h-10 flex items-center
+      justify-center text-white">⏭</button>
+  </button>
+</div>
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📋 PROMPT 1 CHECKLIST
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+□ NO local file scanning here (separate feature)
+□ Single search bar — searches music_tracks only
+□ Playlists sheet: real Liked Songs count + 
+  real user playlists with track counts
+□ Create playlist works, writes to DB
+□ History sheet: real music_history query
+□ Clear history button works
+□ Song/Video toggle: SAME iframe, resized via
+  CSS — never recreated, audio never restarts
+□ Sound waves: honest play-state CSS animation,
+  not fake audio-reactive claims
+□ Progress deck: thin glowing seekbar functional
+□ Mini player persistent, expands to full view
+□ All touch targets min 44px
+□ No backdrop-blur anywhere
+□ .env.local untouched

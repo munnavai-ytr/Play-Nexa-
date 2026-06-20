@@ -4,6 +4,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
+import { isFeatureAllowed } from '@/lib/ai-vault'
 import { GoogleGenerativeAI } from '@google/generative-ai'
 
 const PLAY_NEXA_CONTEXT = `
@@ -53,6 +54,15 @@ export async function POST(req: NextRequest) {
   const token = req.cookies.get('pna_admin_token')?.value
   if (!token || token.length <= 10) {
     return NextResponse.json({ reply: '❌ Unauthorized. Please log in to admin panel.' }, { status: 401 })
+  }
+
+  // ── Vault permission check — AI Chat feature ──
+  const aiChatAllowed = await isFeatureAllowed('ai_chat')
+  if (!aiChatAllowed) {
+    return NextResponse.json(
+      { reply: '❌ AI Chat is disabled in the AI Key Vault. Enable it at /admin/key-vault → Permission Vault.' },
+      { status: 403 }
+    )
   }
 
   try {
